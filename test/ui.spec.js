@@ -367,7 +367,7 @@ test('the crew map draws every zone with its type and a legend', async ({ page }
   await expect(page.locator('#maplegend')).toContainText('Heated: check only, no melt');
   await expect(page.locator('#maplegend')).toContainText('Do not touch');
   await expect(page.locator('#mapsite')).toContainText('4-5 bags IceMelt');
-  // Tiles load here, so no outage banner (waits out the 3-error threshold window).
+  // Tiles load here, so no outage banner (gives the tile probe time to answer).
   await page.waitForTimeout(1500);
   await expect(page.locator('#mapwarn')).toBeHidden();
 });
@@ -578,6 +578,72 @@ test('Matt gets a map to draw on even before a site has zones', async ({ page })
   const w = mapWorld(); w.zones = [];
   await adminMap(page, w);
   await expect(page.locator('#mapedit')).toBeVisible();
+});
+
+test('tapping a corner that is already there does not add another', async ({ page }) => {
+  // Found in review: MapLibre fires the map click for a tap on a marker, so a
+  // tap to grab corner 2 made A,B,C,D,B -- a spike that encloses only BCD.
+  const calls = await adminMap(page, mapWorld());
+  await page.click('#mapedit');
+  await page.click('#ed_new');
+  await tapCorners(page, CORNERS);
+  await page.locator('.zone-corner').nth(1).click();
+  await expect(page.locator('.zone-corner')).toHaveCount(4);
+  await page.click('[data-ztype="sidewalk"]');
+  await page.fill('#z_name', 'Four');
+  await page.click('#z_save');
+  await expect(page.locator('#zoneform')).toBeHidden();
+  expect(lastCall(calls, 'saveZone').body.record.ring.length).toBe(4);
+});
+
+// Found in review: a save still in flight when Matt taps Done or Back was
+// stored by the server but never shown, so he would draw it again.
+async function slowZoneSaves(page) {
+  await page.route(isSnow, async (route) => {
+    const body = JSON.parse(route.request().postData() || '{}');
+    if (body.action === 'saveZone') await new Promise((r) => setTimeout(r, 1200));
+    await route.fallback();
+  });
+}
+async function drawAndSave(page) {
+  await page.click('#mapedit');
+  await page.click('#ed_new');
+  await tapCorners(page, CORNERS);
+  await page.click('[data-ztype="sidewalk"]');
+  await page.fill('#z_name', 'Slow one');
+  await page.click('#z_save');
+}
+
+test('a zone saved while Done is tapped still shows on the map', async ({ page }) => {
+  const calls = await adminMap(page, mapWorld());
+  await slowZoneSaves(page);
+  await drawAndSave(page);
+  await page.click('#ed_done');
+  await expect.poll(() => calls.filter((c) => c.body.action === 'saveZone').length).toBe(1);
+  await expect.poll(async () => (await zoneSource(page)).length, { timeout: 5000 }).toBe(4);
+});
+
+test('a zone saved while Back is tapped is there when the map is reopened', async ({ page }) => {
+  const calls = await adminMap(page, mapWorld());
+  await slowZoneSaves(page);
+  await drawAndSave(page);
+  await page.click('#mapback');
+  await expect.poll(() => calls.filter((c) => c.body.action === 'saveZone').length).toBe(1);
+  await page.waitForTimeout(1600); // the slow reply lands after Back
+  await page.click('[data-map="S1"]');
+  expect(await zoneSource(page)).toHaveLength(4);
+});
+
+test('a slow save never draws its zone onto another site opened meanwhile', async ({ page }) => {
+  const calls = await adminMap(page, mapWorld());
+  await slowZoneSaves(page);
+  await drawAndSave(page);
+  await page.click('#mapback');
+  await page.click('[data-map="S2"]'); // TUDOR-TRANSIT: no zones
+  await page.waitForFunction(() => window.SnowMapView && window.SnowMapView.getSource('zones'));
+  await expect.poll(() => calls.filter((c) => c.body.action === 'saveZone').length).toBe(1);
+  await page.waitForTimeout(1600); // the PAC zone's reply lands now
+  expect(await zoneSource(page)).toEqual([]);
 });
 
 test('leads have no edit-map button either', async ({ page }) => {

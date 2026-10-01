@@ -855,3 +855,20 @@ test('the map turns with buttons and the compass turns it back to north', async 
   await page.click('.maplibregl-ctrl-compass');
   await expect.poll(bearing).toBeCloseTo(0, 3);
 });
+
+// Matt, 10/1/26: "is rotating it gone because I saved it" -- Save view kept the
+// spot and zoom but dropped the turn. The turn is part of the view.
+test('Save view keeps the turn, and the map reopens turned', async ({ page }) => {
+  const calls = await adminMap(page, mapWorld());
+  await page.click('#mapedit');
+  await page.click('#ed_rotr');
+  await page.click('#ed_rotr'); // 30 degrees
+  await expect.poll(() => page.evaluate(() => window.SnowMapView.getBearing())).toBeCloseTo(30, 3);
+  await page.click('#ed_view');
+  await expect.poll(() => calls.filter((c) => c.body.action === 'saveSite').length).toBe(1);
+  expect(lastCall(calls, 'saveSite').body.record.map.bearing).toBeCloseTo(30, 3);
+  await page.click('#mapback');
+  await page.click('[data-map="S1"]');
+  await page.waitForFunction(() => window.SnowMapView);
+  expect(await page.evaluate(() => window.SnowMapView.getBearing())).toBeCloseTo(30, 3);
+});

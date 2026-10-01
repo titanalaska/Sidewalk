@@ -19,7 +19,7 @@ const TOKENS = { 'tok-matt': 'admin', 'tok-jordan': 'crew', 'tok-alex': 'lead' }
 // A small fake of the snow backend, with the real reply shapes.
 function fakeSnow(state, opts = {}) {
   return (body) => {
-    const v = { version: opts.version || 'maps-1' };
+    const v = { version: opts.version || 'pairings-1' };
     if (body.token === 'tok-nina') return { ok: false, code: 'not_on_roster', name: 'Nina Nursery', reason: "You're signed in, but not on the snow crew yet. Ask Matt to add you.", ...v };
     const role = TOKENS[body.token];
     if (!role) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
@@ -363,7 +363,7 @@ test('after a conflict the app reloads the latest, so the retry can save', async
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'maps-1' };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'pairings-1' };
     }
     return base(b);
   } });

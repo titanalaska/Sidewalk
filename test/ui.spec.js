@@ -19,7 +19,7 @@ const TOKENS = { 'tok-matt': 'admin', 'tok-jordan': 'crew', 'tok-alex': 'lead' }
 // A small fake of the snow backend, with the real reply shapes.
 function fakeSnow(state, opts = {}) {
   return (body) => {
-    const v = { version: opts.version || 'foundation-1' };
+    const v = { version: opts.version || 'maps-1' };
     if (body.token === 'tok-nina') return { ok: false, code: 'not_on_roster', name: 'Nina Nursery', reason: "You're signed in, but not on the snow crew yet. Ask Matt to add you.", ...v };
     const role = TOKENS[body.token];
     if (!role) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
@@ -120,7 +120,15 @@ test('an expired session goes back to sign-in and forgets the token', async ({ p
 
 test('a backend version mismatch warns', async ({ page }) => {
   await open(page, { token: 'tok-jordan', snow: fakeSnow(world(), { version: 'foundation-0' }) });
+  // Visible, not just present: the banner's text is in the page even while hidden.
+  await expect(page.locator('#verwarn')).toBeVisible();
   await expect(page.locator('#verwarn')).toContainText('Backend out of date');
+});
+
+test('a matching backend version shows no warning', async ({ page }) => {
+  await open(page, { token: 'tok-jordan', snow: fakeSnow(world()) });
+  await expect(page.locator('.route-card')).toHaveCount(1);
+  await expect(page.locator('#verwarn')).toBeHidden();
 });
 
 test('no network on load is said plainly, with a retry', async ({ page }) => {
@@ -310,7 +318,7 @@ test('after a conflict the app reloads the latest, so the retry can save', async
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'foundation-1' };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'maps-1' };
     }
     return base(b);
   } });

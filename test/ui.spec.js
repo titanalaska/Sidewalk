@@ -358,6 +358,9 @@ test('the crew map draws every zone with its type and a legend', async ({ page }
   await expect(page.locator('#maplegend')).toContainText('Heated: check only, no melt');
   await expect(page.locator('#maplegend')).toContainText('Do not touch');
   await expect(page.locator('#mapsite')).toContainText('4-5 bags IceMelt');
+  // Tiles load here, so no outage banner (waits out the 3-error threshold window).
+  await page.waitForTimeout(1500);
+  await expect(page.locator('#mapwarn')).toBeHidden();
 });
 
 test('a priority zone is starred on the map', async ({ page }) => {
@@ -388,6 +391,8 @@ test('a site with no zones says the map is not drawn yet', async ({ page }) => {
 test('if the aerial photo fails, the zones still show', async ({ page }) => {
   await openMap(page, 'tok-jordan', mapWorld(), true);
   expect((await zoneSource(page)).length).toBe(3);
+  // Visible, not just present: the banner's text is in the page even while hidden.
+  await expect(page.locator('#mapwarn')).toBeVisible();
   await expect(page.locator('#mapwarn')).toContainText('Aerial photo unavailable');
 });
 

@@ -8,10 +8,11 @@ const isInv = (u) => u.href.includes('AKfycbyudFaJ0dsSYMo');
 
 // Inventory: names and status only, like the real getProfiles (no PINs).
 const PROFILES = [
-  { id: 1, name: 'Matthew', status: 'approved' },
-  { id: 3, name: 'Jordan Demo', status: 'approved' },
-  { id: 4, name: 'Nina Nursery', status: 'approved' },
-  { id: 9, name: 'Pending Pat', status: 'pending' },
+  { id: 1, name: 'Matthew', status: 'approved', hasPin: true },
+  { id: 3, name: 'Jordan Demo', status: 'approved', hasPin: true },
+  { id: 4, name: 'Nina Nursery', status: 'approved', hasPin: true },
+  { id: 6, name: 'New Ned', status: 'approved', hasPin: false },
+  { id: 9, name: 'Pending Pat', status: 'pending', hasPin: true },
 ];
 const TOKENS = { 'tok-matt': 'admin', 'tok-jordan': 'crew', 'tok-alex': 'lead' };
 
@@ -65,11 +66,11 @@ async function open(page, { token, snow, inv, abortSnow } = {}) {
   return calls;
 }
 
-test('signed out shows the sign-in screen with approved names only', async ({ page }) => {
+test('signed out shows the sign-in screen; pending people can find their name', async ({ page }) => {
   await open(page, { snow: fakeSnow(world()) });
   await expect(page.locator('#signin')).toBeVisible();
   const names = await page.locator('#si_who option').allTextContents();
-  expect(names).toEqual(['Choose your name', 'Jordan Demo', 'Matthew', 'Nina Nursery']);
+  expect(names).toEqual(['Choose your name', 'Jordan Demo', 'Matthew', 'New Ned', 'Nina Nursery', 'Pending Pat (waiting for approval)']);
 });
 
 test('a good PIN signs in, stores the token and lands on the routes', async ({ page }) => {
@@ -168,7 +169,7 @@ test('the sign-in picker on a roster record lists approved Inventory names', asy
   await page.click('[data-open="C03"]');
   await page.click('#w_edit');
   const opts = await page.locator('#f_profile option').allTextContents();
-  expect(opts).toEqual(['No sign-in yet', 'Jordan Demo', 'Matthew', 'Nina Nursery']);
+  expect(opts).toEqual(['No sign-in yet', 'Jordan Demo', 'Matthew', 'New Ned', 'Nina Nursery']);
   expect(await page.locator('#f_profile').inputValue()).toBe('3');
 });
 
@@ -205,4 +206,112 @@ test('a refused save from a non-admin is shown, not swallowed', async ({ page })
   await open(page, { token: 'tok-jordan', snow: fakeSnow(world()) });
   const r = await page.evaluate(() => SnowApi.call('saveSite', { record: { id: 'S1', name: 'x', rev: 1 } }));
   expect(r).toMatchObject({ ok: false, code: 'forbidden' });
+});
+
+// ---------------- final review fixes ----------------
+test('editing a worker keeps a sign-in link the picker cannot show', async ({ page }) => {
+  // I1. Alex is linked to Inventory profile 2, which is not in the approved list
+  // (pending, rejected, or the list failed to load). A phone-number fix must not unlink him.
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
+  await page.click('nav [data-tab="roster"]');
+  await page.click('[data-open="C01"]');
+  await page.click('#w_edit');
+  expect(await page.locator('#f_profile').inputValue()).toBe('2');
+  await page.fill('#f_phone', '555-0111');
+  await page.click('#f_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(calls.find((c) => c.body.action === 'saveCrew').body.record.profile_id).toBe('2');
+});
+
+test('if the names cannot load, the sign-in link is left alone', async ({ page }) => {
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: () => ({ nope: true }) });
+  await page.click('nav [data-tab="roster"]');
+  await page.click('[data-open="C03"]');
+  await page.click('#w_edit');
+  await expect(page.locator('#f_profile')).toBeDisabled();
+  await page.click('#f_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(calls.find((c) => c.body.action === 'saveCrew').body.record.profile_id).toBe('3');
+});
+
+test('a double tap on Save sends one save', async ({ page }) => {
+  // I2. Apps Script takes a second or two; the second tap must not create a duplicate.
+  const calls = [];
+  const snow = fakeSnow(world());
+  await page.route(isSnow, async (route) => {
+    const body = JSON.parse(route.request().postData() || '{}');
+    calls.push(body);
+    if (body.action === 'saveSite') await new Promise((r) => setTimeout(r, 700));
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(snow(body)) });
+  });
+  await page.route(isInv, (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ profiles: PROFILES }) }));
+  await page.addInitScript(() => localStorage.setItem('titan-snow-token', 'tok-matt'));
+  await page.goto(PAGE);
+  await page.click('nav [data-tab="sites"]');
+  await page.click('[data-edit="site:"]');
+  await page.fill('#s_name', 'New Lot');
+  await page.evaluate(() => { const b = document.getElementById('s_save'); b.click(); b.click(); });
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(calls.filter((c) => c.action === 'saveSite')).toHaveLength(1);
+});
+
+test('a first sign-in with no PIN yet claims one instead of spending a try', async ({ page }) => {
+  // I3. New Ned is approved but has never set a PIN: verifyPin would count a failure.
+  const invCalls = [];
+  await open(page, { snow: fakeSnow(world()), inv: (p) => { invCalls.push(p.action);
+    if (p.action === 'getProfiles') return { profiles: PROFILES };
+    if (p.action === 'claimPin' && p.id === '6' && p.pin === '6666') return { valid: true, success: true, id: 6, name: 'New Ned', status: 'approved', token: 'tok-jordan' };
+    return { valid: false, attemptsLeft: 5 }; } });
+  await page.selectOption('#si_who', '6');
+  await expect(page.locator('#signin')).toContainText('Choose a 4-digit PIN');
+  await page.fill('#si_pin', '6666');
+  await page.click('#si_go');
+  await expect(page.locator('.route-card[data-route="R1"]')).toBeVisible();
+  expect(invCalls).not.toContain('verifyPin');
+});
+
+test('a pending person is told they are waiting, without spending a try', async ({ page }) => {
+  const invCalls = [];
+  await open(page, { snow: fakeSnow(world()), inv: (p) => { invCalls.push(p.action); return p.action === 'getProfiles' ? { profiles: PROFILES } : { valid: false, attemptsLeft: 5 }; } });
+  await page.selectOption('#si_who', '9');
+  await page.fill('#si_pin', '9999');
+  await page.click('#si_go');
+  await expect(page.locator('#si_err')).toContainText('waiting for Matt');
+  expect(invCalls).not.toContain('verifyPin');
+});
+
+test('a session that expires during a save says sign in again', async ({ page }) => {
+  // M6, raised to Important. The token died while the dialog was open.
+  await open(page, { token: 'tok-matt', snow: fakeSnow(world(), { saveReply: { ok: false, code: 'signin', reason: 'Session expired. Sign in again.' } }) });
+  await page.click('nav [data-tab="sites"]');
+  await page.click('[data-edit="site:S1"]');
+  await page.click('#s_save');
+  await expect(page.locator('#signin')).toBeVisible();
+  await expect(page.locator('#si_err')).toContainText('Sign in again');
+});
+
+test('after a conflict the app reloads the latest, so the retry can save', async ({ page }) => {
+  // M7, raised to Important. Someone else saved S1 (now rev 2). Our first save
+  // conflicts; the retry must carry rev 2 and show their change.
+  const state = world();
+  let first = true;
+  const base = fakeSnow(state);
+  const calls = await open(page, { token: 'tok-matt', snow: (b) => {
+    if (b.action === 'saveSite' && first) {
+      first = false;
+      state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'foundation-1' };
+    }
+    return base(b);
+  } });
+  await page.click('nav [data-tab="sites"]');
+  await page.click('[data-edit="site:S1"]');
+  await page.click('#s_save');
+  await expect(page.locator('#s_err')).toContainText('Someone changed this');
+  await page.keyboard.press('Escape');
+  await page.click('[data-edit="site:S1"]');
+  await expect(page.locator('#s_notes')).toHaveValue('theirs');
+  await page.click('#s_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(calls.filter((c) => c.body.action === 'saveSite').at(-1).body.record.rev).toBe(2);
 });

@@ -802,3 +802,56 @@ test('the photo switch flips between the city photo and Esri', async ({ page }) 
   expect(await moa()).toBe('visible');
   expect(await zoneSource(page)).toHaveLength(3); // the zones never move
 });
+
+// Matt, 10/1/26, first real trace: "I'm trying to move the map. It places a dot.
+// I can't delete them. And I'm trying to spin the map."
+test('in Move map mode a tap adds no corner; switching back adds again', async ({ page }) => {
+  await adminMap(page, mapWorld());
+  await page.click('#mapedit');
+  await page.click('#ed_new');
+  await tapCorners(page, CORNERS.slice(0, 2));
+  await expect(page.locator('#z_mode')).toContainText('Adding corners');
+  await page.click('#z_mode');
+  await expect(page.locator('#z_mode')).toContainText('Moving map');
+  await tapCorners(page, CORNERS.slice(2, 3));
+  await expect(page.locator('.zone-corner')).toHaveCount(2);
+  await page.click('#z_mode');
+  await tapCorners(page, CORNERS.slice(2, 3));
+  await expect(page.locator('.zone-corner')).toHaveCount(3);
+});
+
+test('a tapped corner can be deleted, and Undo brings it back', async ({ page }) => {
+  const calls = await adminMap(page, mapWorld());
+  await page.click('#mapedit');
+  await page.click('#ed_new');
+  const want = await tapCorners(page, CORNERS);
+  await expect(page.locator('#z_delcorner')).toBeDisabled(); // nothing chosen yet
+  await page.locator('.zone-corner').nth(1).click();
+  await expect(page.locator('.zone-corner.sel')).toHaveCount(1);
+  await page.click('#z_delcorner');
+  await expect(page.locator('.zone-corner')).toHaveCount(3);
+  await page.click('#z_undo');
+  await expect(page.locator('.zone-corner')).toHaveCount(4);
+  await page.locator('.zone-corner').nth(1).click();
+  await page.click('#z_delcorner');
+  await page.click('[data-ztype="sidewalk"]');
+  await page.fill('#z_name', 'Three left');
+  await page.click('#z_save');
+  await expect(page.locator('#zoneform')).toBeHidden();
+  const ring = lastCall(calls, 'saveZone').body.record.ring;
+  expect(ring.length).toBe(3);
+  [want[0], want[2], want[3]].forEach((w, i) => { expect(Math.abs(ring[i][0] - w[0])).toBeLessThan(1e-6); expect(Math.abs(ring[i][1] - w[1])).toBeLessThan(1e-6); });
+});
+
+test('the map turns with buttons and the compass turns it back to north', async ({ page }) => {
+  await adminMap(page, mapWorld());
+  await page.click('#mapedit');
+  const bearing = () => page.evaluate(() => window.SnowMapView.getBearing());
+  await page.click('#ed_rotr');
+  await expect.poll(bearing).toBeCloseTo(15, 3);
+  await page.click('#ed_rotl');
+  await page.click('#ed_rotl');
+  await expect.poll(bearing).toBeCloseTo(-15, 3);
+  await page.click('.maplibregl-ctrl-compass');
+  await expect.poll(bearing).toBeCloseTo(0, 3);
+});

@@ -30,18 +30,18 @@ test('the shell is cached, Apps Script never is, and other apps\' caches survive
   await page.route((u) => u.href.includes('script.google.com'), (route) =>
     route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: false, code: 'signin', reason: 'Sign in', version: 'maps-1' }) }));
   await page.goto('http://localhost:' + PORT + '/index.html');
-  await page.evaluate(async () => { await caches.open('wolf-beds-v2'); await caches.open('groundwork-shell-v34'); await caches.open('titan-snow-shell-2'); await caches.open('titan-snow-shell-3'); await caches.open('titan-snow-shell-4'); await caches.open('titan-snow-shell-5'); await caches.open('titan-snow-shell-6'); await caches.open('titan-snow-shell-7'); });
+  await page.evaluate(async () => { await caches.open('wolf-beds-v2'); await caches.open('groundwork-shell-v34'); await caches.open('titan-snow-shell-2'); await caches.open('titan-snow-shell-3'); await caches.open('titan-snow-shell-4'); await caches.open('titan-snow-shell-5'); await caches.open('titan-snow-shell-6'); await caches.open('titan-snow-shell-7'); await caches.open('titan-snow-shell-8'); });
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.reload();
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.waitForTimeout(500);
   const state = await page.evaluate(async () => {
     const names = await caches.keys();
-    const shell = await caches.open('titan-snow-shell-8');
+    const shell = await caches.open('titan-snow-shell-9');
     const urls = (await shell.keys()).map((r) => r.url);
     return { names, urls };
   });
-  expect(state.names).toContain('titan-snow-shell-8');
+  expect(state.names).toContain('titan-snow-shell-9');
   expect(state.names).toContain('wolf-beds-v2');
   expect(state.names).toContain('groundwork-shell-v34');
   expect(state.names).not.toContain('titan-snow-shell-2');          // its own old versions are cleaned up
@@ -50,6 +50,7 @@ test('the shell is cached, Apps Script never is, and other apps\' caches survive
   expect(state.names).not.toContain('titan-snow-shell-5');
   expect(state.names).not.toContain('titan-snow-shell-6');
   expect(state.names).not.toContain('titan-snow-shell-7');
+  expect(state.names).not.toContain('titan-snow-shell-8');
   // The map pieces are in the shell, so a map opens with no signal (zones only, no photo).
   for (const f of ['/vendor/maplibre-gl.js', '/vendor/maplibre-gl.css', '/lib/geo.js', '/lib/mapview.js', '/lib/mapedit.js',
     '/manifest.json', '/icon-192.png', '/icon-512.png', '/icon-maskable-512.png']) {

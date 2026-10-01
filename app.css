@@ -143,3 +143,10 @@ body.has-ref.ref-min #mapbox{height:62vh}
   body.has-ref main{margin-right:40vw}
 }
 .photoswitch{position:absolute;right:8px;top:8px;z-index:2;min-height:36px;padding:4px 10px;font-size:13px;background:rgba(255,255,255,.92);color:#1d1d1b;border:1px solid #ccc}
+/* editor bar on the map: turn buttons; while drawing, Move/Add and Delete corner */
+.edfloat{position:absolute;left:8px;bottom:8px;z-index:2;display:flex;gap:6px;flex-wrap:wrap;align-items:center;max-width:calc(100% - 60px)}
+.edfloat button{min-height:40px;padding:4px 12px;font-size:14px;background:rgba(255,255,255,.94);color:#1d1d1b;border:1px solid #bbb}
+#ed_drawctl{display:flex;gap:6px;flex-wrap:wrap}
+#z_mode.on{background:#1f5fa8;color:#fff;border-color:#1f5fa8}
+#z_delcorner:disabled{opacity:.5}
+.zone-corner.sel{background:#d62828;border-color:#fff;width:22px;height:22px}

@@ -43,7 +43,9 @@ function fakeSnow(state, opts = {}) {
       const tab = { saveCrew: 'crew', saveSite: 'sites', saveRoute: 'routes', saveZone: 'zones' }[body.action];
       state[tab] = state[tab] || [];
       const rec = { ...body.record, rev: (body.record.rev || 0) + 1 };
-      if (!rec.id) rec.id = tab === 'crew' ? 'C99' : 'X99';
+      // A fresh id per new record, as the real backend does (one fixed id let a
+      // second new zone overwrite the first and hid nothing until the import test).
+      if (!rec.id) rec.id = (tab === 'crew' ? 'C' : 'X') + (90 + (state._made = (state._made || 0) + 1));
       state[tab] = state[tab].filter((x) => x.id !== rec.id).concat([rec]);
       return { ok: true, record: rec, ...v };
     }
@@ -871,4 +873,92 @@ test('Save view keeps the turn, and the map reopens turned', async ({ page }) =>
   await page.click('[data-map="S1"]');
   await page.waitForFunction(() => window.SnowMapView);
   expect(await page.evaluate(() => window.SnowMapView.getBearing())).toBeCloseTo(30, 3);
+});
+
+// Matt, 10/1/26: drew all the way round PAC tapping New zone between walks,
+// thinking each was banked. Every New zone silently threw the last one away.
+test('New zone never throws away a zone in progress', async ({ page }) => {
+  await adminMap(page, mapWorld());
+  await page.click('#mapedit');
+  await page.click('#ed_new');
+  await tapCorners(page, CORNERS.slice(0, 3));
+  await page.click('#ed_new');
+  await expect(page.locator('.zone-corner')).toHaveCount(3);
+  await expect(page.locator('#toast')).toContainText('Save or Cancel this zone first');
+});
+
+test('Done never throws away a zone in progress', async ({ page }) => {
+  await adminMap(page, mapWorld());
+  await page.click('#mapedit');
+  await page.click('#ed_new');
+  await tapCorners(page, CORNERS.slice(0, 3));
+  await page.click('#ed_done');
+  await expect(page.locator('.zone-corner')).toHaveCount(3);
+  await expect(page.locator('#zoneform')).toBeVisible();
+  await expect(page.locator('#toast')).toContainText('Save or Cancel this zone first');
+});
+
+// ---------- import from Bootprint (Matt, 10/1/26: trace in Bootprint, bring it here) ----------
+const mPin = (x, y) => ({ lat: PAC[1] + y / RE / DEGR, lng: PAC[0] + x / (RE * Math.cos(PAC[1] * DEGR)) / DEGR, accuracy: 0 });
+const bpRect = (x, y) => [mPin(x, y), mPin(x + 10, y), mPin(x + 10, y + 5), mPin(x, y + 5)];
+const bpExport = () => Buffer.from(JSON.stringify({
+  schema: 'bootprint-library-export', version: 1, exportedAt: '2026-10-01T18:00:00Z',
+  jobs: [
+    { id: 'FARJOB', name: 'FAR-SECRET-JOB', zones: [{ id: 1, name: 'Far walk', mode: 'area', surface: 'walk', pins: bpRect(0, 20000), widthFt: '' }] },
+    { id: 'NEAR', name: 'Near PAC', zones: [
+      { id: 1, name: 'West walk', mode: 'area', surface: 'walk', pins: bpRect(-80, -20), widthFt: '' },
+      { id: 2, name: 'Lot', mode: 'area', surface: 'plow', pins: bpRect(-80, -60), widthFt: '' },
+      { id: 3, name: 'Back run', mode: 'line', surface: 'walk', pins: [mPin(-80, -30), mPin(-50, -30)], widthFt: '6' },
+    ] },
+  ],
+  prefs: { snowTerms: 'PREF-SECRET' },
+}));
+async function importFile(page, buf) {
+  await page.setInputFiles('#ed_bpfile', { name: 'bootprint-library-2026-10-01.json', mimeType: 'application/json', buffer: buf });
+}
+
+test('a Bootprint job imports its walks as sidewalk zones, and nothing else leaves the laptop', async ({ page }) => {
+  const calls = await adminMap(page, mapWorld());
+  await page.click('#mapedit');
+  await importFile(page, bpExport());
+  await expect(page.locator('#bp_jobs [data-bpjob]').first()).toContainText('Near PAC'); // nearest the site first
+  await page.locator('#bp_jobs [data-bpjob]').first().click();
+  await expect(page.locator('#bp_sum')).toContainText('2 walks to add');
+  await expect(page.locator('#bp_sum')).toContainText('1 lot');
+  await page.click('#bp_add');
+  await expect.poll(() => calls.filter((c) => c.body.action === 'saveZone').length).toBe(2);
+  const recs = calls.filter((c) => c.body.action === 'saveZone').map((c) => c.body.record);
+  expect(recs.map((r) => [r.name, r.type, r.site_id, r.from])).toEqual([
+    ['West walk', 'sidewalk', 'S1', 'bootprint:NEAR:1'], ['Back run', 'sidewalk', 'S1', 'bootprint:NEAR:3']]);
+  expect(recs[1].ring.length).toBe(4); // the run came across as a strip
+  await expect.poll(async () => (await zoneSource(page)).length).toBe(5);
+  await expect(page.locator('#toast')).toContainText('Added 2');
+  for (const c of calls) {
+    const s = JSON.stringify(c.body);
+    expect(s).not.toContain('FAR-SECRET-JOB');
+    expect(s).not.toContain('PREF-SECRET');
+    expect(s).not.toContain('bootprint-library-2026');
+  }
+});
+
+test('importing the same Bootprint job twice adds nothing the second time', async ({ page }) => {
+  const calls = await adminMap(page, mapWorld());
+  await page.click('#mapedit');
+  await importFile(page, bpExport());
+  await page.locator('#bp_jobs [data-bpjob]').first().click();
+  await page.click('#bp_add');
+  await expect.poll(() => calls.filter((c) => c.body.action === 'saveZone').length).toBe(2);
+  await importFile(page, bpExport());
+  await page.locator('#bp_jobs [data-bpjob]').first().click();
+  await expect(page.locator('#bp_sum')).toContainText('0 walks to add');
+  await expect(page.locator('#bp_sum')).toContainText('2 already imported');
+  await expect(page.locator('#bp_add')).toBeDisabled();
+});
+
+test('a file that is not a Bootprint export is refused with a reason', async ({ page }) => {
+  await adminMap(page, mapWorld());
+  await page.click('#mapedit');
+  await importFile(page, Buffer.from('{"hello": 1}'));
+  await expect(page.locator('#toast')).toContainText('not a Bootprint export');
+  await expect(page.locator('#bp_jobs')).toHaveCount(0);
 });

@@ -784,3 +784,21 @@ test('a refused Save view says so, even while a zone is being drawn', async ({ p
   await expect(page.locator('#toast')).toBeVisible();
   await expect(page.locator('#toast')).toContainText('Test refusal: not saved');
 });
+
+// Matt, 10/1/26, tracing PAC: tall buildings lean over the walks in the city's
+// photo. A different flight leans differently, so one tap flips the photo.
+test('the photo switch flips between the city photo and Esri', async ({ page }) => {
+  await openMap(page, 'tok-jordan', mapWorld()); // crew get it too: the lean hides walks from them as well
+  await zoneSource(page);
+  const moa = () => page.evaluate(() => window.SnowMapView.getLayoutProperty('moa', 'visibility') || 'visible');
+  await expect(page.locator('#photoswitch')).toContainText('City 2024');
+  expect(await moa()).toBe('visible');
+  await page.click('#photoswitch');
+  await expect(page.locator('#photoswitch')).toContainText('Esri');
+  expect(await moa()).toBe('none');
+  expect(await page.evaluate(() => window.SnowMapView.getLayoutProperty('esri', 'visibility') || 'visible')).toBe('visible');
+  await page.click('#photoswitch');
+  await expect(page.locator('#photoswitch')).toContainText('City 2024');
+  expect(await moa()).toBe('visible');
+  expect(await zoneSource(page)).toHaveLength(3); // the zones never move
+});

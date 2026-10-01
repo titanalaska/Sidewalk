@@ -53,7 +53,7 @@ function fakeSnow(state, opts = {}) {
       const board = B.boardFrom(state.moves, live, byId);
       const people = Object.fromEntries(state.crew.filter((c) => !c.archived).map((c) => {
         const w = H.shiftsWorked(state.callouts, c.id);
-        return [c.id, { name: c.name, phone: c.phone || null, photo_thumb: null, shifts: { night: w.night, day: w.day } }];
+        return [c.id, { name: c.name, phone: c.phone || null, shifts: { night: w.night, day: w.day } }];
       }));
       const rec = { id: 'P' + (state.posts.length + 1), rev: 1, shift: body.shift, posted_at: new Date().toISOString(), people,
         routes: live.map((r) => ({ id: r.id, name: r.name, sites: (r.site_ids || []).map((id) => ({ id, name: (state.sites.find((s) => s.id === id) || {}).name })),
@@ -1177,8 +1177,8 @@ test('Callout saves the board for the chosen shift', async ({ page }) => {
 const POST = { id: 'P1', rev: 1, shift: 'night-2026-10-01', posted_at: '2026-10-02T00:12:00.000Z',
   routes: [{ id: 'R2', name: 'N2', sites: [{ id: 'S2', name: 'TUDOR-TRANSIT' }], lead: 'C01', members: [] },
            { id: 'R1', name: 'N1', sites: [{ id: 'S1', name: 'PAC' }], lead: 'C01', members: ['C03'] }],
-  people: { C01: { name: 'Alex Test', phone: '555-0101', photo_thumb: null, shifts: { night: 3, day: 1 } },
-            C03: { name: 'Jordan Demo', phone: '555-0103', photo_thumb: null, shifts: { night: 2, day: 0 } } } };
+  people: { C01: { name: 'Alex Test', phone: '555-0101', shifts: { night: 3, day: 1 } },
+            C03: { name: 'Jordan Demo', phone: '555-0103', shifts: { night: 2, day: 0 } } } };
 
 test('crew see their own route first, partners and sites', async ({ page }) => {
   const w = world(); w.posts = [POST];
@@ -1261,4 +1261,26 @@ test('issued gear clears the cold-gear warning on the board', async ({ page }) =
   await page.click('nav [data-tab="board"]');
   await expect(page.locator('[data-route="R1"]')).toBeVisible();
   await expect(page.locator('[data-route="R1"] .warns li[data-rule="gear"]')).toHaveCount(0);
+});
+
+// Review 10/1/26: Android keeps the app in memory. Opened at 4 PM, switched
+// back to at 8 PM after Matt posted: Tonight must show the post, not "Not
+// posted yet", without the crew knowing to tap the tab again.
+test('Tonight picks up a new post when the app comes back on screen', async ({ page }) => {
+  const w = world();
+  await open(page, { token: 'tok-jordan', snow: fakeSnow(w), clockAt: '2026-10-01T18:00:00-08:00' });
+  await expect(page.locator('main')).toContainText('Not posted yet for this shift');
+  w.posts.push(POST);
+  await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+  await expect(page.locator('.tonight-route')).toHaveCount(2);
+  await expect(page.locator('main')).not.toContainText('Not posted yet');
+});
+
+test('Tonight has a Refresh button that fetches the newest post', async ({ page }) => {
+  const w = world();
+  await open(page, { token: 'tok-jordan', snow: fakeSnow(w), clockAt: '2026-10-01T18:00:00-08:00' });
+  await expect(page.locator('#refreshPost')).toBeVisible();
+  w.posts.push(POST);
+  await page.click('#refreshPost');
+  await expect(page.locator('.tonight-route')).toHaveCount(2);
 });

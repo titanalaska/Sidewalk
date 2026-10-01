@@ -56,7 +56,7 @@ Four new tabs in the Snow App Sheet, the same record shape as every other tab
 | **Moves** | place / move / make lead / unassign: `{at, worker, to_route, role}` | **Append-only.** Never edited or archived. The board is `boardFrom(moves, routes, crew)` |
 | **Callouts** | shift, id `night-YYYY-MM-DD` or `day-YYYY-MM-DD`: `{shift, date, started_at, note, roster, no_shows}` | Upsert with the existing rev/conflict rule. `roster` is a **copy** of the board at that moment |
 | **Gear** | event: `{date, shift, at, worker, type, item, route, site, note}` (`date` is the calendar date, kept for ordering), type in broken / left_on_site / issued / returned | **Append-only** |
-| **Posts** | post: `{posted_at, shift, routes: [{id, name, sites: [{id, name}], lead, members}], people: {id: {name, phone, photo_thumb, shifts: {night, day}}}}`. `people` is every active crew member, placed or not, so shifts worked shows for everyone | **Append-only.** The newest row is what crew see |
+| **Posts** | post: `{posted_at, shift, routes: [{id, name, sites: [{id, name}], lead, members}], people: {id: {name, phone, shifts: {night, day}}}}`. No photo in the post (review 10/1/26): crew phones already get photos in bootstrap, and seven 160 px photos fill a 50,000-character Sheet cell. `people` is every active crew member, placed or not, so shifts worked shows for everyone | **Append-only.** The newest row is what crew see |
 
 - **Crew (roster) gains** `rides_with`, `gear` (own / needs_issued / null),
   `works_well_with`, `keep_apart_from`, `seasons`. All private: none join

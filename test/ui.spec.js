@@ -120,12 +120,14 @@ test('signed out shows the sign-in screen; pending people can find their name', 
   expect(names).toEqual(['Choose your name', 'Jordan Demo', 'Matthew', 'New Ned', 'Nina Nursery', 'Pending Pat (waiting for approval)']);
 });
 
-test('a good PIN signs in, stores the token and lands on the routes', async ({ page }) => {
+test('a good PIN signs in, stores the token and lands on Tonight', async ({ page }) => {
   const calls = await open(page, { snow: fakeSnow(world()),
     inv: (p) => p.action === 'getProfiles' ? { profiles: PROFILES } : p.action === 'verifyPin' && p.id === '3' && p.pin === '3333' ? { valid: true, success: true, id: 3, name: 'Jordan Demo', status: 'approved', token: 'tok-jordan' } : { valid: false, attemptsLeft: 4 } });
   await page.selectOption('#si_who', '3');
   await page.fill('#si_pin', '3333');
   await page.click('#si_go');
+  await expect(page.locator('nav [data-tab="tonight"][aria-current="page"]')).toBeVisible(); // crew land on Tonight (pairings, 10/1/26)
+  await page.click('nav [data-tab="routes"]');
   await expect(page.locator('.route-card[data-route="R1"]')).toContainText('PAC');
   expect(await page.evaluate(() => localStorage.getItem('titan-snow-token'))).toBe('tok-jordan');
   const boot = calls.find((c) => c.body.action === 'bootstrap');
@@ -164,6 +166,8 @@ test('a backend version mismatch warns', async ({ page }) => {
 
 test('a matching backend version shows no warning', async ({ page }) => {
   await open(page, { token: 'tok-jordan', snow: fakeSnow(world()) });
+  await expect(page.locator('nav [data-tab="tonight"][aria-current="page"]')).toBeVisible(); // crew land on Tonight (pairings, 10/1/26)
+  await page.click('nav [data-tab="routes"]');
   await expect(page.locator('.route-card')).toHaveCount(1);
   await expect(page.locator('#verwarn')).toBeHidden();
 });
@@ -176,6 +180,8 @@ test('no network on load is said plainly, with a retry', async ({ page }) => {
 
 test('crew see routes and sites but no roster or edit buttons', async ({ page }) => {
   await open(page, { token: 'tok-jordan', snow: fakeSnow(world()) });
+  await expect(page.locator('nav [data-tab="tonight"][aria-current="page"]')).toBeVisible(); // crew land on Tonight (pairings, 10/1/26)
+  await page.click('nav [data-tab="routes"]');
   await expect(page.locator('.route-card[data-route="R1"]')).toBeVisible();
   await expect(page.locator('nav [data-tab="roster"]')).toHaveCount(0);
   await expect(page.locator('[data-edit]')).toHaveCount(0);
@@ -321,6 +327,8 @@ test('a first sign-in with no PIN yet claims one instead of spending a try', asy
   await expect(page.locator('#signin')).toContainText('Choose a 4-digit PIN');
   await page.fill('#si_pin', '6666');
   await page.click('#si_go');
+  await expect(page.locator('nav [data-tab="tonight"][aria-current="page"]')).toBeVisible(); // crew land on Tonight (pairings, 10/1/26)
+  await page.click('nav [data-tab="routes"]');
   await expect(page.locator('.route-card[data-route="R1"]')).toBeVisible();
   expect(invCalls).not.toContain('verifyPin');
 });
@@ -1164,4 +1172,53 @@ test('Callout saves the board for the chosen shift', async ({ page }) => {
   await page.click('[data-shift="night-2026-10-01"]');
   await expect.poll(() => calls.filter((c) => c.body.action === 'saveCallout').length).toBe(1);
   expect(calls.filter((c) => c.body.action === 'saveCallout')[0].body.record).toMatchObject({ shift: 'night-2026-10-01', roster: { R1: { lead: 'C01', members: [] } }, rev: 0 });
+});
+
+const POST = { id: 'P1', rev: 1, shift: 'night-2026-10-01', posted_at: '2026-10-02T00:12:00.000Z',
+  routes: [{ id: 'R2', name: 'N2', sites: [{ id: 'S2', name: 'TUDOR-TRANSIT' }], lead: 'C01', members: [] },
+           { id: 'R1', name: 'N1', sites: [{ id: 'S1', name: 'PAC' }], lead: 'C01', members: ['C03'] }],
+  people: { C01: { name: 'Alex Test', phone: '555-0101', photo_thumb: null, shifts: { night: 3, day: 1 } },
+            C03: { name: 'Jordan Demo', phone: '555-0103', photo_thumb: null, shifts: { night: 2, day: 0 } } } };
+
+test('crew see their own route first, partners and sites', async ({ page }) => {
+  const w = world(); w.posts = [POST];
+  await open(page, { token: 'tok-jordan', snow: fakeSnow(w), clockAt: '2026-10-01T18:00:00-08:00' });
+  await expect(page.locator('.tonight-route').first()).toContainText('N1');
+  await expect(page.locator('.tonight-route').first()).toContainText('Alex Test');
+  await expect(page.locator('.tonight-route').first().locator('[data-map="S1"]')).toBeVisible();
+  await expect(page.locator('.tonight-route').first().locator('a[href="tel:555-0101"]')).toHaveCount(1);
+  await expect(page.locator('#tonight-head')).toContainText('Night of 10/1');
+});
+
+test('a crew member not on the post is told so and sees the whole board', async ({ page }) => {
+  const w = world(); w.posts = [{ ...POST, routes: POST.routes.map((r) => ({ ...r, members: [] })) }];
+  await open(page, { token: 'tok-jordan', snow: fakeSnow(w), clockAt: '2026-10-01T18:00:00-08:00' });
+  await expect(page.locator('main')).toContainText("You're not on a route this shift");
+  await expect(page.locator('.tonight-route')).toHaveCount(2);
+});
+
+test('a stale post shows no old routes', async ({ page }) => {
+  const w = world(); w.posts = [POST];
+  await open(page, { token: 'tok-jordan', snow: fakeSnow(w), clockAt: '2026-10-02T10:00:00-08:00' });
+  await expect(page.locator('main')).toContainText('Not posted yet for this shift');
+  await expect(page.locator('.tonight-route')).toHaveCount(0);
+});
+
+test('a morning post for tonight is shown, not stale', async ({ page }) => {
+  const w = world(); w.posts = [POST];
+  await open(page, { token: 'tok-jordan', snow: fakeSnow(w), clockAt: '2026-10-01T08:00:00-08:00' });
+  await expect(page.locator('.tonight-route')).toHaveCount(2);
+});
+
+test('shifts worked show for everyone, night and day', async ({ page }) => {
+  const w = world(); w.posts = [POST];
+  await open(page, { token: 'tok-jordan', snow: fakeSnow(w), clockAt: '2026-10-01T18:00:00-08:00' });
+  await expect(page.locator('#shifts-worked')).toContainText('Alex Test');
+  await expect(page.locator('#shifts-worked')).toContainText('3 nights · 1 day');
+  await expect(page.locator('#shifts-worked')).toContainText('2 nights · 0 days');
+});
+
+test('nothing posted yet is said plainly', async ({ page }) => {
+  await open(page, { token: 'tok-jordan', snow: fakeSnow(world()), clockAt: '2026-10-01T18:00:00-08:00' });
+  await expect(page.locator('main')).toContainText('Not posted yet for this shift');
 });

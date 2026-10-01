@@ -24,9 +24,42 @@ function fakeSnow(state, opts = {}) {
     const role = TOKENS[body.token];
     if (!role) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     const me = { name: role === 'admin' ? 'Matthew' : 'Jordan Demo', role, crew_id: role === 'admin' ? null : 'C03' };
+    state.moves = state.moves || []; state.callouts = state.callouts || []; state.gear = state.gear || []; state.posts = state.posts || [];
     if (body.action === 'bootstrap') {
       const crew = role === 'admin' ? state.crew : state.crew.map((c) => ({ id: c.id, name: c.name, phone: c.phone, photo_thumb: c.photo_thumb || null, is_lead: !!c.is_lead }));
-      return { ok: true, me, sites: state.sites, routes: state.routes, zones: state.zones || [], crew, ...v };
+      const out = { ok: true, me, sites: state.sites, routes: state.routes, zones: state.zones || [], crew, post: state.posts.at(-1) || null, ...v };
+      if (role === 'admin') Object.assign(out, { moves: state.moves, callouts: state.callouts, gear: state.gear });
+      return out;
+    }
+    // Pairings: the real backend's shapes (snow-app-script test/pairing.test.js).
+    if (['getBoard', 'addMove', 'addGear', 'saveCallout', 'post'].includes(body.action) && role !== 'admin') return { ok: false, code: 'forbidden', reason: 'Only Matt can do that.', ...v };
+    if (body.action === 'getPost') return { ok: true, post: state.posts.at(-1) || null, ...v };
+    if (body.action === 'getBoard') return { ok: true, moves: state.moves, callouts: state.callouts, gear: state.gear, post: state.posts.at(-1) || null, ...v };
+    if (body.action === 'addMove' || body.action === 'addGear') {
+      const list = body.action === 'addMove' ? state.moves : state.gear;
+      const rec = { ...body.record, id: (body.action === 'addMove' ? 'M' : 'G') + (list.length + 1), rev: 1 };
+      list.push(rec);
+      return { ok: true, record: rec, ...v };
+    }
+    if (body.action === 'saveCallout') {
+      const rec = { ...body.record, id: body.record.shift, rev: (body.record.rev || 0) + 1 };
+      state.callouts = state.callouts.filter((x) => x.id !== rec.id).concat([rec]);
+      return { ok: true, record: rec, ...v };
+    }
+    if (body.action === 'post') {
+      const B = require('../lib/board.js'), H = require('../lib/history.js');
+      const live = state.routes.filter((r) => !r.archived);
+      const byId = Object.fromEntries(state.crew.map((c) => [c.id, c]));
+      const board = B.boardFrom(state.moves, live, byId);
+      const people = Object.fromEntries(state.crew.filter((c) => !c.archived).map((c) => {
+        const w = H.shiftsWorked(state.callouts, c.id);
+        return [c.id, { name: c.name, phone: c.phone || null, photo_thumb: null, shifts: { night: w.night, day: w.day } }];
+      }));
+      const rec = { id: 'P' + (state.posts.length + 1), rev: 1, shift: body.shift, posted_at: new Date().toISOString(), people,
+        routes: live.map((r) => ({ id: r.id, name: r.name, sites: (r.site_ids || []).map((id) => ({ id, name: (state.sites.find((s) => s.id === id) || {}).name })),
+          lead: board.routes[r.id].lead, members: board.routes[r.id].members })) };
+      state.posts.push(rec);
+      return { ok: true, record: rec, ...v };
     }
     if (/^archive/.test(body.action)) {
       if (role !== 'admin') return { ok: false, code: 'forbidden', reason: 'Only Matt can do that.', ...v };
@@ -59,8 +92,10 @@ const world = () => ({
   routes: [{ id: 'R1', name: 'N1', rev: 1, site_ids: ['S1'] }],
 });
 
-async function open(page, { token, snow, inv, abortSnow } = {}) {
+async function open(page, { token, snow, inv, abortSnow, clockAt } = {}) {
   const calls = [];
+  // Shift choices depend on the wall clock: pin it, never trust the test's hour.
+  if (clockAt) await page.clock.install({ time: new Date(clockAt) });
   await page.route(isSnow, async (route) => {
     const req = route.request();
     const body = JSON.parse(req.postData() || '{}');
@@ -1003,4 +1038,73 @@ test('a blank clearance and blank seasons are sent as empty, never invented', as
   await expect(page.locator('#dlg')).toBeHidden();
   const r = calls.filter((c) => c.body.action === 'saveCrew').at(-1).body.record;
   expect([r.seasons, r.rides_with, r.gear]).toEqual([null, null, null]);
+});
+
+test('Matt places a lead and a member; one move per tap', async ({ page }) => {
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
+  await page.click('nav [data-tab="board"]');
+  await page.click('.chip[data-worker="C01"]');
+  await page.click('[data-place="R1"][data-role="lead"]');
+  await expect(page.locator('[data-route="R1"] .chip')).toHaveCount(1);
+  await page.click('.chip[data-worker="C03"]');
+  await page.click('[data-place="R1"][data-role="member"]');
+  await expect(page.locator('[data-route="R1"] .chip')).toHaveCount(2);
+  expect(calls.filter((c) => c.body.action === 'addMove').map((c) => [c.body.record.worker, c.body.record.role])).toEqual([['C01', 'lead'], ['C03', 'member']]);
+});
+
+test('a route warns, never blocks: no driver on a crew of one', async ({ page }) => {
+  const w = world(); w.crew = w.crew.map((c) => ({ ...c, can_drive: false }));
+  await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
+  await page.click('nav [data-tab="board"]');
+  await page.click('.chip[data-worker="C01"]');
+  await page.click('[data-place="R1"][data-role="lead"]');
+  await expect(page.locator('[data-route="R1"] .warns')).toContainText('Nobody on this route can drive');
+});
+
+test('a site with no clearance set never warns about clearance', async ({ page }) => {
+  await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
+  await page.click('nav [data-tab="board"]');
+  await page.click('.chip[data-worker="C03"]');
+  await page.click('[data-place="R1"][data-role="member"]');
+  await expect(page.locator('[data-route="R1"] .chip')).toHaveCount(1);
+  await expect(page.locator('[data-route="R1"] .warns li[data-rule^="clearance"]')).toHaveCount(0);
+});
+
+test('a site that needs a clearance warns about who lacks it', async ({ page }) => {
+  const w = world(); w.sites = w.sites.map((s) => (s.id === 'S1' ? { ...s, needs_clearance: 'JBER' } : s));
+  await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
+  await page.click('nav [data-tab="board"]');
+  await page.click('.chip[data-worker="C03"]');
+  await page.click('[data-place="R1"][data-role="member"]');
+  await expect(page.locator('[data-route="R1"] .warns li[data-rule="clearance"]')).toContainText('Jordan Demo: no JBER clearance');
+});
+
+test('an archived worker never shows on the board', async ({ page }) => {
+  const w = world(); w.crew.push({ id: 'C09', name: 'Gone Worker', archived: true, rev: 1 });
+  w.moves = [{ id: 'M1', at: '2026-10-01T17:00:00.000-08:00', worker: 'C09', to_route: 'R1', role: 'lead' }];
+  await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
+  await page.click('nav [data-tab="board"]');
+  await expect(page.locator('[data-route="R1"]')).toBeVisible();
+  await expect(page.locator('main')).not.toContainText('Gone Worker');
+});
+
+test('the person card shows placed routes, shifts worked and gear on hand', async ({ page }) => {
+  const w = world();
+  w.moves = [{ id: 'M1', at: '2026-10-01T17:00:00.000-08:00', worker: 'C01', to_route: 'R1', role: 'lead' }];
+  w.callouts = [{ id: 'night-2026-10-01', shift: 'night-2026-10-01', roster: { R1: { lead: 'C01', members: [] } }, rev: 1 }];
+  w.gear = [{ id: 'G1', date: '2026-10-01', shift: 'night-2026-10-01', at: '2026-10-01T17:05:00.000-08:00', worker: 'C01', type: 'issued', item: 'Parka' }];
+  await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
+  await page.click('nav [data-tab="board"]');
+  await page.click('.chip[data-worker="C01"]');
+  await page.click('[data-act="card"]');
+  await expect(page.locator('#dlgIn')).toContainText('N1 from 10/1');
+  await expect(page.locator('#dlgIn')).toContainText('1 night · 0 days');
+  await expect(page.locator('#dlgIn')).toContainText('Parka');
+  await expect(page.locator('#dlgIn')).toContainText('slow starter'); // Matt's own card: private fields show
+});
+
+test('crew and leads have no Board tab', async ({ page }) => {
+  await open(page, { token: 'tok-jordan', snow: fakeSnow(world()) });
+  await expect(page.locator('nav [data-tab="routes"]')).toBeVisible();
+  await expect(page.locator('nav [data-tab="board"]')).toHaveCount(0);
 });

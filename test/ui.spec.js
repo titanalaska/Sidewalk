@@ -659,3 +659,82 @@ test('leads have no edit-map button either', async ({ page }) => {
   await zoneSource(page);
   await expect(page.locator('#mapedit')).toHaveCount(0);
 });
+
+// ---------- the phone's Back button ----------
+// Matt, 10/1/26: Back closed the whole app and he had to start over. The app is
+// one page, so Back must undo one step at a time: an open box, then the map.
+const phoneBack = (page) => page.evaluate(() => history.back());
+
+test('Back on a map returns to the list, not out of the app', async ({ page }) => {
+  await openMap(page, 'tok-jordan', mapWorld());
+  await zoneSource(page);
+  await phoneBack(page);
+  await expect(page.locator('.site-card')).toHaveCount(2);
+  await expect(page.locator('#mapbox')).toHaveCount(0);
+  expect(await page.evaluate(() => window.SnowMapView)).toBeFalsy();
+});
+
+test('Back with an edit box open closes the box and stays on the screen', async ({ page }) => {
+  await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
+  await page.click('nav [data-tab="sites"]');
+  await page.click('[data-edit="site:S1"]');
+  await expect(page.locator('#dlg')).toBeVisible();
+  await phoneBack(page);
+  await expect(page.locator('#dlg')).toBeHidden();
+  await expect(page.locator('.site-card')).toHaveCount(2);
+});
+
+test('a box closed with Cancel leaves no extra Back step behind', async ({ page }) => {
+  await tiles(page);
+  await open(page, { token: 'tok-matt', snow: fakeSnow(mapWorld()) });
+  await page.click('nav [data-tab="sites"]');
+  await page.click('[data-edit="site:S1"]');
+  await page.click('#dlgClose');
+  await expect(page.locator('#dlg')).toBeHidden();
+  // Straight after Cancel: no step left for a dead box (else the next Back does nothing).
+  await expect.poll(() => page.evaluate(() => ((history.state && history.state.snow) || []).length)).toBe(0);
+  await page.click('[data-map="S1"]');
+  await page.waitForFunction(() => window.SnowMapView);
+  await phoneBack(page); // one Back: off the map. Not a ghost step for the closed box.
+  await expect(page.locator('.site-card')).toHaveCount(2);
+  await expect(page.locator('#mapbox')).toHaveCount(0);
+});
+
+test('the in-app ‹ Back and the phone Back agree', async ({ page }) => {
+  await openMap(page, 'tok-jordan', mapWorld());
+  await zoneSource(page);
+  await page.click('#mapback');
+  await expect(page.locator('.site-card')).toHaveCount(2);
+  // Nothing left to undo (history moves a moment later, so wait for it).
+  await expect.poll(() => page.evaluate(() => (history.state && history.state.snow) || []).then((s) => s.length)).toBe(0);
+});
+
+test('Back while drawing a zone cancels the drawing and keeps the map', async ({ page }) => {
+  const calls = await adminMap(page, mapWorld());
+  await page.click('#mapedit');
+  await page.click('#ed_new');
+  await tapCorners(page, CORNERS.slice(0, 2));
+  await phoneBack(page);
+  await expect(page.locator('#zoneform')).toBeHidden();
+  await expect(page.locator('.zone-corner')).toHaveCount(0);
+  await expect(page.locator('#mapbox')).toBeVisible();
+  expect(calls.filter((c) => c.body.action === 'saveZone')).toHaveLength(0);
+  await phoneBack(page); // and the next Back leaves the map
+  await expect(page.locator('.site-card')).toHaveCount(2);
+});
+
+test('switching zones while drawing does not lose the map on the next Back', async ({ page }) => {
+  await adminMap(page, mapWorld());
+  await zoneSource(page);
+  await page.click('#mapedit');
+  await page.click('#ed_new');
+  // Cancel and start again in the same instant, before the history has answered the
+  // Cancel: the late answer must not cancel the new drawing.
+  await page.evaluate(() => { document.getElementById('z_cancel').click(); document.getElementById('ed_new').click(); });
+  await expect(page.locator('#zoneform')).toBeVisible();
+  await page.waitForTimeout(300);
+  await expect(page.locator('#zoneform')).toBeVisible(); // still drawing once the history settled
+  await phoneBack(page);
+  await expect(page.locator('#zoneform')).toBeHidden();
+  await expect(page.locator('#mapbox')).toBeVisible();
+});

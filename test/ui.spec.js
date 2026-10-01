@@ -28,6 +28,15 @@ function fakeSnow(state, opts = {}) {
       const crew = role === 'admin' ? state.crew : state.crew.map((c) => ({ id: c.id, name: c.name, phone: c.phone, photo_thumb: c.photo_thumb || null, is_lead: !!c.is_lead }));
       return { ok: true, me, sites: state.sites, routes: state.routes, zones: state.zones || [], crew, ...v };
     }
+    if (/^archive/.test(body.action)) {
+      if (role !== 'admin') return { ok: false, code: 'forbidden', reason: 'Only Matt can do that.', ...v };
+      const tab = { archiveCrew: 'crew', archiveSite: 'sites', archiveRoute: 'routes', archiveZone: 'zones' }[body.action];
+      const cur = (state[tab] || []).find((x) => x.id === body.id);
+      if (!cur) return { ok: false, code: 'invalid', reason: 'Nothing to archive.', ...v };
+      const rec = { ...cur, archived: true, rev: cur.rev + 1 };
+      state[tab] = state[tab].filter((x) => x.id !== rec.id).concat([rec]);
+      return { ok: true, record: rec, ...v };
+    }
     if (/^save/.test(body.action)) {
       if (role !== 'admin') return { ok: false, code: 'forbidden', reason: 'Only Matt can do that.', ...v };
       if (opts.saveReply) return { ...opts.saveReply, ...v };
@@ -398,6 +407,181 @@ test('if the aerial photo fails, the zones still show', async ({ page }) => {
 
 test('crew have no edit-map button', async ({ page }) => {
   await openMap(page, 'tok-jordan', mapWorld());
+  await zoneSource(page);
+  await expect(page.locator('#mapedit')).toHaveCount(0);
+});
+
+// ---------- site maps: Matt's zone editor ----------
+// Corners are clicked at whole pixels; the expected lng/lat is the map's own
+// unproject of that same pixel, so the check is exact (1e-6 deg is ~0.1 m).
+async function adminMap(page, state) {
+  await tiles(page);
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(state) });
+  await page.click('nav [data-tab="sites"]');
+  await page.click('[data-map="S1"]');
+  await page.waitForFunction(() => window.SnowMapView && window.SnowMapView.getSource('zones'));
+  return calls;
+}
+// Pixel offsets from the canvas CENTRE (which is PAC), all west of it: every
+// zone in mapWorld starts at PAC's longitude and runs east, so this ground is
+// clear at any map height (the map shrinks when the old-map sheet is open).
+const CORNERS = [[-150, -60], [-40, -60], [-40, 20], [-150, 20]];
+// A person scrolls the map into view before tapping it; so does the test.
+const mapInView = (page) => page.locator('#mapbox').evaluate((el) => el.scrollIntoView({ block: 'nearest' }));
+async function tapCorners(page, px) {
+  const out = [];
+  for (const [x, y] of px) {
+    await mapInView(page);
+    const r = await page.evaluate(() => { const b = window.SnowMapView.getCanvas().getBoundingClientRect(); return { l: b.left + b.width / 2, t: b.top + b.height / 2 }; });
+    const cx = Math.round(r.l + x), cy = Math.round(r.t + y);
+    await page.mouse.click(cx, cy);
+    out.push(await page.evaluate(([a, b]) => { const c = window.SnowMapView.getCanvas().getBoundingClientRect(); const ll = window.SnowMapView.unproject([a - c.left, b - c.top]); return [ll.lng, ll.lat]; }, [cx, cy]));
+  }
+  return out;
+}
+const lastCall = (calls, action) => calls.filter((c) => c.body.action === action).at(-1);
+
+test('Matt draws a heated priority zone and it saves with its corners', async ({ page }) => {
+  const calls = await adminMap(page, mapWorld());
+  await page.click('#mapedit');
+  await page.click('#ed_new');
+  const want = await tapCorners(page, CORNERS);
+  await expect(page.locator('.zone-corner')).toHaveCount(4);
+  await page.click('[data-ztype="heated"]');
+  await page.check('#z_priority');
+  await page.fill('#z_name', 'Back steps');
+  await page.fill('#z_note', 'Check the drain');
+  await page.click('#z_save');
+  await expect(page.locator('#zoneform')).toBeHidden();
+  const rec = lastCall(calls, 'saveZone').body.record;
+  expect(rec).toMatchObject({ site_id: 'S1', type: 'heated', priority: true, name: 'Back steps', note: 'Check the drain', rev: 0 });
+  expect(rec.id).toBeFalsy();
+  expect(rec.ring.length).toBe(4);
+  rec.ring.forEach((p, i) => { expect(Math.abs(p[0] - want[i][0])).toBeLessThan(1e-6); expect(Math.abs(p[1] - want[i][1])).toBeLessThan(1e-6); });
+  expect(await zoneSource(page)).toHaveLength(4); // the new zone is on the map now
+  await expect(page.locator('.zone-star')).toHaveCount(2);
+});
+
+test('undo takes back the last corner', async ({ page }) => {
+  const calls = await adminMap(page, mapWorld());
+  await page.click('#mapedit');
+  await page.click('#ed_new');
+  const want = await tapCorners(page, CORNERS);
+  await page.click('#z_undo');
+  await expect(page.locator('.zone-corner')).toHaveCount(3);
+  await page.click('[data-ztype="sidewalk"]');
+  await page.fill('#z_name', 'Three corners');
+  await page.click('#z_save');
+  await expect(page.locator('#zoneform')).toBeHidden();
+  const ring = lastCall(calls, 'saveZone').body.record.ring;
+  expect(ring.length).toBe(3);
+  expect(Math.abs(ring[2][0] - want[2][0])).toBeLessThan(1e-6);
+});
+
+test('two corners is not a zone: blocked before it is sent', async ({ page }) => {
+  const calls = await adminMap(page, mapWorld());
+  await page.click('#mapedit');
+  await page.click('#ed_new');
+  await tapCorners(page, CORNERS.slice(0, 2));
+  await page.click('[data-ztype="sidewalk"]');
+  await page.fill('#z_name', 'Too small');
+  await page.click('#z_save');
+  await expect(page.locator('#z_err')).toContainText('At least 3 corners');
+  expect(calls.filter((c) => c.body.action === 'saveZone')).toHaveLength(0);
+});
+
+test('a zone with no type picked is not sent', async ({ page }) => {
+  const calls = await adminMap(page, mapWorld());
+  await page.click('#mapedit');
+  await page.click('#ed_new');
+  await tapCorners(page, CORNERS);
+  await page.fill('#z_name', 'No type');
+  await page.click('#z_save');
+  await expect(page.locator('#z_err')).toContainText('Pick a type');
+  expect(calls.filter((c) => c.body.action === 'saveZone')).toHaveLength(0);
+});
+
+test('Save view stores the map centre and zoom on the site, keeping its other fields', async ({ page }) => {
+  const calls = await adminMap(page, mapWorld());
+  await page.click('#mapedit');
+  await page.evaluate(() => window.SnowMapView.jumpTo({ center: [-149.9, 61.22], zoom: 17.5 }));
+  await page.click('#ed_view');
+  await expect.poll(() => calls.filter((c) => c.body.action === 'saveSite').length).toBe(1);
+  const rec = lastCall(calls, 'saveSite').body.record;
+  expect(rec.id).toBe('S1');
+  expect(rec.name).toBe('PAC');
+  expect(rec.materials_needed).toBe('4-5 bags IceMelt');
+  expect(rec.map.zoom).toBeCloseTo(17.5, 6);
+  expect(rec.map.center[0]).toBeCloseTo(-149.9, 6);
+  expect(rec.map.center[1]).toBeCloseTo(61.22, 6);
+});
+
+test('the old-map picture shows beside the map and is never sent or stored', async ({ page }) => {
+  const calls = await adminMap(page, mapWorld());
+  const before = await page.evaluate(() => JSON.stringify(Object.keys(localStorage).sort().map((k) => [k, localStorage.getItem(k)])));
+  await page.click('#mapedit');
+  await page.setInputFiles('#ed_reffile', { name: 'Night 1 - PAC.png', mimeType: 'image/png', buffer: PNG1 });
+  await expect(page.locator('#refpanel img')).toBeVisible();
+  expect(await page.locator('#refpanel img').getAttribute('src')).toMatch(/^blob:/);
+  // Work with the picture open: draw a zone and save the view.
+  await page.click('#ed_new');
+  await tapCorners(page, CORNERS);
+  await page.click('[data-ztype="sidewalk"]');
+  await page.fill('#z_name', 'Traced');
+  await page.click('#z_save');
+  await expect(page.locator('#zoneform')).toBeHidden();
+  await page.click('#ed_view');
+  await expect.poll(() => calls.filter((c) => c.body.action === 'saveSite').length).toBe(1);
+  for (const c of calls) {
+    const s = JSON.stringify(c.body);
+    expect(s).not.toContain('data:image');
+    expect(s).not.toContain('Night 1 - PAC');
+    expect(s).not.toContain('blob:');
+  }
+  const after = await page.evaluate(() => JSON.stringify(Object.keys(localStorage).sort().map((k) => [k, localStorage.getItem(k)])));
+  expect(after).toBe(before);
+  await page.click('#ref_close');
+  await expect(page.locator('#refpanel')).toBeHidden();
+});
+
+test('editing a zone keeps its id and rev; Archive takes it off the map', async ({ page }) => {
+  const calls = await adminMap(page, mapWorld());
+  await zoneSource(page);
+  await page.click('#mapedit');
+  const tapZone = async (lng, lat) => {
+    await mapInView(page);
+    const pt = await page.evaluate(([a, b]) => { const p = window.SnowMapView.project([a, b]); const r = window.SnowMapView.getCanvas().getBoundingClientRect(); return { x: r.left + p.x, y: r.top + p.y }; }, [lng, lat]);
+    await page.mouse.click(pt.x, pt.y);
+  };
+  await tapZone(PAC[0] + 0.00025, PAC[1] + 0.00004); // Z1, Main entry
+  await expect(page.locator('#z_name')).toHaveValue('Main entry');
+  await expect(page.locator('.zone-corner')).toHaveCount(4);
+  await expect(page.locator('#zonesheet')).toBeHidden(); // editing, not the crew sheet
+  await page.fill('#z_name', 'Main entry + ramp');
+  await page.click('#z_save');
+  await expect(page.locator('#zoneform')).toBeHidden();
+  const rec = lastCall(calls, 'saveZone').body.record;
+  expect(rec).toMatchObject({ id: 'Z1', rev: 1, name: 'Main entry + ramp', type: 'sidewalk', priority: true, note: 'ADA ramp first' });
+
+  // Z3 is ~240 px east of PAC at z18 (MapLibre zooms are 512 px tiles): off a
+  // phone-width map. Pan to it first, as Matt would.
+  await page.evaluate(([a, b]) => window.SnowMapView.jumpTo({ center: [a, b] }), [PAC[0] + 0.00065, PAC[1] + 0.0001]);
+  await tapZone(PAC[0] + 0.0006 + 0.00005, PAC[1] + 0.0001); // Z3, Ski trail
+  await expect(page.locator('#z_name')).toHaveValue('Ski trail');
+  await page.click('#z_archive');
+  await expect(page.locator('#zoneform')).toBeHidden();
+  expect(lastCall(calls, 'archiveZone').body).toMatchObject({ id: 'Z3', rev: 1 });
+  expect((await zoneSource(page)).map((z) => z.id)).toEqual(['Z1', 'Z2']);
+});
+
+test('Matt gets a map to draw on even before a site has zones', async ({ page }) => {
+  const w = mapWorld(); w.zones = [];
+  await adminMap(page, w);
+  await expect(page.locator('#mapedit')).toBeVisible();
+});
+
+test('leads have no edit-map button either', async ({ page }) => {
+  await openMap(page, 'tok-alex', mapWorld());
   await zoneSource(page);
   await expect(page.locator('#mapedit')).toHaveCount(0);
 });

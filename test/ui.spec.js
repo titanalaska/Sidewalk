@@ -3,7 +3,7 @@ const path = require('path');
 const url = require('url');
 
 const PAGE = url.pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href;
-const isSnow = (u) => u.href.includes('SNOW-NOT-DEPLOYED');
+const isSnow = (u) => u.href.includes('AKfycbwc7dcfmJFa1TAspzBZVprJRwBNvCP6q2bqOH5uoS_hU6ScZOnr9Kn');
 const isInv = (u) => u.href.includes('AKfycbyudFaJ0dsSYMo');
 
 // Inventory: names and status only, like the real getProfiles (no PINs).

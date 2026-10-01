@@ -6,7 +6,7 @@
 // titanalaska.github.io carries every Titan app on one origin, so the Cache API
 // is shared: this worker only ever deletes its OWN old versions
 // (titan-snow-shell-*), never wolf-*, groundwork-* or anyone else's.
-var CACHE_VERSION = 'titan-snow-shell-2';
+var CACHE_VERSION = 'titan-snow-shell-3';
 var SHELL = ['./', 'index.html', 'app.css', 'lib/config.js', 'lib/forms.js', 'lib/api.js', 'lib/app.js'];
 
 self.addEventListener('install', function (e) {

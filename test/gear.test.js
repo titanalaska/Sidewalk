@@ -28,3 +28,14 @@ test('gear on hand: same night orders by time, not log order', () => {
   ];
   assert.deepEqual(G.gearOnHand(log, 'C06'), []);
 });
+
+// Pairings (10/1/26): gear entries carry a plain calendar date for ordering.
+// Issued on the night of 10/1, returned the next day: nothing on hand.
+test('issued one night, returned the next day: nothing left on hand', () => {
+  const G2 = require('../lib/gear');
+  const log = [
+    { date: '2026-10-02', at: '2026-10-02T10:00:00.000-08:00', worker: 'C01', type: 'returned', item: 'Parka' },
+    { date: '2026-10-01', at: '2026-10-01T20:00:00.000-08:00', worker: 'C01', type: 'issued', item: 'Parka' },
+  ];
+  assert.deepEqual(G2.gearOnHand(log, 'C01'), []);
+});

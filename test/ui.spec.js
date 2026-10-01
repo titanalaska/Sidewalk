@@ -1222,3 +1222,43 @@ test('nothing posted yet is said plainly', async ({ page }) => {
   await open(page, { token: 'tok-jordan', snow: fakeSnow(world()), clockAt: '2026-10-01T18:00:00-08:00' });
   await expect(page.locator('main')).toContainText('Not posted yet for this shift');
 });
+
+test('a gear entry guesses the route from the shift and is sent with a calendar date', async ({ page }) => {
+  const w = world(); w.callouts = [{ id: 'night-2026-10-01', shift: 'night-2026-10-01', roster: { R1: { lead: 'C01', members: [] } }, rev: 1 }];
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w), clockAt: '2026-10-01T22:00:00-08:00' });
+  await page.click('nav [data-tab="log"]');
+  await page.click('#newEntry');
+  await page.selectOption('#g_worker', 'C01');
+  await page.selectOption('#g_shift', 'night-2026-10-01');
+  await expect(page.locator('#g_route')).toHaveValue('R1');
+  await page.selectOption('#g_type', 'issued');
+  await page.fill('#g_item', 'Parka');
+  await page.click('#g_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(calls.filter((c) => c.body.action === 'addGear')[0].body.record).toMatchObject({ worker: 'C01', type: 'issued', item: 'Parka', route: 'R1', date: '2026-10-01', shift: 'night-2026-10-01' });
+  await expect(page.locator('#gearlog')).toContainText('Parka');
+});
+
+test('a gear entry needs a worker, a type, an item and a shift', async ({ page }) => {
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()), clockAt: '2026-10-01T22:00:00-08:00' });
+  await page.click('nav [data-tab="log"]');
+  await page.click('#newEntry');
+  await page.click('#g_save');
+  await expect(page.locator('#g_err')).toContainText('Pick a worker');
+  await expect(page.locator('#g_err')).toContainText('Item is required');
+  expect(calls.filter((c) => c.body.action === 'addGear')).toHaveLength(0);
+});
+
+test('issued gear clears the cold-gear warning on the board', async ({ page }) => {
+  const w = world(); w.crew = w.crew.map((c) => (c.id === 'C03' ? { ...c, gear: 'needs_issued' } : c));
+  w.moves = [{ id: 'M1', at: '2026-10-01T17:00:00.000-08:00', worker: 'C03', to_route: 'R1', role: 'member' }];
+  await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
+  await page.click('nav [data-tab="board"]');
+  await expect(page.locator('[data-route="R1"] .warns li[data-rule="gear"]')).toHaveCount(1);
+  const w2 = { ...w, gear: [{ id: 'G1', date: '2026-10-01', shift: 'night-2026-10-01', at: '2026-10-01T17:05:00.000-08:00', worker: 'C03', type: 'issued', item: 'Parka' }] };
+  await page.unrouteAll(); // reopen with the gear logged
+  await open(page, { token: 'tok-matt', snow: fakeSnow(w2) });
+  await page.click('nav [data-tab="board"]');
+  await expect(page.locator('[data-route="R1"]')).toBeVisible();
+  await expect(page.locator('[data-route="R1"] .warns li[data-rule="gear"]')).toHaveCount(0);
+});

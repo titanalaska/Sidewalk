@@ -192,6 +192,7 @@ if (typeof module !== 'undefined') module.exports = SNOW_AUTH;
 - `crewFor(role, list) → list`: admin gets everything; others get the allow-list, non-archived only.
 - `checkRev(current|null, incomingRev) → null | reason`
 - `validate(kind: 'crew'|'site'|'route', rec, ctx: {crew, sites}) → string[]`
+- `nextWorkerId(ids) → "Cnn"` (past the highest, never the count)
 
 - [ ] **Step 1: Write `test/roster.test.js`**
 
@@ -222,6 +223,10 @@ test('rev: a save from the current revision passes; a stale one is refused', () 
   assert.match(R.checkRev({ rev: 4 }, 3), /changed this since you opened it/);
   assert.equal(R.checkRev(null, 0), null);                  // creating
   assert.match(R.checkRev(null, 2), /no longer exists/);    // edited something since deleted
+});
+test('next id skips past the highest, not the count', () => {
+  assert.equal(R.nextWorkerId(['C01', 'C12', 'C10']), 'C13');
+  assert.equal(R.nextWorkerId([]), 'C01');
 });
 test('validate: names required; a profile can be on the roster once; routes only use real sites', () => {
   assert.deepEqual(R.validate('crew', { id: 'C02', name: ' ' }, { crew: full }), ['Name is required']);
@@ -270,7 +275,15 @@ var SNOW_ROSTER = (function () {
     return errs;
   }
 
-  return { PUBLIC_CREW_FIELDS: PUBLIC_CREW_FIELDS, crewFor: crewFor, checkRev: checkRev, validate: validate };
+  // Past the HIGHEST number, never the count: ids have gaps once anyone is
+  // archived. Moved from the Crew Board's forms.js with its test.
+  function nextWorkerId(ids) {
+    var max = 0;
+    (ids || []).forEach(function (id) { var m = /^C(\d+)$/.exec(id); if (m) max = Math.max(max, Number(m[1])); });
+    return 'C' + (max + 1 < 10 ? '0' : '') + (max + 1);
+  }
+
+  return { PUBLIC_CREW_FIELDS: PUBLIC_CREW_FIELDS, crewFor: crewFor, checkRev: checkRev, validate: validate, nextWorkerId: nextWorkerId };
 })();
 if (typeof module !== 'undefined') module.exports = SNOW_ROSTER;
 ```

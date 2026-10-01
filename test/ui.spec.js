@@ -962,3 +962,45 @@ test('a file that is not a Bootprint export is refused with a reason', async ({ 
   await expect(page.locator('#toast')).toContainText('not a Bootprint export');
   await expect(page.locator('#bp_jobs')).toHaveCount(0);
 });
+
+// ---------- pairings (sub-project 4, 10/1/26) ----------
+test('the roster card edits the Crew Board fields and sends them', async ({ page }) => {
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
+  await page.click('nav [data-tab="roster"]');
+  await page.click('[data-open="C03"]');
+  await page.click('#w_edit');
+  await page.selectOption('#f_rides_with', 'C01');
+  await page.selectOption('#f_gear', 'needs_issued');
+  await page.check('input[data-list="keep_apart_from"][value="C01"]');
+  await page.fill('#f_seasons', '2');
+  await page.click('#f_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  const r = calls.filter((c) => c.body.action === 'saveCrew').at(-1).body.record;
+  expect([r.rides_with, r.gear, r.keep_apart_from, r.works_well_with, r.seasons]).toEqual(['C01', 'needs_issued', ['C01'], [], 2]);
+});
+
+test('a site can be marked as needing a clearance', async ({ page }) => {
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
+  await page.click('nav [data-tab="sites"]');
+  await page.click('[data-edit="site:S1"]');
+  await page.fill('#s_clear', 'JBER');
+  await page.click('#s_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(calls.filter((c) => c.body.action === 'saveSite').at(-1).body.record.needs_clearance).toBe('JBER');
+});
+
+test('a blank clearance and blank seasons are sent as empty, never invented', async ({ page }) => {
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
+  await page.click('nav [data-tab="sites"]');
+  await page.click('[data-edit="site:S1"]');
+  await page.click('#s_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(calls.filter((c) => c.body.action === 'saveSite').at(-1).body.record.needs_clearance).toBe(null);
+  await page.click('nav [data-tab="roster"]');
+  await page.click('[data-open="C03"]');
+  await page.click('#w_edit');
+  await page.click('#f_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  const r = calls.filter((c) => c.body.action === 'saveCrew').at(-1).body.record;
+  expect([r.seasons, r.rides_with, r.gear]).toEqual([null, null, null]);
+});

@@ -1,0 +1,12 @@
+{
+  "name": "snow-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sidewalk snow crew app (working name). Public GitHub Pages: code only, never data.",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\" && playwright test",
+    "test:unit": "node --test \"test/*.test.js\""
+  },
+  "license": "UNLICENSED",
+  "devDependencies": { "@playwright/test": "^1.63.0" }
+}

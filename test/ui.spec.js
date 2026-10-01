@@ -738,3 +738,49 @@ test('switching zones while drawing does not lose the map on the next Back', asy
   await expect(page.locator('#zoneform')).toBeHidden();
   await expect(page.locator('#mapbox')).toBeVisible();
 });
+
+// ---------- polish from the site-maps review (10/1/26) ----------
+test('the route edit box says where sites are renamed', async ({ page }) => {
+  // Matt, 10/1: tried to rename JBER sites inside the route box, where names are plain text.
+  await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
+  await page.click('[data-edit="route:R1"]');
+  await expect(page.locator('#r_hint')).toBeVisible();
+  await expect(page.locator('#r_hint')).toContainText('Sites tab');
+});
+
+test('materials needed can be typed on a site and is sent with it', async ({ page }) => {
+  const w = world();
+  w.sites[0] = { ...w.sites[0], materials_needed: '2-4 bags IceMelt' };
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
+  await page.click('nav [data-tab="sites"]');
+  await page.click('[data-edit="site:S1"]');
+  await expect(page.locator('#s_mat')).toHaveValue('2-4 bags IceMelt');
+  await page.fill('#s_mat', '3-5 bags IceMelt, gravel at the ramp');
+  await page.click('#s_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(calls.filter((c) => c.body.action === 'saveSite').at(-1).body.record.materials_needed).toBe('3-5 bags IceMelt, gravel at the ramp');
+});
+
+test('signing out from the map editor clears the map and the old-map picture', async ({ page }) => {
+  await adminMap(page, mapWorld());
+  await page.click('#mapedit');
+  await page.setInputFiles('#ed_reffile', { name: 'Night 1 - PAC.png', mimeType: 'image/png', buffer: PNG1 });
+  await expect(page.locator('#refpanel')).toBeVisible();
+  await page.click('#signout');
+  await expect(page.locator('#signin')).toBeVisible();
+  await expect(page.locator('#refpanel')).toHaveCount(0);
+  expect(await page.evaluate(() => window.SnowMapView)).toBeFalsy();
+});
+
+test('a refused Save view says so, even while a zone is being drawn', async ({ page }) => {
+  await tiles(page);
+  await open(page, { token: 'tok-matt', snow: fakeSnow(mapWorld(), { saveReply: { ok: false, code: 'invalid', reason: 'Test refusal: not saved' } }) });
+  await page.click('nav [data-tab="sites"]');
+  await page.click('[data-map="S1"]');
+  await page.waitForFunction(() => window.SnowMapView && window.SnowMapView.getSource('zones'));
+  await page.click('#mapedit');
+  await page.click('#ed_new'); // drawing: the editor's message line is hidden now
+  await page.click('#ed_view');
+  await expect(page.locator('#toast')).toBeVisible();
+  await expect(page.locator('#toast')).toContainText('Test refusal: not saved');
+});

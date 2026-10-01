@@ -26,12 +26,13 @@ function fakeSnow(state, opts = {}) {
     const me = { name: role === 'admin' ? 'Matthew' : 'Jordan Demo', role, crew_id: role === 'admin' ? null : 'C03' };
     if (body.action === 'bootstrap') {
       const crew = role === 'admin' ? state.crew : state.crew.map((c) => ({ id: c.id, name: c.name, phone: c.phone, photo_thumb: c.photo_thumb || null, is_lead: !!c.is_lead }));
-      return { ok: true, me, sites: state.sites, routes: state.routes, crew, ...v };
+      return { ok: true, me, sites: state.sites, routes: state.routes, zones: state.zones || [], crew, ...v };
     }
     if (/^save/.test(body.action)) {
       if (role !== 'admin') return { ok: false, code: 'forbidden', reason: 'Only Matt can do that.', ...v };
       if (opts.saveReply) return { ...opts.saveReply, ...v };
-      const tab = { saveCrew: 'crew', saveSite: 'sites', saveRoute: 'routes' }[body.action];
+      const tab = { saveCrew: 'crew', saveSite: 'sites', saveRoute: 'routes', saveZone: 'zones' }[body.action];
+      state[tab] = state[tab] || [];
       const rec = { ...body.record, rev: (body.record.rev || 0) + 1 };
       if (!rec.id) rec.id = tab === 'crew' ? 'C99' : 'X99';
       state[tab] = state[tab].filter((x) => x.id !== rec.id).concat([rec]);
@@ -314,4 +315,84 @@ test('after a conflict the app reloads the latest, so the retry can save', async
   await page.click('#s_save');
   await expect(page.locator('#dlg')).toBeHidden();
   expect(calls.filter((c) => c.body.action === 'saveSite').at(-1).body.record.rev).toBe(2);
+});
+
+// ---------------- site maps: crew view ----------------
+// A 30 m x 10 m walk near PAC at 61.2177 N: 300 m2 = 3,229 sq ft (worked by hand).
+const DEGR = Math.PI / 180, RE = 6371000;
+const ring = (lng, lat, eastM, northM) => {
+  const e = eastM / (RE * Math.cos(lat * DEGR)) / DEGR, n = northM / RE / DEGR;
+  return [[lng, lat], [lng + e, lat], [lng + e, lat + n], [lng, lat + n]];
+};
+const PAC = [-149.8885, 61.2177];
+const mapWorld = () => {
+  const w = world();
+  w.sites = w.sites.map((s) => (s.id === 'S1' ? { ...s, map: { center: PAC, zoom: 18 }, materials_needed: '4-5 bags IceMelt' } : s));
+  w.zones = [
+    { id: 'Z1', site_id: 'S1', type: 'sidewalk', name: 'Main entry', priority: true, note: 'ADA ramp first', ring: ring(PAC[0], PAC[1], 30, 10), area_sqft: 3229, rev: 1 },
+    { id: 'Z2', site_id: 'S1', type: 'heated', name: 'Heated walk', priority: false, note: '', ring: ring(PAC[0], PAC[1] + 0.0003, 20, 5), area_sqft: 1076, rev: 1 },
+    { id: 'Z3', site_id: 'S1', type: 'no_touch', name: 'Ski trail', priority: false, note: 'Do not gravel', ring: ring(PAC[0] + 0.0006, PAC[1], 10, 30), area_sqft: 3229, rev: 1 },
+  ];
+  return w;
+};
+const PNG1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+async function tiles(page, fail) {
+  await page.route((u) => /ancgis\.com|arcgisonline\.com/.test(u.href), (route) =>
+    fail ? route.fulfill({ status: 404, body: '' }) : route.fulfill({ contentType: 'image/png', body: PNG1 }));
+}
+async function openMap(page, token, state, fail) {
+  await tiles(page, fail);
+  const calls = await open(page, { token, snow: fakeSnow(state) });
+  await page.click('nav [data-tab="sites"]');
+  await page.click('[data-map="S1"]');
+  return calls;
+}
+const zoneSource = (page) => page.evaluate(() => new Promise((res) => {
+  const go = () => { const s = window.SnowMapView && window.SnowMapView.getSource('zones'); if (s && s._data) res(s._data.features.map((f) => ({ id: f.properties.id, type: f.properties.type }))); else setTimeout(go, 100); };
+  go();
+}));
+
+test('the crew map draws every zone with its type and a legend', async ({ page }) => {
+  await openMap(page, 'tok-jordan', mapWorld());
+  expect(await zoneSource(page)).toEqual([{ id: 'Z1', type: 'sidewalk' }, { id: 'Z2', type: 'heated' }, { id: 'Z3', type: 'no_touch' }]);
+  await expect(page.locator('#maplegend')).toContainText('Heated: check only, no melt');
+  await expect(page.locator('#maplegend')).toContainText('Do not touch');
+  await expect(page.locator('#mapsite')).toContainText('4-5 bags IceMelt');
+});
+
+test('a priority zone is starred on the map', async ({ page }) => {
+  await openMap(page, 'tok-jordan', mapWorld());
+  await zoneSource(page);
+  await expect(page.locator('.zone-star')).toHaveCount(1);
+});
+
+test('tapping a zone shows its details and area', async ({ page }) => {
+  await openMap(page, 'tok-jordan', mapWorld());
+  await zoneSource(page);
+  const pt = await page.evaluate(([lng, lat]) => { const p = window.SnowMapView.project([lng, lat]); const r = window.SnowMapView.getCanvas().getBoundingClientRect(); return { x: r.left + p.x, y: r.top + p.y }; },
+    [PAC[0] + 0.00025, PAC[1] + 0.00004]);
+  await page.mouse.click(pt.x, pt.y);
+  await expect(page.locator('#zonesheet')).toContainText('Main entry');
+  await expect(page.locator('#zonesheet')).toContainText('ADA ramp first');
+  await expect(page.locator('#zonesheet')).toContainText('3,229 sq ft');
+  await expect(page.locator('#zonesheet')).toContainText('Priority');
+});
+
+test('a site with no zones says the map is not drawn yet', async ({ page }) => {
+  const w = mapWorld(); w.zones = [];
+  await openMap(page, 'tok-jordan', w);
+  await expect(page.locator('main')).toContainText('Map not drawn yet');
+  expect(await page.evaluate(() => !!window.SnowMapView)).toBe(false);
+});
+
+test('if the aerial photo fails, the zones still show', async ({ page }) => {
+  await openMap(page, 'tok-jordan', mapWorld(), true);
+  expect((await zoneSource(page)).length).toBe(3);
+  await expect(page.locator('#mapwarn')).toContainText('Aerial photo unavailable');
+});
+
+test('crew have no edit-map button', async ({ page }) => {
+  await openMap(page, 'tok-jordan', mapWorld());
+  await zoneSource(page);
+  await expect(page.locator('#mapedit')).toHaveCount(0);
 });

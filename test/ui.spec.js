@@ -1108,3 +1108,60 @@ test('crew and leads have no Board tab', async ({ page }) => {
   await expect(page.locator('nav [data-tab="routes"]')).toBeVisible();
   await expect(page.locator('nav [data-tab="board"]')).toHaveCount(0);
 });
+
+test('Post offers the shifts around now with none picked: 8:59 AM', async ({ page }) => {
+  await open(page, { token: 'tok-matt', snow: fakeSnow(world()), clockAt: '2026-10-02T08:59:00-08:00' });
+  await page.click('nav [data-tab="board"]');
+  await page.click('#post');
+  await expect(page.locator('[data-shift]')).toHaveText(['Night of 10/1', 'Day of 10/2', 'Night of 10/2']);
+  await expect(page.locator('[data-shift][aria-pressed="true"]')).toHaveCount(0);
+});
+
+test('Post at 9:00 AM offers today and tonight', async ({ page }) => {
+  await open(page, { token: 'tok-matt', snow: fakeSnow(world()), clockAt: '2026-10-02T09:00:00-08:00' });
+  await page.click('nav [data-tab="board"]');
+  await page.click('#post');
+  await expect(page.locator('[data-shift]')).toHaveText(['Day of 10/2', 'Night of 10/2']);
+});
+
+test('posting sends the chosen shift and clears "Changed since post"', async ({ page }) => {
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()), clockAt: '2026-10-01T16:00:00-08:00' });
+  await page.click('nav [data-tab="board"]');
+  await expect(page.locator('#crewsees')).toContainText('Not posted');
+  await page.click('.chip[data-worker="C01"]');
+  await page.click('[data-place="R1"][data-role="lead"]');
+  await expect(page.locator('#changed')).toBeVisible();
+  await page.click('#post');
+  await page.click('[data-shift="night-2026-10-01"]');
+  await expect.poll(() => calls.filter((c) => c.body.action === 'post').length).toBe(1);
+  expect(calls.filter((c) => c.body.action === 'post')[0].body.shift).toBe('night-2026-10-01');
+  await expect(page.locator('#changed')).toBeHidden();
+  await expect(page.locator('#crewsees')).toContainText('Night of 10/1');
+});
+
+test('Post waits for a move that is still saving', async ({ page }) => {
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()), clockAt: '2026-10-01T16:00:00-08:00' });
+  await page.route(isSnow, async (route) => {
+    const b = JSON.parse(route.request().postData() || '{}');
+    if (b.action === 'addMove') await new Promise((r) => setTimeout(r, 1200));
+    await route.fallback();
+  });
+  await page.click('nav [data-tab="board"]');
+  await page.click('.chip[data-worker="C01"]');
+  await page.click('[data-place="R1"][data-role="lead"]');
+  await expect(page.locator('#post')).toBeDisabled();
+  await expect(page.locator('#post')).toBeEnabled({ timeout: 5000 });
+  expect(calls.filter((c) => c.body.action === 'addMove').length).toBe(1);
+});
+
+test('Callout saves the board for the chosen shift', async ({ page }) => {
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()), clockAt: '2026-10-01T20:00:00-08:00' });
+  await page.click('nav [data-tab="board"]');
+  await page.click('.chip[data-worker="C01"]');
+  await page.click('[data-place="R1"][data-role="lead"]');
+  await expect(page.locator('[data-route="R1"] .chip')).toHaveCount(1);
+  await page.click('#callout');
+  await page.click('[data-shift="night-2026-10-01"]');
+  await expect.poll(() => calls.filter((c) => c.body.action === 'saveCallout').length).toBe(1);
+  expect(calls.filter((c) => c.body.action === 'saveCallout')[0].body.record).toMatchObject({ shift: 'night-2026-10-01', roster: { R1: { lead: 'C01', members: [] } }, rev: 0 });
+});

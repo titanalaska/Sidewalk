@@ -1170,6 +1170,7 @@ test('Callout saves the board for the chosen shift', async ({ page }) => {
   await expect(page.locator('[data-route="R1"] .chip')).toHaveCount(1);
   await page.click('#callout');
   await page.click('[data-shift="night-2026-10-01"]');
+  await page.click('#co_save');
   await expect.poll(() => calls.filter((c) => c.body.action === 'saveCallout').length).toBe(1);
   expect(calls.filter((c) => c.body.action === 'saveCallout')[0].body.record).toMatchObject({ shift: 'night-2026-10-01', roster: { R1: { lead: 'C01', members: [] } }, rev: 0 });
 });
@@ -1283,4 +1284,42 @@ test('Tonight has a Refresh button that fetches the newest post', async ({ page 
   w.posts.push(POST);
   await page.click('#refreshPost');
   await expect(page.locator('.tonight-route')).toHaveCount(2);
+});
+
+// Review 10/1/26: a callout is who ACTUALLY went out. Someone placed who never
+// showed must not get a night under "Shifts worked", which every crew phone sees.
+const PLACED = [{ id: 'M1', at: '2026-10-01T17:00:00.000-08:00', worker: 'C01', to_route: 'R1', role: 'lead' },
+  { id: 'M2', at: '2026-10-01T17:01:00.000-08:00', worker: 'C03', to_route: 'R1', role: 'member' }];
+
+test('a callout can mark a no-show: left off the roster, listed, with a note', async ({ page }) => {
+  const w = world(); w.moves = PLACED.slice();
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w), clockAt: '2026-10-01T20:00:00-08:00' });
+  await page.click('nav [data-tab="board"]');
+  await page.click('#callout');
+  await page.click('[data-shift="night-2026-10-01"]');
+  await expect(page.locator('[data-noshow="C03"]')).toHaveAttribute('aria-pressed', 'false');
+  await page.click('[data-noshow="C03"]');
+  await expect(page.locator('[data-noshow="C03"]')).toHaveAttribute('aria-pressed', 'true');
+  await page.fill('#co_note', 'Jordan no call no show');
+  await page.click('#co_save');
+  await expect.poll(() => calls.filter((c) => c.body.action === 'saveCallout').length).toBe(1);
+  expect(calls.filter((c) => c.body.action === 'saveCallout')[0].body.record).toMatchObject({
+    shift: 'night-2026-10-01', roster: { R1: { lead: 'C01', members: [] } }, no_shows: ['C03'], note: 'Jordan no call no show' });
+});
+
+test('reopening a saved callout keeps its no-shows and note', async ({ page }) => {
+  const w = world(); w.moves = PLACED.slice();
+  w.callouts = [{ id: 'night-2026-10-01', shift: 'night-2026-10-01', started_at: '2026-10-01T20:00:00.000-08:00', note: 'short a truck',
+    roster: { R1: { lead: 'C01', members: [] } }, no_shows: ['C03'], rev: 1 }];
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w), clockAt: '2026-10-01T22:00:00-08:00' });
+  await page.click('nav [data-tab="board"]');
+  await page.click('#callout');
+  await page.click('[data-shift="night-2026-10-01"]');
+  await expect(page.locator('[data-noshow="C03"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#co_note')).toHaveValue('short a truck');
+  await page.click('[data-noshow="C03"]'); // he turned up late after all
+  await page.click('#co_save');
+  await expect.poll(() => calls.filter((c) => c.body.action === 'saveCallout').length).toBe(1);
+  expect(calls.filter((c) => c.body.action === 'saveCallout')[0].body.record).toMatchObject({
+    roster: { R1: { lead: 'C01', members: ['C03'] } }, no_shows: [], note: 'short a truck', rev: 1 });
 });

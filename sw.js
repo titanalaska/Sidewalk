@@ -6,8 +6,11 @@
 // titanalaska.github.io carries every Titan app on one origin, so the Cache API
 // is shared: this worker only ever deletes its OWN old versions
 // (titan-snow-shell-*), never wolf-*, groundwork-* or anyone else's.
-var CACHE_VERSION = 'titan-snow-shell-3';
-var SHELL = ['./', 'index.html', 'app.css', 'lib/config.js', 'lib/forms.js', 'lib/api.js', 'lib/app.js'];
+var CACHE_VERSION = 'titan-snow-shell-4';
+// Map code is in the shell so a map still opens with no signal (zones on a
+// plain background). The aerial TILES are never cached: other origins pass by.
+var SHELL = ['./', 'index.html', 'app.css', 'lib/config.js', 'lib/forms.js', 'lib/api.js', 'lib/geo.js',
+  'lib/mapview.js', 'lib/mapedit.js', 'lib/app.js', 'vendor/maplibre-gl.js', 'vendor/maplibre-gl.css'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(caches.open(CACHE_VERSION).then(function (c) { return c.addAll(SHELL); }));

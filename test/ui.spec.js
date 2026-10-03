@@ -36,6 +36,11 @@ function fakeSnow(state, opts = {}) {
     // Pairings: the real backend's shapes (snow-app-script test/pairing.test.js).
     if (['getBoard', 'addMove', 'addGear', 'saveCallout', 'post'].includes(body.action) && role !== 'admin') return { ok: false, code: 'forbidden', reason: 'Only Matt can do that.', ...v };
     if (body.action === 'getPost') return { ok: true, post: state.posts.at(-1) || null, ...v };
+    // The real getZones: Matt gets archived zones too, everyone else live ones; site_id narrows it.
+    if (body.action === 'getZones') {
+      const zones = (state.zones || []).filter((z) => role === 'admin' || z.archived !== true).filter((z) => !body.site_id || z.site_id === body.site_id);
+      return { ok: true, zones, ...v };
+    }
     if (body.action === 'getBoard') return { ok: true, moves: state.moves, callouts: state.callouts, gear: state.gear, post: state.posts.at(-1) || null, ...v };
     if (body.action === 'addMove' || body.action === 'addGear') {
       const list = body.action === 'addMove' ? state.moves : state.gear;
@@ -166,8 +171,9 @@ const world = () => ({
 });
 
 // delay: { action: ms } holds that action's reply; abortIf(body) drops a call
-// the way a lost signal does (the call is still recorded first).
-async function open(page, { token, snow, inv, abortSnow, clockAt, delay, abortIf } = {}) {
+// the way a lost signal does (the call is still recorded first); hangIf(body)
+// never answers it at all (Apps Script stuck, or a dead zone that never errors).
+async function open(page, { token, snow, inv, abortSnow, clockAt, delay, abortIf, hangIf } = {}) {
   const calls = [];
   // Shift choices depend on the wall clock: pin it, never trust the test's hour.
   if (clockAt) await page.clock.install({ time: new Date(clockAt) });
@@ -176,6 +182,7 @@ async function open(page, { token, snow, inv, abortSnow, clockAt, delay, abortIf
     const body = JSON.parse(req.postData() || '{}');
     calls.push({ body, contentType: req.headers()['content-type'], method: req.method() });
     if (abortSnow || (abortIf && abortIf(body))) return route.abort();
+    if (hangIf && hangIf(body)) return; // never fulfilled: only the page's own timeout ends it
     if (delay && delay[body.action]) await new Promise((r) => setTimeout(r, delay[body.action]));
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(snow(body)) });
   });
@@ -1427,7 +1434,7 @@ const logRow = (n, siteId, zoneId, state, by, extra = {}) => ({ id: 'L-' + n, se
   site_id: siteId, zone_id: zoneId, state, note: '', by_key: 'C01', by_name: by, at: '2026-10-03T06:30:00.000-08:00',
   off_route: false, snowing_warned: false, undoes: null, ...extra });
 async function openStorm(page, w, o = {}) {
-  const calls = await open(page, { token: o.token || 'tok-jordan', snow: fakeSnow(w, o.fake), clockAt: o.clockAt || STORM_CLOCK, delay: o.delay, abortIf: o.abortIf });
+  const calls = await open(page, { token: o.token || 'tok-jordan', snow: fakeSnow(w, o.fake), clockAt: o.clockAt || STORM_CLOCK, delay: o.delay, abortIf: o.abortIf, hangIf: o.hangIf });
   await page.click('nav [data-tab="storm"]');
   return calls;
 }
@@ -2384,4 +2391,220 @@ test('a map opened from the Sites tab carries no walk marks', async ({ page }) =
   await zoneSource(page);
   await expect(page.locator('.zone-star')).toHaveCount(1);
   await expect(page.locator('.zone-mark')).toHaveCount(0);
+});
+
+// ---------------- final review fixes (10/3/26) ----------------
+// A post with Jordan (C03) as the member of one route only (Alex leads both, as in POST).
+const postWith = (id, shift, jordanOn) => ({ ...POST, id, shift, posted_at: '2026-10-03T15:00:00.000Z',
+  routes: POST.routes.map((r) => ({ ...r, members: r.id === jordanOn ? ['C03'] : [] })) });
+const getPosts = (calls) => calls.filter((c) => c.body.action === 'getPost');
+
+// F1: the Storm tab used to read the post only from bootstrap (or a visit to Tonight).
+test('the Storm tab picks up a re-post: on entering the tab, every third poll, and back on screen', async ({ page }) => {
+  // Bootstrap's post P1 has Jordan on N1 (PAC). Each re-post is read by a different trigger:
+  //   P2 (Jordan on N2) lands while he is on Tonight   -> tapping Storm fetches it at once;
+  //   P3 (Jordan on N1) lands on the Storm tab          -> ticks 1 and 2 (20 s, 40 s) do not fetch it,
+  //                                                        tick 3 (60 s) does: one getPost more;
+  //   P4 (Jordan on N2)                                 -> the app coming back on screen fetches it.
+  // His own route is drawn open; the other one is behind "Other routes" (not opened here).
+  const w = stormWorld();
+  w.posts = [postWith('P1', 'night-2026-10-02', 'R1')];
+  const calls = await open(page, { token: 'tok-jordan', snow: fakeSnow(w), clockAt: STORM_CLOCK });
+  await expect(page.locator('nav [data-tab="tonight"][aria-current="page"]')).toBeVisible();
+  w.posts.push(postWith('P2', 'night-2026-10-02', 'R2'));
+  await page.click('nav [data-tab="storm"]');
+  await expect(walkBtn(page, 'S2|whole', 'cleared')).toBeVisible();
+  await expect(walkRow(page, 'S1|Z1')).toHaveCount(0);
+  const before = getPosts(calls).length;
+  w.posts.push(postWith('P3', 'night-2026-10-02', 'R1'));
+  await page.clock.runFor(40000);
+  await page.waitForTimeout(300);
+  expect(getPosts(calls)).toHaveLength(before);
+  await expect(walkBtn(page, 'S2|whole', 'cleared')).toBeVisible(); // still P2
+  await page.clock.runFor(20000);
+  await expect(walkBtn(page, 'S1|Z1', 'cleared')).toBeVisible();
+  await expect(walkRow(page, 'S2|whole')).toHaveCount(0);
+  expect(getPosts(calls)).toHaveLength(before + 1);
+  w.posts.push(postWith('P4', 'night-2026-10-02', 'R2'));
+  await pollNow(page);
+  await expect(walkBtn(page, 'S2|whole', 'cleared')).toBeVisible();
+  await expect(walkRow(page, 'S1|Z1')).toHaveCount(0);
+});
+
+test('after 9 AM a new day post shows the day route without visiting Tonight', async ({ page }) => {
+  // 8:59:30 AM: the night post (night-2026-10-02) has Jordan on N1. Matt posts the day shift
+  // (day-2026-10-03) with Jordan on N2. Ticks at about 8:59:50, 9:00:10, 9:00:30; the third reads the
+  // post. From 9:00 the night post is stale, so without that read Jordan would be told he is on no
+  // route until he happened to open Tonight. The 9 AM rule itself is unchanged.
+  const w = stormWorld();
+  w.posts = [postWith('P1', 'night-2026-10-02', 'R1')];
+  await openStorm(page, w, { clockAt: '2026-10-03T08:59:30-08:00' });
+  await expect(walkBtn(page, 'S1|Z1', 'cleared')).toBeVisible();
+  w.posts.push(postWith('P2', 'day-2026-10-03', 'R2'));
+  await page.clock.runFor(60000);
+  await expect(walkBtn(page, 'S2|whole', 'cleared')).toBeVisible();
+  await expect(page.locator('h2.shift-route', { hasText: 'Your route' })).toContainText('N2');
+  await expect(page.locator('main')).not.toContainText("You're not on a route this shift");
+  await expect(page.locator('nav [data-tab="storm"][aria-current="page"]')).toBeVisible(); // never left Storm
+});
+
+// F2: a request that never answers used to hang the walk (and the polling) for good.
+test('a tap the server never answers says not saved after 45 s, with Retry', async ({ page }) => {
+  // Apps Script waits up to 25 s for its lock, so 45 s with no answer means it is not coming.
+  const net = { hang: true };
+  const calls = await openStorm(page, stormWorld(), { hangIf: (b) => net.hang && b.action === 'tapZone' });
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await walkBtn(page, 'S1|Z1', 'cleared').click();
+  await expect(walkRow(page, 'S1|Z1')).toHaveAttribute('aria-busy', 'true');
+  await page.clock.runFor(44000);
+  await page.waitForTimeout(300);
+  await expect(walkRow(page, 'S1|Z1')).toHaveAttribute('aria-busy', 'true'); // 44 s: still waiting
+  await expect(page.locator('[data-retry="S1|Z1"]')).toHaveCount(0);
+  await page.clock.runFor(1000);
+  const fail = page.locator('[data-walkrow="S1|Z1"] .walk-fail');
+  await expect(fail).toBeVisible();
+  await expect(fail).toContainText('Not saved: no signal');
+  await expect(page.locator('[data-retry="S1|Z1"]')).toBeVisible();
+  await expect(walkRow(page, 'S1|Z1')).not.toHaveAttribute('aria-busy', 'true');
+  await expect(walkRow(page, 'S1|Z1')).not.toContainText('Jordan Demo'); // nothing shown as done
+  net.hang = false;
+  await page.click('[data-retry="S1|Z1"]');
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Cleared · Jordan Demo · 7:50 AM');
+  expect(tapCalls(calls)).toHaveLength(2);
+});
+
+test('a poll the server never answers does not stop the polls after it', async ({ page }) => {
+  // Poll 1 answers (entering the tab). Poll 2 (the 20 s tick) never answers. The ticks at 40 s and
+  // 60 s find it still running and ask nothing. Its 45 s timeout ends it at 65 s; the 80 s tick asks
+  // again (poll 3) and brings Alex's tap.
+  const net = { hang: false };
+  const w = stormWorld();
+  const calls = await openStorm(page, w, { hangIf: (b) => net.hang && b.action === 'getShiftLog' });
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  expect(shiftCalls(calls)).toHaveLength(1);
+  net.hang = true;
+  await page.clock.runFor(20000);
+  await expect.poll(() => shiftCalls(calls).length).toBe(2);
+  net.hang = false;
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test')];
+  await page.clock.runFor(40000);
+  await page.waitForTimeout(300);
+  expect(shiftCalls(calls)).toHaveLength(2);
+  await page.clock.runFor(20000);
+  await expect.poll(() => shiftCalls(calls).length).toBe(3);
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Cleared · Alex Test');
+});
+
+// F4: zones came only from bootstrap, so a site Matt drew mid-storm refused every Whole-site tap.
+test('a zone Matt draws mid-storm replaces Whole site after the refused tap', async ({ page }) => {
+  // TUDOR-TRANSIT (S2) had no zones at bootstrap: one Whole-site walk. Matt draws "Front walk" (Z9,
+  // sidewalk) there. With a drawn zone the site has no whole walk, so the server refuses Jordan's
+  // Whole-site tap ("That zone is not walked at this site") and writes nothing. The phone reloads the
+  // zones once and shows Front walk instead, and says the tap was not saved.
+  const w = stormWorld();
+  const calls = await openStorm(page, w);
+  await page.click('#otherRoutes');
+  await expect(walkBtn(page, 'S2|whole', 'cleared')).toBeVisible();
+  w.zones = [...w.zones, { id: 'Z9', site_id: 'S2', type: 'sidewalk', name: 'Front walk', rev: 1 }];
+  await walkBtn(page, 'S2|whole', 'cleared').click();
+  await expect(walkBtn(page, 'S2|Z9', 'cleared')).toBeVisible();
+  await expect(walkRow(page, 'S2|whole')).toHaveCount(0);
+  await expect(page.locator('#toast')).toBeVisible();
+  await expect(page.locator('#toast')).toContainText('TUDOR-TRANSIT');
+  await expect(page.locator('#toast')).toContainText('Not saved');
+  expect(calls.filter((c) => c.body.action === 'getZones')).toHaveLength(1);
+  expect(w.log || []).toHaveLength(0);
+  await walkBtn(page, 'S2|Z9', 'cleared').click();
+  await expect(walkRow(page, 'S2|Z9')).toContainText('Cleared · Jordan Demo · 7:50 AM');
+  expect(tapCalls(calls).at(-1).body).toMatchObject({ site_id: 'S2', zone_id: 'Z9', state: 'cleared' });
+});
+
+test('coming back on screen reloads the zones', async ({ page }) => {
+  // Matt archives Main entry (Z1) at PAC while Jordan's phone is in his pocket. Back on screen:
+  // that walk is gone and Heated walk (Z2) is still there.
+  const w = stormWorld();
+  const calls = await openStorm(page, w);
+  await expect(walkRow(page, 'S1|Z1')).toBeVisible();
+  w.zones = w.zones.map((z) => (z.id === 'Z1' ? { ...z, archived: true, rev: 2 } : z));
+  await pollNow(page);
+  await expect(walkRow(page, 'S1|Z1')).toHaveCount(0);
+  await expect(walkRow(page, 'S1|Z2')).toBeVisible();
+  expect(calls.filter((c) => c.body.action === 'getZones')).toHaveLength(1);
+});
+
+// F5: the card's save answered into whatever dialog was open by then.
+test('a slow card save, cancelled, never closes or writes into the next card', async ({ page }) => {
+  // Card A (PAC) saves slowly; Jordan cancels it, opens card B (TUDOR-TRANSIT), types, and taps Save
+  // while A is still on its way: B says so and sends nothing. Then A lands: B stays open with its
+  // typing and no word from A in it (a toast about A is fine only if it names PAC). Then B saves.
+  const w = stormWorld();
+  const calls = await openStorm(page, w, { delay: { saveVisit: 2000 } });
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await openCard(page, 'S1');
+  await page.fill('#vc_depth', '2');
+  await page.click('#vc_save');
+  await page.click('#dlgClose');
+  await expect(page.locator('#dlg')).toBeHidden();
+  await page.click('#otherRoutes');
+  await openCard(page, 'S2');
+  await page.fill('#vc_depth', '7');
+  await page.fill('#vc_mat', 'sand, 1 bag');
+  await page.click('#vc_save');
+  await expect(page.locator('#vc_err')).toBeVisible();
+  await expect(page.locator('#vc_err')).toHaveText('Still saving the last card… try again in a moment');
+  expect(visitCalls(calls)).toHaveLength(1);
+  // A lands.
+  await expect.poll(async () => (await phoneState(page)).visits.map((r) => r.id)).toEqual(['V-1']);
+  await page.waitForTimeout(300);
+  await expect(page.locator('#dlg')).toBeVisible();
+  await expect(page.locator('#dlgIn h2')).toHaveText('Site card: TUDOR-TRANSIT');
+  await expect(page.locator('#vc_depth')).toHaveValue('7');
+  await expect(page.locator('#vc_mat')).toHaveValue('sand, 1 bag');
+  await expect(page.locator('#vc_err')).toHaveText(''); // the "still saving" note is gone, and A wrote nothing here
+  if (await page.locator('#toast').isVisible()) await expect(page.locator('#toast')).toContainText('PAC');
+  await page.click('#vc_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(visitCalls(calls)).toHaveLength(2);
+  expect(visitCalls(calls)[1].body).toMatchObject({ site_id: 'S2', depth_in: 7, materials_used: 'sand, 1 bag' });
+  expect(w.visits.map((v) => v.site_id)).toEqual(['S1', 'S2']);
+});
+
+test('a cancelled card whose save fails says so by name, not inside the next card', async ({ page }) => {
+  // Same sequence, but Matt ends the storm before A lands: A is refused. B must not show A's
+  // refusal; the toast names PAC.
+  const w = stormWorld();
+  await openStorm(page, w, { delay: { saveVisit: 2000 } });
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await openCard(page, 'S1');
+  w.storms.push({ id: 'ST-2', seq: 2, kind: 'end', storm_id: 'ST-1', at: '2026-10-03T07:40:00.000-08:00', by_name: 'Matthew' });
+  await page.click('#vc_save');
+  await page.click('#dlgClose');
+  await page.click('#otherRoutes');
+  await openCard(page, 'S2');
+  await page.fill('#vc_depth', '7');
+  await expect(page.locator('#toast')).toBeVisible({ timeout: 10000 });
+  await expect(page.locator('#toast')).toContainText('PAC');
+  await expect(page.locator('#toast')).toContainText('No storm is open');
+  await expect(page.locator('#dlg')).toBeVisible();
+  await expect(page.locator('#vc_err')).toHaveText('');
+  await expect(page.locator('#vc_depth')).toHaveValue('7');
+});
+
+// Final review minor 1: a map opened from a drilled-in route sits on top of the route.
+test('Back from a site map opened on a route returns to the route, then the live view', async ({ page }) => {
+  await tiles(page);
+  await openStorm(page, stormWorld(), { token: 'tok-matt' });
+  await openRoute(page, 'R1');
+  await page.click('.shift-site [data-map="S1"]');
+  await expect(page.locator('#mapback')).toBeVisible();
+  await expect.poll(() => backSteps(page)).toEqual(['route', 'map']);
+  await page.goBack(); // the phone's Back
+  await expect(page.locator('#mapback')).toBeHidden();
+  await expect(page.locator('#liveBack')).toBeVisible(); // the route, not the live view
+  await expect(walkBtn(page, 'S1|Z1', 'cleared')).toBeVisible();
+  await page.goBack();
+  await expect(page.locator('#liveBack')).toBeHidden();
+  await expect(page.locator('[data-liveroute]')).toHaveCount(2);
+  expect(page.url()).toContain('index.html');
+  expect(await backSteps(page)).toEqual([]);
 });

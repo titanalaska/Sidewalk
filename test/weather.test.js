@@ -44,6 +44,29 @@ test('hint: snowing now, run reaches the 12th period', () => {
   assert.equal(SnowWeather.hint(hours(7, [...Array(11).fill(S), C]), NOW), 'Snow until 6 PM');
 });
 
+test('hint: a short list that is snow to its end says until the end of its last period', () => {
+  // Only 3 usable periods (7, 8, 9 AM), all snow, now 7:30. The run reaches the end
+  // of the DATA, not the 12th period, so it is not "12 h+": we cannot claim 12 hours.
+  // What is known is that it snows to the end of the last period, 9 AM + 1 h = 10 AM.
+  const p = hours(7, [S, S, S]);
+  assert.equal(SnowWeather.hint(p, NOW), 'Snow until 10 AM');
+  // With an endTime it is that: the last period ends at 9:30 AM -> "9 AM" (hour read off the string).
+  const q = hours(7, [S, S, S]); q[2].endTime = '2026-10-03T09:30:00-08:00';
+  assert.equal(SnowWeather.hint(q, NOW), 'Snow until 9 AM');
+  // Last period 11 PM, no endTime: ends at midnight, read as 12 AM.
+  assert.equal(SnowWeather.hint(hours(22, [S, S]), '2026-10-03T22:30:00-08:00'), 'Snow until 12 AM');
+  // One snow period only.
+  assert.equal(SnowWeather.hint(hours(7, [S]), NOW), 'Snow until 8 AM');
+});
+
+test('hint: a short list clear for a while and ending in snow says from when', () => {
+  // 7 AM .. 11 AM: clear, clear, clear, snow, snow (5 periods, ends in snow). Not snowing
+  // now; the first snow period is 10 AM (index 3), so "Snow from 10 AM". It must not throw.
+  assert.equal(SnowWeather.hint(hours(7, [C, C, C, S, S]), NOW), 'Snow from 10 AM');
+  // Short and all clear: nothing in what is known.
+  assert.equal(SnowWeather.hint(hours(7, [C, C]), NOW), 'No snow in the next 12 h');
+});
+
 test('hint: snow later says from when', () => {
   // Not snowing at 7 AM. First snow period within the 12 h (7 AM .. 6 PM) is 1 PM
   // (index 6); the snow at 4 PM does not matter.

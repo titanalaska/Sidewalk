@@ -154,3 +154,21 @@ body.has-ref.ref-min #mapbox{height:62vh}
 .bpjob{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;margin-top:6px;text-align:left}
 .bpjob.sel{border:2px solid var(--accent)}
 #bp_sum{margin-top:10px}
+/* Storm tab: crew tap each walk (10/3/26). Big buttons: gloves, snow, a phone in one hand. */
+.stormhead{font-weight:700;font-size:17px;padding:10px 14px;border-radius:12px;background:var(--chip);color:var(--muted);margin-bottom:12px}
+.stormhead.open{background:var(--ok-bg);color:var(--ok)}
+.shift-route{font-size:17px;margin:14px 0 8px}
+.walk{padding:10px 0;border-top:1px solid var(--line)}
+.walk-name{font-weight:600;margin-bottom:6px}
+.walk-btns{display:flex;gap:8px;flex-wrap:wrap}
+.walkbtn{flex:1;min-width:84px;min-height:52px;font-weight:600}
+.walkbtn[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.walkbtn.s-problem[aria-pressed="true"]{background:var(--warn);border-color:var(--warn);color:var(--bg)}
+.walk.pending .walk-btns{opacity:.55}
+.walk-last{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px;font-size:14px}
+.walk-note{color:var(--muted)}
+.walk-last .small{margin-left:auto}
+.walk-fail{margin-top:8px;font-size:14px}
+.notebox{margin-top:8px}
+.notebox textarea{width:100%}
+#otherRoutes{width:100%}

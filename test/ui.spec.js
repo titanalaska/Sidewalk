@@ -19,7 +19,8 @@ const TOKENS = { 'tok-matt': 'admin', 'tok-jordan': 'crew', 'tok-alex': 'lead' }
 // A small fake of the snow backend, with the real reply shapes.
 function fakeSnow(state, opts = {}) {
   return (body) => {
-    const v = { version: opts.version || 'pairings-1' };
+    const v = { version: opts.version || 'shiftlog-1' };
+    if (opts.expired && opts.expired.on) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     if (body.token === 'tok-nina') return { ok: false, code: 'not_on_roster', name: 'Nina Nursery', reason: "You're signed in, but not on the snow crew yet. Ask Matt to add you.", ...v };
     const role = TOKENS[body.token];
     if (!role) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
@@ -61,6 +62,74 @@ function fakeSnow(state, opts = {}) {
       state.posts.push(rec);
       return { ok: true, record: rec, ...v };
     }
+    // The shift log: the real backend's reply shapes (snow-app-script test/shiftlog-api.test.js).
+    // Rows are only ever appended; seq is the row's place in its tab. Crew and
+    // lead rows are allow-listed (no by_profile, undoes null); Matt's are raw
+    // (by_profile present, no undoes key on a tap). Refusals are {ok:false, code, reason}.
+    if (['getShiftLog', 'tapZone', 'undoTap', 'stormAction', 'saveVisit'].includes(body.action)) {
+      const SL = require('../lib/shiftlog.js');
+      state.log = state.log || []; state.storms = state.storms || []; state.visits = state.visits || [];
+      const stamp = state.clock || '2026-10-03T07:50:18.445-08:00';
+      const view = (row) => {
+        if (role !== 'admin') return row;
+        const { undoes, ...raw } = row;
+        return { ...raw, by_profile: 'P1', ...(undoes ? { undoes } : {}) };
+      };
+      const refuse = (code, reason) => ({ ok: false, code, reason, ...v });
+      if (body.action === 'getShiftLog') {
+        const out = { ok: true, cursor: {}, reset: {}, ...v };
+        [['log', state.log], ['storms', state.storms], ['visits', state.visits]].forEach(([t, rows]) => {
+          const cur = Math.max(0, Math.floor(Number((body.cursor || {})[t]) || 0)), last = (body.last || {})[t];
+          let reset = cur > rows.length;
+          if (!reset && cur >= 1 && last != null && Number(rows[cur - 1].seq) !== Number(last)) reset = true;
+          out[t] = rows.slice(reset ? 0 : cur).map(view);
+          out.cursor[t] = rows.length;
+          out.reset[t] = reset;
+        });
+        return out;
+      }
+      const storm = SL.stormState(state.storms);
+      if (body.action === 'stormAction') {
+        if (role === 'crew') return refuse('forbidden', 'Only Matt can do that.');
+        const kind = body.kind;
+        if (!['start', 'end', 'reopen', 'snowing', 'stopped', 'night_on'].includes(kind)) return refuse('invalid', 'Unknown storm control');
+        if (kind === 'start' && storm.open) return refuse('invalid', 'End the storm first');
+        if (kind === 'reopen' && storm.open) return refuse('invalid', 'The storm is already open');
+        if (kind === 'reopen' && !storm.storm_id) return refuse('invalid', 'There is no storm to reopen');
+        if (!['start', 'reopen'].includes(kind) && !storm.open) return refuse('invalid', 'No storm is open');
+        const n = state.storms.length + 1, id = 'ST-' + n;
+        const row = { id, seq: n, kind, storm_id: kind === 'start' ? id : storm.storm_id, at: stamp, by_name: me.name };
+        state.storms.push(row);
+        return { ok: true, record: view(row), ...v };
+      }
+      if (!storm.open) return refuse('invalid', 'No storm is open');
+      // An undo names only the row (seq); a tap or a card names a site.
+      if (body.action !== 'undoTap' && !state.sites.find((s) => s.id === body.site_id && !s.archived)) return refuse('invalid', 'Unknown site');
+      if (body.action === 'saveVisit') {
+        const n = state.visits.length + 1, eq = { blower: '', snowrator: '', bobcat: '', sweepster: '', ...(body.equipment || {}) };
+        const row = { id: 'V-' + n, seq: n, storm_id: storm.storm_id, shift_id: 'night-2026-10-02', site_id: body.site_id, by_key: 'C03', by_name: me.name, at: stamp,
+          depth_in: body.depth_in === undefined ? '' : body.depth_in, materials_used: body.materials_used || '', equipment: eq };
+        state.visits.push(row);
+        return { ok: true, record: view(row), ...v };
+      }
+      const n = state.log.length + 1;
+      let row;
+      if (body.action === 'tapZone') {
+        const walk = SL.walksFor(body.site_id, state.zones || []).find((w) => w.zone_id === body.zone_id);
+        if (!walk) return refuse('invalid', 'That zone is not walked at this site');
+        const why = SL.checkTap({ walk, state: body.state, note: body.note });
+        if (why) return refuse('invalid', why);
+        row = { id: 'L-' + n, seq: n, storm_id: storm.storm_id, shift_id: 'night-2026-10-02', site_id: body.site_id, zone_id: body.zone_id,
+          state: body.state, note: String(body.note || ''), by_key: 'C03', by_name: me.name, at: stamp, off_route: false, snowing_warned: false, undoes: null };
+      } else {
+        const t = SL.undoTarget(state.log, storm.storm_id, body.seq);
+        if (!t.ok) return refuse('conflict', t.reason);
+        row = { id: 'L-' + n, seq: n, storm_id: storm.storm_id, shift_id: 'night-2026-10-02', site_id: t.row.site_id, zone_id: t.row.zone_id,
+          state: t.state, note: t.note, by_key: 'C03', by_name: me.name, at: stamp, off_route: false, snowing_warned: false, undoes: t.row.id };
+      }
+      state.log.push(row);
+      return { ok: true, record: view(row), ...v };
+    }
     if (/^archive/.test(body.action)) {
       if (role !== 'admin') return { ok: false, code: 'forbidden', reason: 'Only Matt can do that.', ...v };
       const tab = { archiveCrew: 'crew', archiveSite: 'sites', archiveRoute: 'routes', archiveZone: 'zones' }[body.action];
@@ -92,7 +161,9 @@ const world = () => ({
   routes: [{ id: 'R1', name: 'N1', rev: 1, site_ids: ['S1'] }],
 });
 
-async function open(page, { token, snow, inv, abortSnow, clockAt } = {}) {
+// delay: { action: ms } holds that action's reply; abortIf(body) drops a call
+// the way a lost signal does (the call is still recorded first).
+async function open(page, { token, snow, inv, abortSnow, clockAt, delay, abortIf } = {}) {
   const calls = [];
   // Shift choices depend on the wall clock: pin it, never trust the test's hour.
   if (clockAt) await page.clock.install({ time: new Date(clockAt) });
@@ -100,7 +171,8 @@ async function open(page, { token, snow, inv, abortSnow, clockAt } = {}) {
     const req = route.request();
     const body = JSON.parse(req.postData() || '{}');
     calls.push({ body, contentType: req.headers()['content-type'], method: req.method() });
-    if (abortSnow) return route.abort();
+    if (abortSnow || (abortIf && abortIf(body))) return route.abort();
+    if (delay && delay[body.action]) await new Promise((r) => setTimeout(r, delay[body.action]));
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(snow(body)) });
   });
   await page.route(isInv, async (route) => {
@@ -363,7 +435,7 @@ test('after a conflict the app reloads the latest, so the retry can save', async
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'pairings-1' };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'shiftlog-1' };
     }
     return base(b);
   } });
@@ -1322,4 +1394,266 @@ test('reopening a saved callout keeps its no-shows and note', async ({ page }) =
   await expect.poll(() => calls.filter((c) => c.body.action === 'saveCallout').length).toBe(1);
   expect(calls.filter((c) => c.body.action === 'saveCallout')[0].body.record).toMatchObject({
     roster: { R1: { lead: 'C01', members: ['C03'] } }, no_shows: [], note: 'short a truck', rev: 1 });
+});
+
+// ---------------- the Storm tab: crew tap each walk ----------------
+// Fixture, worked by hand. Clock 7:30 AM on 10/3 is before the 9 AM cutover, so
+// the shift on offer is still "night-2026-10-02", and the post below is that
+// night's: not stale. The post lists R2 (S2) first, then R1 (S1) with Jordan
+// (C03) as a member, so Jordan's own route is N1 = the PAC site.
+// Walks at PAC, by name: "Heated walk" (Z2, heated: Checked / Problem), then
+// "Main entry" (Z1, sidewalk: Cleared / Treated / Problem). "Ski trail" (Z3) is
+// no_touch and is never walked. TUDOR-TRANSIT (S2) has no zones: one "Whole site".
+// The fake stamps every row at 7:50:18 AM Alaska time (-08:00 on 10/3).
+const STORM_CLOCK = '2026-10-03T07:30:00-08:00';
+const START_ROW = { id: 'ST-1', seq: 1, kind: 'start', storm_id: 'ST-1', at: '2026-10-03T06:00:00.000-08:00', by_name: 'Matthew' };
+const stormWorld = () => {
+  const w = world();
+  w.routes = [{ id: 'R1', name: 'N1', rev: 1, site_ids: ['S1'] }, { id: 'R2', name: 'N2', rev: 1, site_ids: ['S2'] }];
+  w.zones = [
+    { id: 'Z1', site_id: 'S1', type: 'sidewalk', name: 'Main entry', rev: 1 },
+    { id: 'Z2', site_id: 'S1', type: 'heated', name: 'Heated walk', rev: 1 },
+    { id: 'Z3', site_id: 'S1', type: 'no_touch', name: 'Ski trail', rev: 1 },
+  ];
+  w.posts = [{ ...POST, shift: 'night-2026-10-02' }];
+  w.storms = [START_ROW];
+  return w;
+};
+const logRow = (n, siteId, zoneId, state, by, extra = {}) => ({ id: 'L-' + n, seq: n, storm_id: 'ST-1', shift_id: 'night-2026-10-02',
+  site_id: siteId, zone_id: zoneId, state, note: '', by_key: 'C01', by_name: by, at: '2026-10-03T06:30:00.000-08:00',
+  off_route: false, snowing_warned: false, undoes: null, ...extra });
+async function openStorm(page, w, o = {}) {
+  const calls = await open(page, { token: o.token || 'tok-jordan', snow: fakeSnow(w, o.fake), clockAt: STORM_CLOCK, delay: o.delay, abortIf: o.abortIf });
+  await page.click('nav [data-tab="storm"]');
+  return calls;
+}
+const shiftCalls = (calls) => calls.filter((c) => c.body.action === 'getShiftLog');
+const tapCalls = (calls) => calls.filter((c) => c.body.action === 'tapZone');
+const walkRow = (page, key) => page.locator('[data-walkrow="' + key + '"]');
+const walkBtn = (page, key, state) => page.locator('[data-walk="' + key + '"][data-state="' + state + '"]');
+const phoneState = (page) => page.evaluate(() => SnowShiftUI.state());
+// Another visibilitychange = the app coming back on screen = one poll now.
+const pollNow = (page) => page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+
+test('crew see their own route\'s walks first and other routes behind a button', async ({ page }) => {
+  await openStorm(page, stormWorld());
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  // Own route N1 only: PAC, with Heated walk before Main entry (by name).
+  await expect(page.locator('.shift-site')).toHaveCount(1);
+  await expect(page.locator('.shift-site')).toContainText('PAC');
+  await expect(page.locator('[data-walkrow]')).toHaveCount(2);
+  expect(await page.locator('[data-walkrow]').evaluateAll((els) => els.map((e) => e.dataset.walkrow))).toEqual(['S1|Z2', 'S1|Z1']);
+  expect(await page.locator('[data-walkrow="S1|Z2"] [data-walk]').evaluateAll((els) => els.map((e) => e.dataset.state))).toEqual(['checked', 'problem']);
+  expect(await page.locator('[data-walkrow="S1|Z1"] [data-walk]').evaluateAll((els) => els.map((e) => e.dataset.state))).toEqual(['cleared', 'treated', 'problem']);
+  await expect(page.locator('[data-walk^="S1|Z3"]')).toHaveCount(0); // no_touch is never walked
+  await expect(page.locator('[data-walk^="S2|"]')).toHaveCount(0);   // N2 is not Jordan's
+  await expect(page.locator('main')).not.toContainText('TUDOR-TRANSIT');
+  await page.click('#otherRoutes');
+  await expect(page.locator('main')).toContainText('TUDOR-TRANSIT');
+  await expect(walkBtn(page, 'S2|whole', 'cleared')).toBeVisible();
+});
+
+test('a tap sends site, zone and state, and the walk shows who and when', async ({ page }) => {
+  const calls = await openStorm(page, stormWorld());
+  await walkBtn(page, 'S1|Z1', 'cleared').click();
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Cleared · Jordan Demo · 7:50 AM');
+  expect(tapCalls(calls)).toHaveLength(1);
+  const body = tapCalls(calls)[0].body;
+  expect(body).toMatchObject({ action: 'tapZone', site_id: 'S1', zone_id: 'Z1', state: 'cleared', note: '' });
+  // The server knows who and when and which shift: the phone sends none of it.
+  for (const k of ['by_name', 'by_key', 'by_profile', 'at', 'shift_id', 'storm_id', 'seq']) expect(body).not.toHaveProperty(k);
+  await expect(walkBtn(page, 'S1|Z1', 'cleared')).toHaveAttribute('aria-pressed', 'true');
+  await expect(walkRow(page, 'S1|Z2')).not.toContainText('Jordan Demo'); // the other walk is untouched
+});
+
+test('a problem needs a note before it can be sent', async ({ page }) => {
+  const calls = await openStorm(page, stormWorld());
+  await walkBtn(page, 'S1|Z1', 'problem').click();
+  await expect(page.locator('[data-note="S1|Z1"]')).toBeVisible();
+  await expect(page.locator('[data-send="S1|Z1"]')).toBeDisabled();
+  expect(tapCalls(calls)).toHaveLength(0); // opening the box sent nothing
+  await page.fill('[data-note="S1|Z1"]', '   ');
+  await expect(page.locator('[data-send="S1|Z1"]')).toBeDisabled(); // spaces are blank
+  await page.fill('[data-note="S1|Z1"]', 'ice under the mat');
+  await expect(page.locator('[data-send="S1|Z1"]')).toBeEnabled();
+  await page.click('[data-send="S1|Z1"]');
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Problem · Jordan Demo · 7:50 AM');
+  await expect(walkRow(page, 'S1|Z1')).toContainText('ice under the mat');
+  expect(tapCalls(calls)).toHaveLength(1);
+  expect(tapCalls(calls)[0].body).toMatchObject({ site_id: 'S1', zone_id: 'Z1', state: 'problem', note: 'ice under the mat' });
+  await expect(page.locator('[data-note="S1|Z1"]')).toHaveCount(0); // the box closes once it is saved
+});
+
+test('a double tap sends one tap', async ({ page }) => {
+  // Apps Script takes a second or two: the second tap must not add a second row.
+  const calls = await openStorm(page, stormWorld(), { delay: { tapZone: 700 } });
+  await expect(walkBtn(page, 'S1|Z1', 'cleared')).toBeVisible();
+  await page.evaluate(() => { const b = document.querySelector('[data-walk="S1|Z1"][data-state="cleared"]'); b.click(); b.click(); });
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Cleared · Jordan Demo');
+  expect(tapCalls(calls)).toHaveLength(1);
+  expect((await phoneState(page)).log).toHaveLength(1);
+});
+
+test('no signal: the walk says not saved and Retry sends it', async ({ page }) => {
+  const net = { down: true };
+  const calls = await openStorm(page, stormWorld(), { abortIf: (b) => net.down && b.action === 'tapZone' });
+  await walkBtn(page, 'S1|Z1', 'treated').click();
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Not saved');
+  await expect(page.locator('[data-retry="S1|Z1"]')).toBeVisible();
+  await expect(walkRow(page, 'S1|Z1')).not.toContainText('Jordan Demo'); // nothing is shown as done
+  net.down = false;
+  await page.click('[data-retry="S1|Z1"]');
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Treated · Jordan Demo · 7:50 AM');
+  await expect(page.locator('[data-retry]')).toHaveCount(0);
+  // The first try and the retry are the same tap.
+  expect(tapCalls(calls)).toHaveLength(2);
+  expect(tapCalls(calls)[1].body).toMatchObject({ site_id: 'S1', zone_id: 'Z1', state: 'treated', note: '' });
+});
+
+test('with no storm open the tap is refused and says so', async ({ page }) => {
+  // Matt ends the storm while Jordan's screen is open: the phone has not heard yet.
+  const w = stormWorld();
+  const calls = await openStorm(page, w);
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  w.storms.push({ id: 'ST-2', seq: 2, kind: 'end', storm_id: 'ST-1', at: '2026-10-03T07:40:00.000-08:00', by_name: 'Matthew' });
+  await walkBtn(page, 'S1|Z1', 'cleared').click();
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Not saved: No storm is open');
+  await expect(walkRow(page, 'S1|Z1')).not.toContainText('Jordan Demo');
+  expect(w.log || []).toHaveLength(0); // nothing was written
+  // The refusal also makes the phone ask again, so the banner catches up.
+  await expect(page.locator('#stormhead')).toHaveText('No storm open');
+  expect(shiftCalls(calls).length).toBeGreaterThanOrEqual(2);
+});
+
+test('undo sends the seq and the walk goes back', async ({ page }) => {
+  // Alex cleared Main entry (seq 1), then Jordan marked it treated (seq 2).
+  // Undoing seq 2 restores what the row before it said: Cleared, by Alex.
+  // The fake writes that as a NEW row (seq 3, by whoever undid it).
+  const w = stormWorld();
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test'), logRow(2, 'S1', 'Z1', 'treated', 'Jordan Demo')];
+  const calls = await openStorm(page, w);
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Treated · Jordan Demo');
+  await expect(page.locator('[data-undo]')).toHaveCount(1);       // only the newest row on the walk
+  await expect(page.locator('[data-undo="2"]')).toBeVisible();
+  await page.click('[data-undo="2"]');
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Cleared · Jordan Demo · 7:50 AM');
+  const undo = calls.filter((c) => c.body.action === 'undoTap');
+  expect(undo).toHaveLength(1);
+  expect(undo[0].body.seq).toBe(2);
+  expect(w.log.map((r) => [r.seq, r.state, r.undoes])).toEqual([[1, 'cleared', null], [2, 'treated', null], [3, 'cleared', 'L-2']]);
+  await expect(page.locator('[data-undo="3"]')).toBeVisible(); // the new newest row can be undone in turn
+  await expect(page.locator('[data-undo="2"]')).toHaveCount(0);
+});
+
+test('a poll and a tap carrying the same row show it once', async ({ page }) => {
+  // Jordan taps (the fake writes L-1, seq 1) before his phone's cursor moves, so
+  // the next poll (cursor 0) carries L-1 again. Then Alex treats the same walk
+  // (L-2, seq 2) and the next poll carries only that. Worked by hand:
+  // rows after the tap [L-1]; after poll 2 still [L-1]; after poll 3 [L-1, L-2].
+  const w = stormWorld();
+  const calls = await openStorm(page, w);
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped'); // first poll answered
+  await walkBtn(page, 'S1|Z1', 'cleared').click();
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Cleared · Jordan Demo');
+  await pollNow(page);
+  await expect.poll(async () => (await phoneState(page)).cursor.log).toBe(1); // poll 2 has been merged
+  const s = await phoneState(page);
+  expect(shiftCalls(calls)[1].body.cursor.log).toBe(0);      // it did ask from 0, so it was handed L-1 again
+  expect(s.log.map((r) => r.id)).toEqual(['L-1']);          // once
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Cleared · Jordan Demo');
+  w.log.push(logRow(2, 'S1', 'Z1', 'treated', 'Alex Test'));
+  await pollNow(page);
+  await expect.poll(async () => (await phoneState(page)).cursor.log).toBe(2);
+  expect((await phoneState(page)).log.map((r) => r.id)).toEqual(['L-1', 'L-2']);
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Treated · Alex Test');
+  expect(w.log).toHaveLength(2);
+});
+
+test('the phone asks only for rows after its cursor', async ({ page }) => {
+  // The fake holds 2 log rows and 1 storm row, no visits. First ask: from zero.
+  // The reply says how many rows each tab has (2, 1, 0); the second ask carries
+  // that back, plus the seq of the last row it got per tab (2, 1, none).
+  const w = stormWorld();
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test'), logRow(2, 'S1', 'Z2', 'checked', 'Alex Test')];
+  const calls = await openStorm(page, w);
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Cleared · Alex Test');
+  await pollNow(page);
+  await expect.poll(() => shiftCalls(calls).length).toBe(2);
+  const [first, second] = shiftCalls(calls).map((c) => c.body);
+  expect(first.cursor).toEqual({ log: 0, storms: 0, visits: 0 });
+  expect(second.cursor).toEqual({ log: 2, storms: 1, visits: 0 });
+  expect(second.last).toEqual({ log: 2, storms: 1, visits: null });
+  await expect.poll(async () => (await phoneState(page)).cursor.log).toBe(2);
+  expect((await phoneState(page)).log.map((r) => r.id)).toEqual(['L-1', 'L-2']); // nothing came twice
+});
+
+test('polling stops on an expired session and shows sign-in', async ({ page }) => {
+  const expired = { on: false };
+  const calls = await openStorm(page, stormWorld(), { fake: { expired } });
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  expired.on = true;
+  await page.clock.runFor(20000); // the 20 s timer fires one poll; the server says the session is gone
+  await expect(page.locator('#signin')).toBeVisible();
+  await expect(page.locator('#si_err')).toContainText('Sign in again');
+  const before = shiftCalls(calls).length; // the first poll plus the one that was refused: 2
+  expect(before).toBe(2);
+  await page.clock.runFor(60000);          // three more timer ticks' worth of time
+  await page.waitForTimeout(300);
+  expect(shiftCalls(calls)).toHaveLength(before);
+});
+
+test('a reset reply replaces the phone\'s rows', async ({ page }) => {
+  // The phone has seen 3 rows (cursor 3). Then rows are deleted by hand in the
+  // Sheet: only L-1 is left. The cursor (3) is past the tab (1 row), so the
+  // server answers every row with reset: true. Heated walk's "Checked" (L-2)
+  // and the Whole site row (L-3) must go from the phone; Main entry stays.
+  const w = stormWorld();
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test'), logRow(2, 'S1', 'Z2', 'checked', 'Alex Test'), logRow(3, 'S2', 'whole', 'cleared', 'Alex Test')];
+  await openStorm(page, w);
+  await expect(walkRow(page, 'S1|Z2')).toContainText('Checked · Alex Test');
+  expect((await phoneState(page)).cursor.log).toBe(3);
+  w.log = [w.log[0]];
+  await pollNow(page);
+  await expect(walkRow(page, 'S1|Z2')).not.toContainText('Alex Test');
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Cleared · Alex Test');
+  const s = await phoneState(page);
+  expect(s.log.map((r) => r.id)).toEqual(['L-1']);
+  expect(s.cursor.log).toBe(1);
+});
+
+test('a site with no zones shows one Whole site walk', async ({ page }) => {
+  const calls = await openStorm(page, stormWorld());
+  await page.click('#otherRoutes');
+  await expect(page.locator('[data-walkrow^="S2|"]')).toHaveCount(1);
+  await expect(walkRow(page, 'S2|whole')).toContainText('Whole site');
+  expect(await page.locator('[data-walkrow="S2|whole"] [data-walk]').evaluateAll((els) => els.map((e) => e.dataset.state))).toEqual(['cleared', 'treated', 'problem']);
+  await walkBtn(page, 'S2|whole', 'treated').click();
+  await expect(walkRow(page, 'S2|whole')).toContainText('Treated · Jordan Demo · 7:50 AM');
+  expect(tapCalls(calls)[0].body).toMatchObject({ site_id: 'S2', zone_id: 'whole', state: 'treated' });
+});
+
+test('the banner says whether it is snowing, or that no storm is open', async ({ page }) => {
+  const w = stormWorld();
+  w.storms.push({ id: 'ST-2', seq: 2, kind: 'snowing', storm_id: 'ST-1', at: '2026-10-03T06:10:00.000-08:00', by_name: 'Matthew' });
+  await openStorm(page, w);
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snowing');
+});
+
+test('with no storm row at all the banner says no storm is open', async ({ page }) => {
+  const w = stormWorld(); w.storms = [];
+  await openStorm(page, w);
+  await expect(page.locator('#stormhead')).toHaveText('No storm open');
+});
+
+test('Matt sees every route\'s walks on the Storm tab', async ({ page }) => {
+  await openStorm(page, stormWorld(), { token: 'tok-matt' });
+  await expect(walkBtn(page, 'S1|Z1', 'cleared')).toBeVisible();
+  await expect(walkBtn(page, 'S2|whole', 'cleared')).toBeVisible();
+  await expect(page.locator('#otherRoutes')).toHaveCount(0);
+});
+
+test('crew still land on Tonight, with a Storm tab beside it', async ({ page }) => {
+  await open(page, { token: 'tok-jordan', snow: fakeSnow(stormWorld()), clockAt: STORM_CLOCK });
+  await expect(page.locator('nav [data-tab="tonight"][aria-current="page"]')).toBeVisible();
+  await expect(page.locator('nav [data-tab="storm"]')).toBeVisible();
 });

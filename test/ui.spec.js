@@ -1762,7 +1762,7 @@ test('blank fields are sent blank, never 0', async ({ page }) => {
   const w = stormWorld();
   const calls = await openStorm(page, w);
   await openCard(page, 'S1');
-  await page.check('[data-eq="blower"]'); // ticked, minutes left empty
+  // Nothing typed, nothing ticked: depth, materials and every machine go as ''.
   await page.click('#vc_save');
   await expect(page.locator('#dlg')).toBeHidden();
   const first = visitCalls(calls)[0].body;
@@ -1780,6 +1780,33 @@ test('blank fields are sent blank, never 0', async ({ page }) => {
   expect(second.depth_in).toBe(0);
   expect(second.equipment).toEqual({ blower: 0, snowrator: '', bobcat: '', sweepster: '' });
   expect(second.materials_used).toBe('');
+});
+
+test('a ticked machine needs minutes before it saves', async ({ page }) => {
+  // Ticking says "this machine was used"; saved blank, the tick would be lost on reopening.
+  // Blower ticked with no minutes, Bobcat also ticked with none: the first (Blower, in card order) is named.
+  const w = stormWorld();
+  const calls = await openStorm(page, w);
+  await openCard(page, 'S1');
+  await page.check('[data-eq="bobcat"]');
+  await page.check('[data-eq="blower"]');
+  await page.click('#vc_save');
+  await expect(page.locator('#vc_err')).toBeVisible();
+  await expect(page.locator('#vc_err')).toHaveText('Add minutes for Blower, or untick it');
+  await expect(page.locator('#dlg')).toBeVisible();
+  expect(visitCalls(calls)).toHaveLength(0);
+  expect(w.visits || []).toHaveLength(0);
+  // Blower filled in: now Bobcat is the one named, still nothing sent.
+  await page.fill('[data-eqmin="blower"]', '30');
+  await page.click('#vc_save');
+  await expect(page.locator('#vc_err')).toHaveText('Add minutes for Bobcat, or untick it');
+  expect(visitCalls(calls)).toHaveLength(0);
+  // Untick it (unticked machines go as ''), and Save sends the minutes typed.
+  await page.uncheck('[data-eq="bobcat"]');
+  await page.click('#vc_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(visitCalls(calls)).toHaveLength(1);
+  expect(visitCalls(calls)[0].body.equipment).toEqual({ blower: 30, snowrator: '', bobcat: '', sweepster: '' });
 });
 
 test('materials needed is printed beside materials used', async ({ page }) => {

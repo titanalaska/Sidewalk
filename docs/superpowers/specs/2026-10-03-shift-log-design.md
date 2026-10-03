@@ -26,6 +26,7 @@ start/finish) come out of the app.
 | Who runs the storm | **Matt and leads**: Start, End, Reopen storm, the Snowing/Stopped switch, and Night shift on. Every one is logged with who |
 | Who marks walks | Anyone. A tap off the person's Board route **saves with an off-route flag** (not refused) |
 | Zone states | sidewalk: Cleared / Treated / Problem. heated: Checked / Problem (**never** Treated). no_touch: nothing. Problem needs a note |
+| No zones drawn | A site with no live sidewalk or heated zone gets **one "Whole site" walk** (`zone_id` `whole`, sidewalk states). It disappears once Matt draws a zone there (Matt, 10/3) |
 | Mistakes | **Undo** adds a row restoring the walk's previous state. Mistake and fix both stay in the log |
 | Weather | NWS hourly forecast shown as a hint. **The switch is what counts.** Treated while Snowing = yellow warning, **allowed**, and the row records the warning |
 | Shifts | Day starts 9 AM by itself (time.js). Night starts when Matt or a lead taps **Night shift on**. No tap = the day shift carries on |

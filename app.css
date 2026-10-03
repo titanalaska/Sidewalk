@@ -178,3 +178,38 @@ body.has-ref.ref-min #mapbox{height:62vh}
 .vc-eq input[data-eqmin]{width:96px}
 .vc-matrow .muted{margin-top:4px;font-size:14px}
 .vc-times{margin-top:12px}
+/* Live view and storm controls (Matt and the leads, 10/3/26). */
+:root{--yellow-bg:#fff3bf;--yellow-ink:#5c4400;--yellow-line:#e0b400}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--yellow-bg:#3d3300;--yellow-ink:#ffe27a;--yellow-line:#a88700}}
+:root[data-theme="dark"]{--yellow-bg:#3d3300;--yellow-ink:#ffe27a;--yellow-line:#a88700}
+.walk-warn{margin-top:8px;padding:8px 10px;border-radius:8px;background:var(--yellow-bg);color:var(--yellow-ink);border:1px solid var(--yellow-line);font-size:14px;font-weight:600}
+.stormctl .row{margin-top:0;flex-wrap:wrap;align-items:center}
+.stormbtn{font-weight:600;min-height:52px}
+.stormbtn.danger{border-color:var(--warn);color:var(--warn)}
+.stormbtn[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.stormbtn:disabled{opacity:.7}
+.stormbtn.pending{opacity:.55}
+.seg{display:inline-flex;gap:0}
+.seg .stormbtn:first-child{border-radius:8px 0 0 8px}
+.seg .stormbtn:last-child{border-radius:0 8px 8px 0;border-left:0}
+#shiftnow{margin-top:8px}
+.problems{background:var(--warn-bg);border-color:var(--warn);color:var(--warn)}
+.problems h2{color:var(--warn);font-size:17px;margin:0 0 6px}
+.problems ul{list-style:none;margin:0;padding:0}
+.problems li{padding:8px 0;border-top:1px solid var(--warn)}
+.problems li:first-child{border-top:0}
+.problem-note{font-weight:600;color:var(--ink)}
+.problems .muted{color:var(--warn)}
+.live-open{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;text-align:left;border:0;padding:0;background:none;min-height:44px}
+.live-count{font-weight:600}
+.live-route progress{width:100%;height:14px;margin:8px 0}
+.live-who{font-size:15px}
+.live-sites{list-style:none;margin:8px 0 0;padding:0}
+.live-site{padding:8px 0;border-top:1px solid var(--line)}
+.live-siterow{display:flex;justify-content:space-between;gap:8px}
+.live-sitename{font-weight:600}
+.live-status{font-size:14px;color:var(--muted)}
+.live-status.done{color:var(--ok);font-weight:600}
+.live-status.bad{color:var(--warn);font-weight:600}
+.offroute{font-size:12px;font-weight:700;padding:1px 8px;border-radius:999px;background:var(--yellow-bg);color:var(--yellow-ink);border:1px solid var(--yellow-line)}
+.live-totals{margin-top:4px}

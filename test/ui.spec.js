@@ -24,7 +24,8 @@ function fakeSnow(state, opts = {}) {
     if (body.token === 'tok-nina') return { ok: false, code: 'not_on_roster', name: 'Nina Nursery', reason: "You're signed in, but not on the snow crew yet. Ask Matt to add you.", ...v };
     const role = TOKENS[body.token];
     if (!role) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
-    const me = { name: role === 'admin' ? 'Matthew' : 'Jordan Demo', role, crew_id: role === 'admin' ? null : 'C03' };
+    // Matt is not on the roster; Alex (C01) is the lead on the roster, Jordan (C03) crew.
+    const me = { name: role === 'admin' ? 'Matthew' : role === 'lead' ? 'Alex Test' : 'Jordan Demo', role, crew_id: role === 'admin' ? null : role === 'lead' ? 'C01' : 'C03' };
     state.moves = state.moves || []; state.callouts = state.callouts || []; state.gear = state.gear || []; state.posts = state.posts || [];
     if (body.action === 'bootstrap') {
       const crew = role === 'admin' ? state.crew : state.crew.map((c) => ({ id: c.id, name: c.name, phone: c.phone, photo_thumb: c.photo_thumb || null, is_lead: !!c.is_lead }));
@@ -121,12 +122,14 @@ function fakeSnow(state, opts = {}) {
         const why = SL.checkTap({ walk, state: body.state, note: body.note });
         if (why) return refuse('invalid', why);
         row = { id: 'L-' + n, seq: n, storm_id: storm.storm_id, shift_id: 'night-2026-10-02', site_id: body.site_id, zone_id: body.zone_id,
-          state: body.state, note: String(body.note || ''), by_key: 'C03', by_name: me.name, at: stamp, off_route: false, snowing_warned: false, undoes: null };
+          state: body.state, note: String(body.note || ''), by_key: me.crew_id || 'admin', by_name: me.name, at: stamp, off_route: false,
+          // The server sets this from the switch: Treated while Snowing is saved, flagged.
+          snowing_warned: body.state === 'treated' && storm.snowing, undoes: null };
       } else {
         const t = SL.undoTarget(state.log, storm.storm_id, body.seq);
         if (!t.ok) return refuse('conflict', t.reason);
         row = { id: 'L-' + n, seq: n, storm_id: storm.storm_id, shift_id: 'night-2026-10-02', site_id: t.row.site_id, zone_id: t.row.zone_id,
-          state: t.state, note: t.note, by_key: 'C03', by_name: me.name, at: stamp, off_route: false, snowing_warned: false, undoes: t.row.id };
+          state: t.state, note: t.note, by_key: me.crew_id || 'admin', by_name: me.name, at: stamp, off_route: false, snowing_warned: false, undoes: t.row.id };
       }
       state.log.push(row);
       return { ok: true, record: view(row), ...v };
@@ -1424,7 +1427,7 @@ const logRow = (n, siteId, zoneId, state, by, extra = {}) => ({ id: 'L-' + n, se
   site_id: siteId, zone_id: zoneId, state, note: '', by_key: 'C01', by_name: by, at: '2026-10-03T06:30:00.000-08:00',
   off_route: false, snowing_warned: false, undoes: null, ...extra });
 async function openStorm(page, w, o = {}) {
-  const calls = await open(page, { token: o.token || 'tok-jordan', snow: fakeSnow(w, o.fake), clockAt: STORM_CLOCK, delay: o.delay, abortIf: o.abortIf });
+  const calls = await open(page, { token: o.token || 'tok-jordan', snow: fakeSnow(w, o.fake), clockAt: o.clockAt || STORM_CLOCK, delay: o.delay, abortIf: o.abortIf });
   await page.click('nav [data-tab="storm"]');
   return calls;
 }
@@ -1435,6 +1438,8 @@ const walkBtn = (page, key, state) => page.locator('[data-walk="' + key + '"][da
 const phoneState = (page) => page.evaluate(() => SnowShiftUI.state());
 // Another visibilitychange = the app coming back on screen = one poll now.
 const pollNow = (page) => page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+// Matt and the leads land on the live view; tapping a route opens it as the crew see it.
+const openRoute = async (page, id) => { await page.locator('[data-openroute="' + id + '"]').click(); await expect(page.locator('#liveBack')).toBeVisible(); };
 
 test('crew see their own route\'s walks first and other routes behind a button', async ({ page }) => {
   await openStorm(page, stormWorld());
@@ -1700,11 +1705,24 @@ test('with no storm row at all the banner says no storm is open', async ({ page 
   await expect(page.locator('#stormhead')).toHaveText('No storm open');
 });
 
-test('Matt sees every route\'s walks on the Storm tab', async ({ page }) => {
-  await openStorm(page, stormWorld(), { token: 'tok-matt' });
-  await expect(walkBtn(page, 'S1|Z1', 'cleared')).toBeVisible();
+test('Matt lands on the live view, and opens any route to tap its walks', async ({ page }) => {
+  const w = stormWorld();
+  const calls = await openStorm(page, w, { token: 'tok-matt' });
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  // The live view shows no walk buttons: a route opens on tap (Task 6).
+  await expect(page.locator('[data-liveroute]')).toHaveCount(2);
+  await expect(page.locator('[data-walk]')).toHaveCount(0);
+  await openRoute(page, 'R2');
   await expect(walkBtn(page, 'S2|whole', 'cleared')).toBeVisible();
+  await expect(walkBtn(page, 'S1|Z1', 'cleared')).toHaveCount(0); // that route only
   await expect(page.locator('#otherRoutes')).toHaveCount(0);
+  await walkBtn(page, 'S2|whole', 'cleared').click();
+  await expect(walkRow(page, 'S2|whole')).toContainText('Cleared · Matthew');
+  expect(tapCalls(calls)).toHaveLength(1);
+  // Back to the live view: the route now counts that site as done.
+  await page.click('#liveBack');
+  await expect(page.locator('[data-liveroute="R2"] .live-count')).toHaveText('1 of 1 sites done');
+  await expect(page.locator('[data-walk]')).toHaveCount(0);
 });
 
 test('crew still land on Tonight, with a Storm tab beside it', async ({ page }) => {
@@ -1896,6 +1914,7 @@ test('Matt\'s card starts blank when only crew have saved one', async ({ page })
   w.visits = [visitRow(1, 'S1', 'C03', 'Jordan Demo', { depth_in: 2, materials_used: 'salt', equipment: { blower: 20, snowrator: '', bobcat: '', sweepster: '' } })];
   const calls = await openStorm(page, w, { token: 'tok-matt' });
   await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await openRoute(page, 'R1'); // Matt lands on the live view; the card is on the route's page
   await openCard(page, 'S1');
   await expect(page.locator('#vc_depth')).toHaveValue('');
   await expect(page.locator('#vc_mat')).toHaveValue('');
@@ -1927,4 +1946,239 @@ test('a card refused for no open storm says so and stays open; a double tap on S
   await expect(page.locator('#dlg')).toBeVisible();
   expect(w.visits).toHaveLength(1);
   await expect(page.locator('#vc_save')).toBeEnabled(); // can try again once the busy lock is released
+});
+
+// ---------------- the Storm tab: the live view and storm controls (Matt and leads) ----------------
+// Matt and the leads land on the live view: Problems in red on top, then every
+// route with how far along it is. Tapping a route opens it as the crew see it.
+// Crew never get the live view or the controls (the server refuses them too).
+const stormCalls = (calls) => calls.filter((c) => c.body.action === 'stormAction');
+const at = (hhmm) => '2026-10-03T' + hhmm + ':00.000-08:00';
+const ctl = (page, kind) => page.locator('[data-storm="' + kind + '"]');
+
+test('problems show first, in red, with the note and who', async ({ page }) => {
+  // Newest row per walk in storm ST-1, worked by hand:
+  //   S1|Z1    L1 problem (Alex, 6:30, "ice under the mat")           -> a problem
+  //   S1|Z2    L2 problem (Alex, 6:35), then L3 checked (Jordan, 6:40) -> checked: NOT a problem
+  //   S2|whole L4 problem (Jordan, 6:50, "drain blocked")             -> a problem
+  // Newest first by seq: L4 (TUDOR-TRANSIT, Whole site) then L1 (PAC, Main entry).
+  const w = stormWorld();
+  w.log = [logRow(1, 'S1', 'Z1', 'problem', 'Alex Test', { note: 'ice under the mat', at: at('06:30') }),
+    logRow(2, 'S1', 'Z2', 'problem', 'Alex Test', { note: 'heat cable dead', at: at('06:35') }),
+    logRow(3, 'S1', 'Z2', 'checked', 'Jordan Demo', { by_key: 'C03', at: at('06:40') }),
+    logRow(4, 'S2', 'whole', 'problem', 'Jordan Demo', { note: 'drain blocked', by_key: 'C03', at: at('06:50') })];
+  await openStorm(page, w, { token: 'tok-matt' });
+  await expect(page.locator('#problems')).toBeVisible();
+  expect(await page.locator('[data-problem]').evaluateAll((els) => els.map((e) => e.dataset.problem))).toEqual(['S2|whole', 'S1|Z1']);
+  const first = page.locator('[data-problem="S2|whole"]'), second = page.locator('[data-problem="S1|Z1"]');
+  for (const t of ['TUDOR-TRANSIT', 'Whole site', 'drain blocked', 'Jordan Demo', '6:50 AM']) await expect(first).toContainText(t);
+  for (const t of ['PAC', 'Main entry', 'ice under the mat', 'Alex Test', '6:30 AM']) await expect(second).toContainText(t);
+  await expect(page.locator('#problems')).not.toContainText('heat cable dead'); // a problem since marked Checked is not one
+  // Red (--warn, #b3261e in the light theme), and above every route.
+  expect(await page.locator('#problems h2').evaluate((e) => getComputedStyle(e).color)).toBe('rgb(179, 38, 30)');
+  const problemsY = (await page.locator('#problems').boundingBox()).y, routeY = (await page.locator('[data-liveroute]').first().boundingBox()).y;
+  expect(problemsY).toBeLessThan(routeY);
+});
+
+// Routes N1 (PAC, EXTRA), N10 (NEWSITE), N2 (TUDOR-TRANSIT), stored in that order.
+const liveWorld = () => {
+  const w = stormWorld();
+  w.sites = [...w.sites, { id: 'S3', name: 'EXTRA', rev: 1 }, { id: 'S4', name: 'NEWSITE', rev: 1 }];
+  w.routes = [{ id: 'R1', name: 'N1', rev: 1, site_ids: ['S1', 'S3'] }, { id: 'R3', name: 'N10', rev: 1, site_ids: ['S4'] }, { id: 'R2', name: 'N2', rev: 1, site_ids: ['S2'] }];
+  return w;
+};
+
+test('a route shows how many sites are done', async ({ page }) => {
+  // N1 = PAC (Z1 sidewalk cleared 6:30, Z2 heated checked 6:40: both walks done -> done) + EXTRA (no zones,
+  // its one Whole-site walk untapped -> not done): 1 of 2. Last tap 6:40.
+  // N2 = TUDOR-TRANSIT untapped: 0 of 1, no taps yet. N10 = NEWSITE untapped: 0 of 1.
+  // Numeric order is N1, N2, N10 (not N1, N10, N2). The post names Alex (lead) and Jordan on N1.
+  const w = liveWorld();
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: at('06:30') }), logRow(2, 'S1', 'Z2', 'checked', 'Jordan Demo', { by_key: 'C03', at: at('06:40') })];
+  await openStorm(page, w, { token: 'tok-matt' });
+  await expect(page.locator('[data-liveroute="R1"]')).toBeVisible();
+  expect(await page.locator('[data-liveroute]').evaluateAll((els) => els.map((e) => e.dataset.liveroute))).toEqual(['R1', 'R2', 'R3']);
+  await expect(page.locator('[data-liveroute="R1"] .live-count')).toHaveText('1 of 2 sites done');
+  await expect(page.locator('[data-liveroute="R1"] progress')).toHaveAttribute('value', '1');
+  await expect(page.locator('[data-liveroute="R1"] progress')).toHaveAttribute('max', '2');
+  await expect(page.locator('[data-liveroute="R1"] .live-who')).toHaveText('Alex Test (lead), Jordan Demo');
+  await expect(page.locator('[data-liveroute="R1"] .live-last')).toHaveText('Last tap 6:40 AM');
+  await expect(page.locator('[data-liveroute="R2"] .live-count')).toHaveText('0 of 1 sites done');
+  await expect(page.locator('[data-liveroute="R2"] progress')).toHaveAttribute('value', '0');
+  await expect(page.locator('[data-liveroute="R2"] .live-last')).toHaveText('No taps yet');
+  await expect(page.locator('[data-liveroute="R2"] .live-who')).toHaveText('Alex Test (lead)');
+  await expect(page.locator('[data-liveroute="R3"] .live-count')).toHaveText('0 of 1 sites done');
+  await expect(page.locator('[data-liveroute="R3"] .live-who')).toHaveText('Not posted'); // N10 is not on the post
+  // Site totals under each site: Jordan's and Alex's cards at PAC, shift night-2026-10-02 (the fake's shift).
+  w.visits = [visitRow(1, 'S1', 'C03', 'Jordan Demo', { depth_in: 3.5, materials_used: 'salt', equipment: { blower: 30, snowrator: '', bobcat: '', sweepster: '' } }),
+    visitRow(2, 'S1', 'C01', 'Alex Test', { depth_in: 2, materials_used: 'sand', equipment: { blower: 15, snowrator: '', bobcat: 45, sweepster: '' } })];
+  await pollNow(page);
+  // Worked out: blower 30 + 15 = 45, bobcat 45, nothing logged for the others; depth per person.
+  const totals = page.locator('[data-livesite="S1"] .live-totals');
+  await expect(totals).toContainText('Blower 45 min');
+  await expect(totals).toContainText('Bobcat 45 min');
+  await expect(totals).not.toContainText('Snowrator');
+  await expect(totals).toContainText('Jordan Demo 3.5 in');
+  await expect(totals).toContainText('Alex Test 2 in');
+  await expect(page.locator('[data-livesite="S3"] .live-totals')).toHaveCount(0);
+});
+
+test('an off-route tap is marked in the live view', async ({ page }) => {
+  const w = stormWorld();
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: at('06:30') }),
+    logRow(2, 'S2', 'whole', 'cleared', 'Jordan Demo', { by_key: 'C03', off_route: true, at: at('06:50') })];
+  await openStorm(page, w, { token: 'tok-matt' });
+  await expect(page.locator('[data-livesite="S2"] .offroute')).toBeVisible();
+  await expect(page.locator('[data-livesite="S2"] .offroute')).toContainText('off-route');
+  await expect(page.locator('[data-livesite="S2"]')).toContainText('Jordan Demo');
+  await expect(page.locator('[data-livesite="S1"] .offroute')).toHaveCount(0); // Alex's tap was on his route
+});
+
+test('crew see no storm controls and no live view', async ({ page }) => {
+  const w = stormWorld();
+  w.log = [logRow(1, 'S1', 'Z1', 'problem', 'Alex Test', { note: 'ice under the mat', at: at('06:30') })];
+  await openStorm(page, w); // Jordan
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect(walkBtn(page, 'S1|Z1', 'cleared')).toBeVisible(); // the crew view is there
+  await expect(page.locator('#stormctl')).toBeHidden();
+  await expect(page.locator('#problems')).toBeHidden();
+  await expect(page.locator('#liveBack')).toBeHidden();
+  await expect(page.locator('[data-storm]')).toHaveCount(0);
+  await expect(page.locator('[data-liveroute]')).toHaveCount(0);
+  await expect(page.locator('[data-openroute]')).toHaveCount(0);
+  // Matt ends the storm: still no Start / Reopen for crew.
+  w.storms.push({ id: 'ST-2', seq: 2, kind: 'end', storm_id: 'ST-1', at: at('07:40'), by_name: 'Matthew' });
+  await pollNow(page);
+  await expect(page.locator('#stormhead')).toHaveText('No storm open');
+  await expect(page.locator('#stormctl')).toBeHidden();
+  await expect(page.locator('[data-storm]')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^(Start|End|Reopen) storm$/ })).toHaveCount(0);
+});
+
+test('a lead can start a storm; End asks first', async ({ page }) => {
+  const w = stormWorld(); w.storms = [];
+  const calls = await openStorm(page, w, { token: 'tok-alex' });
+  await expect(page.locator('#stormhead')).toHaveText('No storm open');
+  // No storm yet: only Start. (Reopen needs a storm to reopen; the rest need one open.)
+  await expect(ctl(page, 'start')).toHaveText('Start storm');
+  for (const k of ['reopen', 'end', 'snowing', 'stopped', 'night_on']) await expect(ctl(page, k)).toHaveCount(0);
+  // Start asks first; Cancel sends nothing.
+  await ctl(page, 'start').click();
+  await expect(page.locator('#dlg')).toBeVisible();
+  await expect(page.locator('#dlgIn')).toContainText('Are you sure?');
+  expect(stormCalls(calls)).toHaveLength(0);
+  await page.click('#dlgClose');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(stormCalls(calls)).toHaveLength(0);
+  await ctl(page, 'start').click();
+  await page.click('#sc_yes');
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  expect(stormCalls(calls)).toHaveLength(1);
+  expect(stormCalls(calls)[0].body).toMatchObject({ action: 'stormAction', kind: 'start' });
+  for (const k of ['by_name', 'by_key', 'by_profile', 'at', 'storm_id', 'seq']) expect(stormCalls(calls)[0].body).not.toHaveProperty(k);
+  expect(w.storms.map((r) => [r.kind, r.by_name])).toEqual([['start', 'Alex Test']]); // who comes from the token
+  // Open: End, the Snowing|Stopped switch and Night shift on; no Start, no Reopen.
+  for (const k of ['end', 'snowing', 'stopped', 'night_on']) await expect(ctl(page, k)).toBeVisible();
+  for (const k of ['start', 'reopen']) await expect(ctl(page, k)).toHaveCount(0);
+  await expect(ctl(page, 'stopped')).toHaveAttribute('aria-pressed', 'true');
+  // End asks first.
+  await ctl(page, 'end').click();
+  await expect(page.locator('#dlgIn')).toContainText('Are you sure?');
+  expect(stormCalls(calls)).toHaveLength(1);
+  await page.click('#sc_yes');
+  await expect(page.locator('#stormhead')).toHaveText('No storm open');
+  expect(stormCalls(calls)).toHaveLength(2);
+  expect(stormCalls(calls)[1].body).toMatchObject({ kind: 'end' });
+  // Ended: Start and Reopen are on offer, End is gone.
+  await expect(ctl(page, 'start')).toBeVisible();
+  await expect(ctl(page, 'reopen')).toBeVisible();
+  await expect(ctl(page, 'end')).toHaveCount(0);
+  // Reopen and the switch do not ask.
+  await ctl(page, 'reopen').click();
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect(page.locator('#dlg')).toBeHidden();
+  await ctl(page, 'snowing').click();
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snowing');
+  await expect(ctl(page, 'snowing')).toHaveAttribute('aria-pressed', 'true');
+  expect(w.storms.map((r) => r.kind)).toEqual(['start', 'end', 'reopen', 'snowing']);
+  expect(stormCalls(calls).map((c) => c.body.kind)).toEqual(['start', 'end', 'reopen', 'snowing']);
+});
+
+test('a refused storm control says why and the phone catches up', async ({ page }) => {
+  // Another lead started a storm a moment ago: this phone has not heard yet. The
+  // fake's reasons are the backend's ("End the storm first").
+  const w = stormWorld(); w.storms = [];
+  const calls = await openStorm(page, w, { token: 'tok-matt' });
+  await expect(ctl(page, 'start')).toBeVisible();
+  w.storms.push(START_ROW);
+  await ctl(page, 'start').click();
+  await page.click('#sc_yes');
+  await expect(page.locator('#stormerr')).toHaveText('Not saved: End the storm first');
+  expect(w.storms).toHaveLength(1); // nothing was written
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped'); // caught up
+  expect(stormCalls(calls)).toHaveLength(1);
+});
+
+test('a double tap on a storm control sends one', async ({ page }) => {
+  const w = stormWorld();
+  const calls = await openStorm(page, w, { token: 'tok-matt', delay: { stormAction: 600 } });
+  await expect(ctl(page, 'snowing')).toBeVisible();
+  await page.evaluate(() => { const b = document.querySelector('[data-storm="snowing"]'); b.click(); b.click(); });
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snowing');
+  expect(stormCalls(calls)).toHaveLength(1);
+  expect(w.storms.filter((r) => r.kind === 'snowing')).toHaveLength(1);
+});
+
+test('night shift on is sent and shown', async ({ page }) => {
+  // 7 PM on 10/3, no night_on yet: the day shift carries on (day-2026-10-03). The fake stamps the
+  // night_on row 7 PM; at or after 9 AM the same date and already happened -> night-2026-10-03.
+  const w = stormWorld(); w.clock = at('19:00');
+  const calls = await openStorm(page, w, { token: 'tok-matt', clockAt: at('19:00') });
+  await expect(page.locator('#shiftnow')).toHaveText('Day shift');
+  await expect(ctl(page, 'night_on')).toHaveText('Night shift on');
+  await expect(ctl(page, 'night_on')).toHaveAttribute('aria-pressed', 'false');
+  await ctl(page, 'night_on').click();
+  await expect(page.locator('#shiftnow')).toHaveText('Night shift');
+  expect(stormCalls(calls)).toHaveLength(1);
+  expect(stormCalls(calls)[0].body).toMatchObject({ action: 'stormAction', kind: 'night_on' });
+  expect(w.storms.at(-1)).toMatchObject({ kind: 'night_on', by_name: 'Matthew', at: at('19:00') });
+  await expect(ctl(page, 'night_on')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped'); // the weather is untouched
+});
+
+test('treated while snowing shows the yellow warning and still saves', async ({ page }) => {
+  const w = stormWorld();
+  w.storms.push({ id: 'ST-2', seq: 2, kind: 'snowing', storm_id: 'ST-1', at: at('06:10'), by_name: 'Matthew' });
+  const calls = await openStorm(page, w, { delay: { tapZone: 500 } });
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snowing');
+  const warn = page.locator('[data-warn="S1|Z1"]');
+  await expect(warn).toBeHidden();
+  await walkBtn(page, 'S1|Z1', 'treated').click();
+  // The warning shows at once, while the tap is still on its way: the tap is not blocked.
+  await expect(warn).toBeVisible();
+  await expect(walkRow(page, 'S1|Z1')).toHaveAttribute('aria-busy', 'true');
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Treated · Jordan Demo · 7:50 AM');
+  await expect(warn).toHaveText("It's still snowing: treated anyway");
+  expect(tapCalls(calls)).toHaveLength(1);
+  expect(tapCalls(calls)[0].body).toMatchObject({ site_id: 'S1', zone_id: 'Z1', state: 'treated' });
+  expect(w.log).toHaveLength(1);
+  expect(w.log[0]).toMatchObject({ state: 'treated', snowing_warned: true }); // saved, and flagged by the server
+  // It stays after a poll (it comes from the saved row), and goes when the walk's newest row is not a Treated.
+  await pollNow(page);
+  await expect(warn).toBeVisible();
+  await walkBtn(page, 'S1|Z1', 'cleared').click();
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Cleared · Jordan Demo');
+  await expect(warn).toBeHidden(); // Cleared while snowing is fine
+  expect(w.log[1]).toMatchObject({ state: 'cleared', snowing_warned: false });
+  // Another walk shows no warning of its own.
+  await expect(page.locator('[data-warn="S1|Z2"]')).toBeHidden();
+});
+
+test('treated while stopped shows no warning', async ({ page }) => {
+  const w = stormWorld();
+  await openStorm(page, w);
+  await walkBtn(page, 'S1|Z1', 'treated').click();
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Treated · Jordan Demo');
+  await expect(page.locator('[data-warn]')).toHaveCount(0);
+  expect(w.log[0].snowing_warned).toBe(false);
 });

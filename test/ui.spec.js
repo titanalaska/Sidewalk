@@ -1587,6 +1587,60 @@ test('the phone asks only for rows after its cursor', async ({ page }) => {
   expect((await phoneState(page)).log.map((r) => r.id)).toEqual(['L-1', 'L-2']); // nothing came twice
 });
 
+test('rows kept out of seq order in the Sheet do not make every poll reset', async ({ page }) => {
+  // Matt hand-sorted the Log tab: the sheet holds [L-2, L-1] in that physical
+  // order. The server checks the row at the cursor POSITION (the 2nd row, L-1),
+  // so after the first poll the phone must say last = 1 (the last row it was
+  // handed, in the order it was handed), not 2 (the highest seq). Saying 2
+  // would mismatch row 2's seq 1: reset:true with the whole tab, every 20 s.
+  const w = stormWorld();
+  w.log = [logRow(2, 'S1', 'Z1', 'treated', 'Alex Test'), logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test')];
+  const replies = [];
+  page.on('response', async (res) => {
+    if (!isSnow(new URL(res.url()))) return;
+    try { const j = await res.json(); if (j.reset) replies.push(j); } catch (e) { /* not ours */ }
+  });
+  const calls = await openStorm(page, w);
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Treated · Alex Test'); // seq 2 is the newest row, wherever it sits
+  await pollNow(page);
+  await expect.poll(() => shiftCalls(calls).length).toBe(2);
+  expect(shiftCalls(calls)[1].body.cursor.log).toBe(2);
+  expect(shiftCalls(calls)[1].body.last.log).toBe(1);
+  await expect.poll(() => replies.length).toBe(2);
+  expect(replies[1].reset.log).toBe(false);
+  expect(replies[1].log).toEqual([]);
+});
+
+test('polling runs only on the Storm tab, and only while the page is visible', async ({ page }) => {
+  const calls = await openStorm(page, stormWorld());
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  expect(shiftCalls(calls)).toHaveLength(1);
+  // Another tab: the timer is gone. Three ticks' worth of time asks nothing.
+  await page.click('nav [data-tab="tonight"]');
+  await page.clock.runFor(60000);
+  await page.waitForTimeout(300);
+  expect(shiftCalls(calls)).toHaveLength(1);
+  // Back on Storm: one poll at once, and the timer runs again (one tick = one more).
+  await page.click('nav [data-tab="storm"]');
+  await expect.poll(() => shiftCalls(calls).length).toBe(2);
+  // Page hidden (phone locked): the timer ticks but asks nothing.
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await page.clock.runFor(60000);
+  await page.waitForTimeout(300);
+  expect(shiftCalls(calls)).toHaveLength(2);
+  // Visible again: exactly one poll, straight away.
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect.poll(() => shiftCalls(calls).length).toBe(3);
+  await page.waitForTimeout(300);
+  expect(shiftCalls(calls)).toHaveLength(3);
+});
+
 test('polling stops on an expired session and shows sign-in', async ({ page }) => {
   const expired = { on: false };
   const calls = await openStorm(page, stormWorld(), { fake: { expired } });

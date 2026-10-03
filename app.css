@@ -172,3 +172,9 @@ body.has-ref.ref-min #mapbox{height:62vh}
 .notebox{margin-top:8px}
 .notebox textarea{width:100%}
 #otherRoutes{width:100%}
+/* Site card (10/3/26): one row per machine, tick on the left, minutes on the right. */
+.vc-eq{align-items:center;justify-content:space-between;flex-wrap:nowrap;margin-top:6px}
+.vc-eq label{display:flex;align-items:center;gap:8px;margin:0;min-height:44px}
+.vc-eq input[data-eqmin]{width:96px}
+.vc-matrow .muted{margin-top:4px;font-size:14px}
+.vc-times{margin-top:12px}

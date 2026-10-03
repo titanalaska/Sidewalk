@@ -107,7 +107,8 @@ function fakeSnow(state, opts = {}) {
       if (body.action !== 'undoTap' && !state.sites.find((s) => s.id === body.site_id && !s.archived)) return refuse('invalid', 'Unknown site');
       if (body.action === 'saveVisit') {
         const n = state.visits.length + 1, eq = { blower: '', snowrator: '', bobcat: '', sweepster: '', ...(body.equipment || {}) };
-        const row = { id: 'V-' + n, seq: n, storm_id: storm.storm_id, shift_id: 'night-2026-10-02', site_id: body.site_id, by_key: 'C03', by_name: me.name, at: stamp,
+        // by_key is the crew id, or 'admin' for Matt (who is not on the roster): the server's rule.
+        const row = { id: 'V-' + n, seq: n, storm_id: storm.storm_id, shift_id: 'night-2026-10-02', site_id: body.site_id, by_key: me.crew_id || 'admin', by_name: me.name, at: stamp,
           depth_in: body.depth_in === undefined ? '' : body.depth_in, materials_used: body.materials_used || '', equipment: eq };
         state.visits.push(row);
         return { ok: true, record: view(row), ...v };
@@ -1710,4 +1711,193 @@ test('crew still land on Tonight, with a Storm tab beside it', async ({ page }) 
   await open(page, { token: 'tok-jordan', snow: fakeSnow(stormWorld()), clockAt: STORM_CLOCK });
   await expect(page.locator('nav [data-tab="tonight"][aria-current="page"]')).toBeVisible();
   await expect(page.locator('nav [data-tab="storm"]')).toBeVisible();
+});
+
+// ---------------- the Storm tab: the site card ----------------
+// Replaces the paper route sheet's per-site fields: depth, materials used,
+// equipment minutes. Start and finish are never typed: they are the first and
+// last tap at the site this shift (CrewShiftLog.siteTimes). Same 7:30 AM clock
+// as above, so the shift is "night-2026-10-02" and the fake files cards there.
+const EQUIP = ['blower', 'snowrator', 'bobcat', 'sweepster'];
+const visitRow = (n, siteId, byKey, byName, extra = {}) => ({ id: 'V-' + n, seq: n, storm_id: 'ST-1', shift_id: 'night-2026-10-02',
+  site_id: siteId, by_key: byKey, by_name: byName, at: '2026-10-03T06:45:00.000-08:00', depth_in: '', materials_used: '',
+  equipment: { blower: '', snowrator: '', bobcat: '', sweepster: '' }, ...extra });
+const cardBtn = (page, id) => page.locator('[data-card="' + id + '"]');
+const visitCalls = (calls) => calls.filter((c) => c.body.action === 'saveVisit');
+const openCard = async (page, id) => { await cardBtn(page, id).click(); await expect(page.locator('#dlg')).toBeVisible(); };
+
+test('the site card sends depth, materials and ticked equipment minutes only', async ({ page }) => {
+  const w = stormWorld();
+  const calls = await openStorm(page, w);
+  await openCard(page, 'S1');
+  // Minutes cannot be typed until the machine is ticked.
+  await expect(page.locator('[data-eqmin="blower"]')).toBeDisabled();
+  await page.fill('#vc_depth', '3.5');
+  await page.fill('#vc_mat', 'salt, 2 bags');
+  await page.check('[data-eq="blower"]');
+  await expect(page.locator('[data-eqmin="blower"]')).toBeEnabled();
+  await page.fill('[data-eqmin="blower"]', '30');
+  await page.check('[data-eq="bobcat"]');
+  await page.fill('[data-eqmin="bobcat"]', '45');
+  // Ticked, typed, then unticked: the minutes are not sent.
+  await page.check('[data-eq="snowrator"]');
+  await page.fill('[data-eqmin="snowrator"]', '99');
+  await page.uncheck('[data-eq="snowrator"]');
+  await expect(page.locator('[data-eqmin="snowrator"]')).toBeDisabled();
+  await page.click('#vc_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(visitCalls(calls)).toHaveLength(1);
+  const body = visitCalls(calls)[0].body;
+  // Worked out: 3.5 in; the text as typed; blower 30 and bobcat 45; snowrator and sweepster unticked = blank.
+  expect(body).toMatchObject({ action: 'saveVisit', site_id: 'S1', depth_in: 3.5, materials_used: 'salt, 2 bags',
+    equipment: { blower: 30, snowrator: '', bobcat: 45, sweepster: '' } });
+  expect(Object.keys(body.equipment).sort()).toEqual([...EQUIP].sort());
+  // The server knows who, when and which shift: the phone sends none of it, nor start/finish.
+  for (const k of ['by_name', 'by_key', 'by_profile', 'at', 'shift_id', 'storm_id', 'seq', 'start', 'finish']) expect(body).not.toHaveProperty(k);
+  expect(w.visits).toHaveLength(1);
+  expect((await phoneState(page)).visits.map((r) => r.id)).toEqual(['V-1']);
+});
+
+test('blank fields are sent blank, never 0', async ({ page }) => {
+  const w = stormWorld();
+  const calls = await openStorm(page, w);
+  await openCard(page, 'S1');
+  await page.check('[data-eq="blower"]'); // ticked, minutes left empty
+  await page.click('#vc_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  const first = visitCalls(calls)[0].body;
+  expect(first.depth_in).toBe('');
+  expect(first.materials_used).toBe('');
+  expect(first.equipment).toEqual({ blower: '', snowrator: '', bobcat: '', sweepster: '' });
+  // A typed zero is a real answer and is sent as 0.
+  await openCard(page, 'S1');
+  await page.fill('#vc_depth', '0');
+  await page.check('[data-eq="blower"]');
+  await page.fill('[data-eqmin="blower"]', '0');
+  await page.click('#vc_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  const second = visitCalls(calls)[1].body;
+  expect(second.depth_in).toBe(0);
+  expect(second.equipment).toEqual({ blower: 0, snowrator: '', bobcat: '', sweepster: '' });
+  expect(second.materials_used).toBe('');
+});
+
+test('materials needed is printed beside materials used', async ({ page }) => {
+  const w = stormWorld();
+  w.sites = w.sites.map((s) => (s.id === 'S1' ? { ...s, materials_needed: '4-5 bags <b>IceMelt</b>' } : s));
+  await openStorm(page, w);
+  await openCard(page, 'S1');
+  // Same row as the input, shown as text (the markup is not run).
+  await expect(page.locator('.vc-matrow #vc_mat')).toHaveCount(1);
+  await expect(page.locator('.vc-matrow #vc_needed')).toHaveText('Needed: 4-5 bags <b>IceMelt</b>');
+  await expect(page.locator('#vc_needed b')).toHaveCount(0);
+  // The typed box starts empty: the needed list is a hint, not an answer.
+  await expect(page.locator('#vc_mat')).toHaveValue('');
+  await page.click('#dlgClose');
+  // A site with none listed prints no "Needed".
+  await page.click('#otherRoutes');
+  await openCard(page, 'S2');
+  await expect(page.locator('#vc_needed')).toHaveCount(0);
+});
+
+test('start and finish come from the first and last tap, not typed', async ({ page }) => {
+  // Seeded taps at S1 this shift: 6:30 AM (L-1) and 7:10 AM (L-2). Not counted: a tap at
+  // S1 on another shift (L-3, 1:00 AM 10/1). S2 has none.
+  // The fake stamps Jordan's own tap at 7:50:18 AM: finish moves to 7:50 AM, start stays 6:30 AM.
+  const w = stormWorld();
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: '2026-10-03T06:30:00.000-08:00' }),
+    logRow(2, 'S1', 'Z2', 'checked', 'Alex Test', { at: '2026-10-03T07:10:00.000-08:00' }),
+    logRow(3, 'S1', 'Z1', 'treated', 'Alex Test', { storm_id: 'ST-0', shift_id: 'day-2026-10-01', at: '2026-10-01T01:00:00.000-08:00' })];
+  const calls = await openStorm(page, w);
+  await openCard(page, 'S1');
+  await expect(page.locator('#vc_start')).toHaveText('6:30 AM');
+  await expect(page.locator('#vc_finish')).toHaveText('7:10 AM');
+  // Read-only: not form fields.
+  expect(await page.locator('#vc_start, #vc_finish').evaluateAll((els) => els.map((e) => e.tagName))).not.toContain('INPUT');
+  await page.click('#dlgClose');
+  await walkBtn(page, 'S1|Z1', 'treated').click();
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Treated · Jordan Demo · 7:50 AM');
+  await openCard(page, 'S1');
+  await expect(page.locator('#vc_start')).toHaveText('6:30 AM');
+  await expect(page.locator('#vc_finish')).toHaveText('7:50 AM');
+  await page.click('#vc_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  for (const k of ['start', 'finish']) expect(visitCalls(calls)[0].body).not.toHaveProperty(k);
+  // A site nobody has tapped yet shows a dash, not a time.
+  await page.click('#otherRoutes');
+  await openCard(page, 'S2');
+  await expect(page.locator('#vc_start')).toHaveText('—');
+  await expect(page.locator('#vc_finish')).toHaveText('—');
+});
+
+test('reopening the card shows your own last save, not someone else\'s', async ({ page }) => {
+  // S1, this shift (night-2026-10-02). Jordan (C03) saved V-1; Alex (C01) saved V-2
+  // and then V-5, so the newest card on the site is Alex's, and Jordan must still see V-1.
+  // Not Jordan's: V-3 (S1 on an earlier shift) and V-4 (another site).
+  const w = stormWorld();
+  w.visits = [
+    visitRow(1, 'S1', 'C03', 'Jordan Demo', { depth_in: 2, materials_used: 'salt', equipment: { blower: 20, snowrator: '', bobcat: '', sweepster: 0 } }),
+    visitRow(2, 'S1', 'C01', 'Alex Test', { depth_in: 9, materials_used: 'sand', equipment: { blower: '', snowrator: '', bobcat: 45, sweepster: '' } }),
+    visitRow(3, 'S1', 'C03', 'Jordan Demo', { storm_id: 'ST-0', shift_id: 'day-2026-10-01', depth_in: 7, materials_used: 'old shift' }),
+    visitRow(4, 'S2', 'C03', 'Jordan Demo', { depth_in: 5, materials_used: 'other site' }),
+    visitRow(5, 'S1', 'C01', 'Alex Test', { depth_in: 11, materials_used: 'alex again' })];
+  const calls = await openStorm(page, w);
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await openCard(page, 'S1');
+  await expect(page.locator('#vc_depth')).toHaveValue('2');
+  await expect(page.locator('#vc_mat')).toHaveValue('salt');
+  await expect(page.locator('[data-eq="blower"]')).toBeChecked();
+  await expect(page.locator('[data-eqmin="blower"]')).toHaveValue('20');
+  await expect(page.locator('[data-eq="sweepster"]')).toBeChecked();   // a saved 0 is a real answer: ticked, shows 0
+  await expect(page.locator('[data-eqmin="sweepster"]')).toHaveValue('0');
+  await expect(page.locator('[data-eq="bobcat"]')).not.toBeChecked(); // Alex's 45 is not Jordan's
+  await expect(page.locator('[data-eqmin="bobcat"]')).toHaveValue('');
+  // Change the depth and save: that re-save is Jordan's newest card (V-6).
+  await page.fill('#vc_depth', '4');
+  await page.click('#vc_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(visitCalls(calls)[0].body).toMatchObject({ depth_in: 4, materials_used: 'salt', equipment: { blower: 20, snowrator: '', bobcat: '', sweepster: 0 } });
+  expect(w.visits).toHaveLength(6);
+  expect(w.visits[5]).toMatchObject({ by_key: 'C03', depth_in: 4 });
+  await openCard(page, 'S1');
+  await expect(page.locator('#vc_depth')).toHaveValue('4');
+  await expect(page.locator('#vc_mat')).toHaveValue('salt');
+});
+
+test('Matt\'s card starts blank when only crew have saved one', async ({ page }) => {
+  const w = stormWorld();
+  w.visits = [visitRow(1, 'S1', 'C03', 'Jordan Demo', { depth_in: 2, materials_used: 'salt', equipment: { blower: 20, snowrator: '', bobcat: '', sweepster: '' } })];
+  const calls = await openStorm(page, w, { token: 'tok-matt' });
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await openCard(page, 'S1');
+  await expect(page.locator('#vc_depth')).toHaveValue('');
+  await expect(page.locator('#vc_mat')).toHaveValue('');
+  await expect(page.locator('[data-eq="blower"]')).not.toBeChecked();
+  await page.fill('#vc_depth', '1');
+  await page.click('#vc_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(w.visits[1]).toMatchObject({ by_key: 'admin', depth_in: 1 });
+  await openCard(page, 'S1');
+  await expect(page.locator('#vc_depth')).toHaveValue('1'); // his own now
+  expect(visitCalls(calls)).toHaveLength(1);
+});
+
+test('a card refused for no open storm says so and stays open; a double tap on Save sends one', async ({ page }) => {
+  const w = stormWorld();
+  const calls = await openStorm(page, w, { delay: { saveVisit: 600 } });
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await openCard(page, 'S1');
+  await page.fill('#vc_depth', '2');
+  await page.evaluate(() => { const b = document.querySelector('#vc_save'); b.click(); b.click(); });
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(visitCalls(calls)).toHaveLength(1);
+  expect(w.visits).toHaveLength(1);
+  // Matt ends the storm while the card is open: the refusal shows on the card and nothing is saved.
+  await openCard(page, 'S1');
+  w.storms.push({ id: 'ST-2', seq: 2, kind: 'end', storm_id: 'ST-1', at: '2026-10-03T07:40:00.000-08:00', by_name: 'Matthew' });
+  await page.click('#vc_save');
+  await expect(page.locator('#vc_err')).toHaveText('No storm is open');
+  await expect(page.locator('#dlg')).toBeVisible();
+  expect(w.visits).toHaveLength(1);
+  await expect(page.locator('#vc_save')).toBeEnabled(); // can try again once the busy lock is released
 });

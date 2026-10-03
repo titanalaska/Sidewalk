@@ -2174,6 +2174,69 @@ test('treated while snowing shows the yellow warning and still saves', async ({ 
   await expect(page.locator('[data-warn="S1|Z2"]')).toBeHidden();
 });
 
+// Matt, 10/1/26: Back closed the whole app mid-job. A route opened from the live
+// view is one more step on the Back stack, so Back returns to the live view.
+const backSteps = (page) => page.evaluate(() => (history.state && history.state.snow) || []);
+const problemWorld = () => {
+  const w = stormWorld();
+  w.log = [logRow(1, 'S2', 'whole', 'problem', 'Jordan Demo', { note: 'drain blocked', by_key: 'C03', at: at('06:50') })];
+  return w;
+};
+
+test('Back on a route opened from the live view returns to the live view', async ({ page }) => {
+  await openStorm(page, problemWorld(), { token: 'tok-matt' });
+  await expect(page.locator('#problems')).toBeVisible();
+  await openRoute(page, 'R2');
+  await expect(page.locator('#problems')).toBeHidden(); // the route's own page
+  await expect.poll(() => backSteps(page)).toEqual(['route']);
+  await page.goBack(); // the phone's Back
+  await expect(page.locator('#liveBack')).toBeHidden();
+  await expect(page.locator('#problems')).toBeVisible();
+  await expect(page.locator('#stormctl')).toBeVisible();
+  await expect(page.locator('[data-liveroute]')).toHaveCount(2);
+  expect(page.url()).toContain('index.html'); // still in the app, not gone back past it
+  expect(await backSteps(page)).toEqual([]);
+});
+
+test('the in-app ‹ Live view and the phone Back agree', async ({ page }) => {
+  await openStorm(page, problemWorld(), { token: 'tok-alex' }); // a lead gets the same
+  await openRoute(page, 'R2');
+  await page.click('#liveBack');
+  await expect(page.locator('#problems')).toBeVisible();
+  // Nothing left to undo: the in-app button takes its Back step with it.
+  await expect.poll(() => backSteps(page)).toEqual([]);
+  // Open again: one Back returns to the live view (a stale step would eat the first Back).
+  await openRoute(page, 'R2');
+  await page.goBack();
+  await expect(page.locator('#problems')).toBeVisible();
+  await expect(page.locator('#liveBack')).toBeHidden();
+  expect(page.url()).toContain('index.html');
+});
+
+test('Back with a site card open closes the card, then the next Back leaves the route', async ({ page }) => {
+  await openStorm(page, stormWorld(), { token: 'tok-matt' });
+  await openRoute(page, 'R1');
+  await openCard(page, 'S1');
+  await expect.poll(() => backSteps(page)).toEqual(['route', 'dlg']);
+  await page.goBack();
+  await expect(page.locator('#dlg')).toBeHidden();
+  await expect(page.locator('#liveBack')).toBeVisible(); // still on the route
+  await page.goBack();
+  await expect(page.locator('#liveBack')).toBeHidden();
+  await expect(page.locator('[data-liveroute]')).toHaveCount(2);
+});
+
+test('a route left open on the Storm tab is not still open when you come back', async ({ page }) => {
+  await openStorm(page, problemWorld(), { token: 'tok-matt' });
+  await openRoute(page, 'R2');
+  await page.click('nav [data-tab="board"]');
+  await expect.poll(() => backSteps(page)).toEqual([]); // the route's step went with it
+  await page.click('nav [data-tab="storm"]');
+  await expect(page.locator('#liveBack')).toBeHidden();
+  await expect(page.locator('#problems')).toBeVisible();
+  await expect(page.locator('[data-liveroute]')).toHaveCount(2);
+});
+
 test('treated while stopped shows no warning', async ({ page }) => {
   const w = stormWorld();
   await openStorm(page, w);

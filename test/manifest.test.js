@@ -35,6 +35,20 @@ test('the page links the manifest and an iPhone icon', () => {
   assert.match(html, /<meta name="theme-color" content="#[0-9a-fA-F]{6}">/);
 });
 
+test('the shell caches the shift log files', () => {
+  const sw = read('sw.js').toString();
+  const shell = JSON.parse(sw.match(/var SHELL = (\[[\s\S]*?\]);/)[1].replace(/'/g, '"'));
+  // The three new files by name...
+  for (const f of ['lib/shiftlog.js', 'lib/shiftlogui.js', 'lib/weather.js']) assert.ok(shell.includes(f), f + ' is not in the shell');
+  // ...and, so the next file added can't be forgotten, EVERY script the page loads.
+  const html = read('index.html').toString();
+  const loaded = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(loaded.length > 10, 'found the page\'s script tags');
+  for (const f of loaded) assert.ok(shell.includes(f), f + ' is loaded by index.html but not in the shell');
+  // A new shell means a new cache name, or installed phones keep the old one.
+  assert.match(sw, /var CACHE_VERSION = 'titan-snow-shell-13';/);
+});
+
 test('the offline shell carries the manifest and icons', () => {
   const sw = read('sw.js').toString();
   for (const f of ['manifest.json', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png']) assert.ok(sw.includes("'" + f + "'"), f);

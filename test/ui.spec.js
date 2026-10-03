@@ -2245,3 +2245,143 @@ test('treated while stopped shows no warning', async ({ page }) => {
   await expect(page.locator('[data-warn]')).toHaveCount(0);
   expect(w.log[0].snowing_warned).toBe(false);
 });
+
+// ---------------- the Storm tab: forecast hint and walk marks on the map ----------------
+// The hint is the National Weather Service's, and only a hint: the Snowing/Stopped
+// switch is what counts. A made-up point: -149.5149, 61.3351 (lng, lat as the map
+// saves it) goes out as /points/61.34,-149.51, rounded to two decimals (~1 km).
+// Clock 7:30 AM Alaska. The fixture's hours start at 7 AM (the current hour):
+// Light Snow, Snow, Snow Showers, then Mostly Cloudy. The run of snow ends at the
+// 10 AM period: "Snow until 10 AM".
+const NWS_POINT = [-149.5149, 61.3351];
+const NWS_POINTS = 'https://api.weather.gov/points/61.34,-149.51';
+const NWS_HOURLY = 'https://api.weather.gov/gridpoints/ZZZ/1,1/forecast/hourly';
+const NWS_PERIODS = ['Light Snow', 'Snow', 'Snow Showers', ...Array(9).fill('Mostly Cloudy')].map((t, i) => ({
+  startTime: '2026-10-03T' + String(7 + i).padStart(2, '0') + ':00:00-08:00', shortForecast: t }));
+async function nws(page, o = {}) {
+  const seen = [];
+  const cors = { 'access-control-allow-origin': '*' };
+  await page.route((u) => u.hostname === 'api.weather.gov', (route) => {
+    const u = route.request().url();
+    seen.push(u);
+    if (o.fail) return route.abort();
+    if (u === NWS_POINTS) return route.fulfill({ contentType: 'application/geo+json', headers: cors, body: JSON.stringify({ properties: { forecastHourly: NWS_HOURLY } }) });
+    if (u === NWS_HOURLY) return route.fulfill({ contentType: 'application/geo+json', headers: cors, body: JSON.stringify({ properties: { periods: NWS_PERIODS } }) });
+    return route.fulfill({ status: 404, headers: cors, body: '{}' });
+  });
+  return seen;
+}
+const withView = (w, id, center) => { w.sites = w.sites.map((s) => (s.id === id ? { ...s, map: { center, zoom: 18 } } : s)); return w; };
+
+test('the forecast shows as a hint', async ({ page }) => {
+  const seen = await nws(page);
+  const calls = await openStorm(page, withView(stormWorld(), 'S1', NWS_POINT));
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect(page.locator('#stormhint')).toHaveText('Snow until 10 AM');
+  await expect(page.locator('#stormhead + #stormhint')).toHaveCount(1); // right under the header, once
+  expect(seen).toEqual([NWS_POINTS, NWS_HOURLY]);                       // the rounded point, never the saved one
+  // Not on every poll: three more polls, and the tab left and re-entered inside 15 minutes.
+  for (let i = 1; i <= 3; i++) { // one at a time: a poll already running swallows the next
+    const before = shiftCalls(calls).length;
+    await pollNow(page);
+    await expect.poll(() => shiftCalls(calls).length).toBe(before + 1);
+    await page.waitForTimeout(300); // let the reply land
+  }
+  await page.click('nav [data-tab="tonight"]');
+  await page.click('nav [data-tab="storm"]');
+  await expect(page.locator('#stormhint')).toHaveText('Snow until 10 AM');
+  expect(seen).toHaveLength(2);
+  // Once 15 minutes have gone by the next redraw asks again.
+  await page.clock.fastForward('16:00');
+  await expect.poll(() => seen.length).toBe(4);
+  await expect(page.locator('#stormhint')).toHaveText('Snow until 10 AM');
+});
+
+test("the hint comes from the first site with a point (Matt's live view)", async ({ page }) => {
+  // PAC (S1, N1) has no saved view and its zones have no outline: no point. TUDOR-TRANSIT
+  // (S2, N2) has one: the live view's hint is from it.
+  const seen = await nws(page);
+  await openStorm(page, withView(stormWorld(), 'S2', NWS_POINT), { token: 'tok-matt' });
+  await expect(page.locator('#stormhint')).toHaveText('Snow until 10 AM');
+  expect(seen).toEqual([NWS_POINTS, NWS_HOURLY]);
+  await expect(page.locator('#stormhead + #stormhint')).toHaveCount(1);
+});
+
+test('a crew member with no mapped site on their route gets no hint and no request', async ({ page }) => {
+  const seen = await nws(page);
+  await openStorm(page, withView(stormWorld(), 'S2', NWS_POINT)); // Jordan's route is N1 (S1): no point
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect(page.locator('#stormhint')).toHaveCount(0);
+  expect(seen).toEqual([]);
+});
+
+test('a forecast failure shows no hint and taps still work', async ({ page }) => {
+  const seen = await nws(page, { fail: true });
+  const calls = await openStorm(page, withView(stormWorld(), 'S1', NWS_POINT));
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect.poll(() => seen.length).toBeGreaterThanOrEqual(1); // it did try
+  await expect(page.locator('#stormhint')).toHaveCount(0);
+  await expect(page.locator('main')).not.toContainText('Snow until');
+  await walkBtn(page, 'S1|Z1', 'cleared').click();
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Cleared · Jordan Demo · 7:50 AM');
+  expect(tapCalls(calls)).toHaveLength(1);
+  await pollNow(page);
+  await expect(page.locator('#stormhint')).toHaveCount(0);
+  expect(seen).toHaveLength(1); // no hammering a failing service
+});
+
+test('the map marks done and problem walks', async ({ page }) => {
+  // Newest row per walk in storm ST-1, worked by hand:
+  //   S1|Z1 (sidewalk, priority, so it carries a star) L1 problem  -> "!"
+  //   S1|Z2 (heated)                                  L2 checked   -> tick
+  //   S1|Z3 (no_touch)                                 never walked -> no mark
+  //   S1|whole                                        L3 cleared: the site has drawn zones, so no
+  //                                                    zone is "whole" and no mark is made for it
+  // Then Jordan clears Z1 (L4) and a poll turns its "!" into a tick.
+  const w = stormWorld();
+  withView(w, 'S1', PAC);
+  w.zones = mapWorld().zones;
+  w.log = [logRow(1, 'S1', 'Z1', 'problem', 'Alex Test', { note: 'ice under the mat', at: at('06:30') }),
+    logRow(2, 'S1', 'Z2', 'checked', 'Alex Test', { at: at('06:35') }),
+    logRow(3, 'S1', 'whole', 'cleared', 'Alex Test', { at: at('06:40') })];
+  await tiles(page);
+  await nws(page);
+  await openStorm(page, w);
+  await page.click('.shift-site [data-map="S1"]');
+  await zoneSource(page);
+  const mark = (z) => page.locator('.zone-mark[data-zone="' + z + '"]');
+  await expect(page.locator('.zone-mark')).toHaveCount(2);
+  await expect(mark('Z1')).toHaveText('!');
+  await expect(mark('Z1')).toHaveClass(/\bbad\b/);
+  await expect(mark('Z2')).toHaveText('✓');
+  await expect(mark('Z2')).toHaveClass(/\bdone\b/);
+  await expect(mark('Z3')).toHaveCount(0);
+  // Matt's type colours are unchanged, and a mark never sits on the priority star.
+  expect(await page.evaluate(() => window.SnowMapView.getPaintProperty('zones-fill', 'fill-color')))
+    .toEqual(['match', ['get', 'type'], 'sidewalk', '#f28c28', 'heated', '#d62828', 'no_touch', '#1f6fd1', '#888888']);
+  const star = await page.locator('.zone-star').boundingBox(), bang = await mark('Z1').boundingBox();
+  expect(star.y + star.height <= bang.y + 1 || bang.y + bang.height <= star.y + 1 || star.x + star.width <= bang.x + 1 || bang.x + bang.width <= star.x + 1).toBe(true);
+  // A new row while the map is open updates the marks.
+  w.log.push(logRow(4, 'S1', 'Z1', 'cleared', 'Jordan Demo', { by_key: 'C03', at: at('07:00') }));
+  await pollNow(page);
+  await expect(mark('Z1')).toHaveText('✓');
+  await expect(page.locator('.zone-mark')).toHaveCount(2);
+  // Back lands on the Storm tab.
+  await page.click('#mapback');
+  await expect(page.locator('#stormhead')).toBeVisible();
+  await expect(page.locator('.zone-mark')).toHaveCount(0);
+});
+
+test('a map opened from the Sites tab carries no walk marks', async ({ page }) => {
+  const w = stormWorld();
+  withView(w, 'S1', PAC);
+  w.zones = mapWorld().zones;
+  w.log = [logRow(1, 'S1', 'Z1', 'problem', 'Alex Test', { note: 'ice', at: at('06:30') })];
+  await tiles(page);
+  await openStorm(page, w, { token: 'tok-matt' });
+  await page.click('nav [data-tab="sites"]');
+  await page.click('[data-map="S1"]');
+  await zoneSource(page);
+  await expect(page.locator('.zone-star')).toHaveCount(1);
+  await expect(page.locator('.zone-mark')).toHaveCount(0);
+});

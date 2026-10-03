@@ -110,6 +110,10 @@ button.small{min-height:36px;padding:4px 10px;font-size:14px;margin-left:auto}
 .maplegend i,.swatch{display:inline-block;width:14px;height:14px;border-radius:3px;margin-right:6px;vertical-align:-2px;flex:none}
 .maplegend i{margin-right:0}
 .zone-star{font-size:26px;line-height:1;color:#ffd400;text-shadow:0 0 3px #000,0 0 6px #000;pointer-events:none}
+.zone-mark{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:700 16px/1 system-ui,sans-serif;color:#fff;border:2px solid #fff;box-shadow:0 0 3px #000;pointer-events:none}
+.zone-mark.done{background:#1b7a3a}
+.zone-mark.bad{background:#b3261e}
+.stormhint{margin:-4px 0 10px;font-size:15px}
 #zonesheet h2{margin-bottom:6px}
 #zonesheet div{margin-top:4px}
 /* zone editor (Matt) */

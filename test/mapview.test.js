@@ -11,3 +11,14 @@ test('both down: banner', () => assert.strictEqual(photoUnavailable(false, false
 test('outside MOA, Esri down: banner', () => assert.strictEqual(photoUnavailable(false, false, false), true));
 // A stray MOA "ok" outside its area can't count as a photo: MOA was never asked.
 test('outside MOA, Esri down, moaOk somehow true: still banner', () => assert.strictEqual(photoUnavailable(false, true, false), true));
+
+// Walk marks on the map: a tick for done, a bang for a problem, nothing else.
+// 'none' is a walk undone back to not done; a missing row is not started.
+const { markOf } = require('../lib/mapview.js');
+test('marks: cleared, treated and checked are a tick; problem is a bang', () => {
+  for (const s of ['cleared', 'treated', 'checked']) assert.strictEqual(markOf({ state: s }), '✓', s);
+  assert.strictEqual(markOf({ state: 'problem' }), '!');
+});
+test('marks: not started, undone and unknown states get no mark', () => {
+  for (const r of [undefined, null, {}, { state: 'none' }, { state: 'whatever' }]) assert.strictEqual(markOf(r), '', JSON.stringify(r));
+});

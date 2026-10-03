@@ -1995,6 +1995,43 @@ const liveWorld = () => {
   return w;
 };
 
+// Matt, 10/3/26: with no current Post, his live view shows who the Board has on
+// each route, marked as not posted. Leads never get the Board, so they keep
+// seeing "Not posted" until he posts.
+const boardMoves = () => [
+  { id: 'M1', at: '2026-10-02T17:00:00.000-08:00', worker: 'C01', to_route: 'R1', role: 'lead' },
+  { id: 'M2', at: '2026-10-02T17:01:00.000-08:00', worker: 'C03', to_route: 'R1', role: 'member' },
+];
+test('with no current post, Matt sees the Board on each route, marked not posted', async ({ page }) => {
+  // No post at all. The Board: Alex leads N1, Jordan on N1; N2 and N10 empty.
+  const w = liveWorld(); w.posts = []; w.moves = boardMoves();
+  await openStorm(page, w, { token: 'tok-matt' });
+  await expect(page.locator('[data-liveroute="R1"] .live-who')).toBeVisible();
+  await expect(page.locator('[data-liveroute="R1"] .live-who')).toHaveText('Board, not posted yet: Alex Test (lead), Jordan Demo');
+  await expect(page.locator('[data-liveroute="R2"] .live-who')).toHaveText('Not posted'); // nobody on the Board either
+});
+test('a stale post gives way to the Board; a current post wins over it', async ({ page }) => {
+  // The post is for night-2026-09-30: stale at the storm clock. The Board moved Jordan to N2 since.
+  const w = liveWorld(); w.posts = [{ ...POST, shift: 'night-2026-09-30' }];
+  w.moves = [...boardMoves(), { id: 'M3', at: '2026-10-02T18:00:00.000-08:00', worker: 'C03', to_route: 'R2', role: 'member' }];
+  await openStorm(page, w, { token: 'tok-matt' });
+  await expect(page.locator('[data-liveroute="R1"] .live-who')).toHaveText('Board, not posted yet: Alex Test (lead)');
+  await expect(page.locator('[data-liveroute="R2"] .live-who')).toHaveText('Board, not posted yet: Jordan Demo');
+});
+test('a current post is shown even when the Board has changed since', async ({ page }) => {
+  // stormWorld's post is for the current shift (Alex leads N1, Jordan on N1). The Board says Jordan moved to N2.
+  const w = liveWorld();
+  w.moves = [...boardMoves(), { id: 'M3', at: '2026-10-02T18:00:00.000-08:00', worker: 'C03', to_route: 'R2', role: 'member' }];
+  await openStorm(page, w, { token: 'tok-matt' });
+  await expect(page.locator('[data-liveroute="R1"] .live-who')).toHaveText('Alex Test (lead), Jordan Demo');
+});
+test('a lead with no current post sees "Not posted", never the Board', async ({ page }) => {
+  const w = liveWorld(); w.posts = []; w.moves = boardMoves();
+  await openStorm(page, w, { token: 'tok-alex' });
+  await expect(page.locator('[data-liveroute="R1"] .live-who')).toBeVisible();
+  await expect(page.locator('[data-liveroute="R1"] .live-who')).toHaveText('Not posted');
+});
+
 test('a route shows how many sites are done', async ({ page }) => {
   // N1 = PAC (Z1 sidewalk cleared 6:30, Z2 heated checked 6:40: both walks done -> done) + EXTRA (no zones,
   // its one Whole-site walk untapped -> not done): 1 of 2. Last tap 6:40.

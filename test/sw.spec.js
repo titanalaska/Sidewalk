@@ -37,11 +37,11 @@ test('the shell is cached, Apps Script never is, and other apps\' caches survive
   await page.waitForTimeout(500);
   const state = await page.evaluate(async () => {
     const names = await caches.keys();
-    const shell = await caches.open('titan-snow-shell-16');
+    const shell = await caches.open('titan-snow-shell-17');
     const urls = (await shell.keys()).map((r) => r.url);
     return { names, urls };
   });
-  expect(state.names).toContain('titan-snow-shell-16');
+  expect(state.names).toContain('titan-snow-shell-17');
   expect(state.names).toContain('wolf-beds-v2');
   expect(state.names).toContain('groundwork-shell-v34');
   expect(state.names).not.toContain('titan-snow-shell-2');          // its own old versions are cleaned up
@@ -58,6 +58,7 @@ test('the shell is cached, Apps Script never is, and other apps\' caches survive
   expect(state.names).not.toContain('titan-snow-shell-13');
   expect(state.names).not.toContain('titan-snow-shell-14');
   expect(state.names).not.toContain('titan-snow-shell-15');
+  expect(state.names).not.toContain('titan-snow-shell-16');
   // The map pieces are in the shell, so a map opens with no signal (zones only, no photo).
   for (const f of ['/vendor/maplibre-gl.js', '/vendor/maplibre-gl.css', '/lib/geo.js', '/lib/mapview.js', '/lib/bpimport.js', '/lib/mapedit.js',
     '/lib/time.js', '/lib/board.js', '/lib/history.js', '/lib/gear.js', '/lib/warnings.js', '/lib/pairing.js', '/lib/boardui.js',

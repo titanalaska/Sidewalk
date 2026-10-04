@@ -2725,15 +2725,18 @@ const postOf = (o = {}) => ({ ...POST, shift: SHIFT, routes: [
 const stubPrint = (page) => page.addInitScript(() => { window.__printed = 0; window.print = () => { window.__printed++; }; });
 
 test("Matt sets a route's truck on the Board and it is sent", async ({ page }) => {
-  // The storm clock (7:30 AM on 10/3) has the post for the night of 10/2 current: the Board's trucks are that shift's.
+  // The storm clock (7:30 AM on 10/3) has the post for the night of 10/2 current, but the day and night of
+  // 10/3 are on offer too, so the Board asks (10/4/26); Matt picks the night of 10/2, the post's own.
   const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(stormWorld()), clockAt: STORM_CLOCK });
   await page.click('nav [data-tab="board"]');
-  await expect(page.locator('#truckshift')).toHaveText('Trucks for Night of 10/2');
+  await expect(page.locator('#truckshift')).toHaveText('Trucks: Save asks which shift');
   // Blank until someone sets it: never a made-up truck.
   await expect(page.locator('[data-truckinput="R1"]')).toHaveValue('');
   await expect(page.locator('[data-truckinput="R2"]')).toHaveValue('');
   await page.fill('[data-truckinput="R1"]', ' T-14 ');
   await page.click('[data-settruck="R1"]');
+  await page.click('[data-shift="' + SHIFT + '"]');
+  await expect(page.locator('#truckshift')).toHaveText('Trucks for Night of 10/2');
   await expect.poll(() => truckCalls(calls).length).toBe(1);
   // The phone names the route, the truck and the shift (the current post's); the server stamps who and when.
   expect(Object.keys(truckCalls(calls)[0].body).sort()).toEqual(['action', 'route_id', 'shift', 'token', 'truck']);
@@ -2805,6 +2808,103 @@ test('with no current post, the Board asks once which shift its trucks are for',
   await expect(page.locator('[data-truckinput="R1"]')).toHaveValue('T-14');
 });
 
+// Truck shift fix (10/4/26). In the afternoon the DAY post is still current, but Matt is planning TONIGHT:
+// filing his trucks under the post's shift put them on the day sheet and left tonight's blank. So when a
+// later shift is on offer, the Board asks Day or Night (from the post's shift on; none pre-picked), and
+// Change re-opens the same question. The pick lasts until reload, never stored.
+const DAY3 = 'day-2026-10-03';
+const dayPostWorld = (clock) => {
+  const w = stormWorld();
+  w.storms = [];
+  w.clock = clock;
+  w.posts = [{ ...postOf(), shift: DAY3, posted_at: '2026-10-03T09:30:00.000-08:00' }];
+  return w;
+};
+const pickerLabels = (page) => page.locator('.shiftpick [data-shift]');
+
+test('a day post at 4 PM: Save asks Day or Night and Night files the truck under tonight', async ({ page }) => {
+  // 4:00 PM on 10/3. Day post of 10/3 current. Shifts on offer: Day of 10/3, Night of 10/3 (both at or after
+  // the post's day). Night is LATER than the post's shift, so Save must ask, offering exactly those two.
+  const w = dayPostWorld('2026-10-03T16:00:30.000-08:00');
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w), clockAt: AT_4PM });
+  await page.click('nav [data-tab="board"]');
+  await expect(page.locator('#truckshift')).toHaveText('Trucks: Save asks which shift');
+  await page.fill('[data-truckinput="R1"]', 'T-14');
+  await page.click('[data-settruck="R1"]');
+  await expect(page.locator('#dlg')).toBeVisible();
+  await expect(pickerLabels(page)).toHaveText(['Day of 10/3', 'Night of 10/3']);
+  await expect(page.locator('.shiftpick [aria-pressed="true"]')).toHaveCount(0);   // none pre-picked
+  expect(truckCalls(calls)).toHaveLength(0);                                       // nothing sent before the pick
+  await page.click('[data-shift="' + NIGHT3 + '"]');
+  await expect.poll(() => truckCalls(calls).length).toBe(1);
+  expect(truckCalls(calls)[0].body).toMatchObject({ route_id: 'R1', truck: 'T-14', shift: NIGHT3 });
+  expect(w.trucks.map((t) => [t.route_id, t.shift_id, t.truck])).toEqual([['R1', NIGHT3, 'T-14']]);
+  await expect(page.locator('#truckshift')).toHaveText('Trucks for Night of 10/3');
+  await expect(page.locator('[data-truckinput="R1"]')).toHaveValue('T-14');
+  // A second Save does not ask again.
+  await page.fill('[data-truckinput="R2"]', 'T-9');
+  await page.click('[data-settruck="R2"]');
+  await expect.poll(() => truckCalls(calls).length).toBe(2);
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(truckCalls(calls)[1].body).toMatchObject({ route_id: 'R2', truck: 'T-9', shift: NIGHT3 });
+  // The pick is never stored: after a reload the Board asks again.
+  await page.reload();
+  await page.click('nav [data-tab="board"]');
+  await expect(page.locator('#truckshift')).toHaveText('Trucks: Save asks which shift');
+});
+
+test('a night post at 20:00 never asks', async ({ page }) => {
+  // 8:00 PM on 10/3: shifts on offer are Day of 10/3 and Night of 10/3. The night post is the last shift
+  // on offer, nothing is later, so its shift is sent with no picker.
+  const w = stormWorld();
+  w.storms = [];
+  w.clock = at('20:00');
+  w.posts = [{ ...postOf(), shift: NIGHT3, posted_at: at('19:30') }];
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w), clockAt: at('20:00') });
+  await page.click('nav [data-tab="board"]');
+  await expect(page.locator('#truckshift')).toHaveText('Trucks for Night of 10/3');
+  await page.fill('[data-truckinput="R1"]', 'T-14');
+  await page.click('[data-settruck="R1"]');
+  await expect.poll(() => truckCalls(calls).length).toBe(1);
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(truckCalls(calls)[0].body).toMatchObject({ route_id: 'R1', truck: 'T-14', shift: NIGHT3 });
+});
+
+test("Change switches the Board's truck shift", async ({ page }) => {
+  // 4 PM, day post current. Change opens the same Day/Night question; Day is picked, the label follows and
+  // the next Save sends the day; Change again to Night and the label and the next Save follow that.
+  const w = dayPostWorld('2026-10-03T16:00:30.000-08:00');
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w), clockAt: AT_4PM });
+  await page.click('nav [data-tab="board"]');
+  await page.click('#truckchange');
+  await expect(pickerLabels(page)).toHaveText(['Day of 10/3', 'Night of 10/3']);
+  await expect(page.locator('.shiftpick [aria-pressed="true"]')).toHaveCount(0);
+  await page.click('[data-shift="' + DAY3 + '"]');
+  await expect(page.locator('#truckshift')).toHaveText('Trucks for Day of 10/3');
+  await page.fill('[data-truckinput="R1"]', 'T-14');
+  await page.click('[data-settruck="R1"]');
+  await expect.poll(() => truckCalls(calls).length).toBe(1);
+  await expect(page.locator('#dlg')).toBeHidden();                                 // Change answered it: no second question
+  expect(truckCalls(calls)[0].body).toMatchObject({ route_id: 'R1', truck: 'T-14', shift: DAY3 });
+  await page.click('#truckchange');
+  await page.click('[data-shift="' + NIGHT3 + '"]');
+  await expect(page.locator('#truckshift')).toHaveText('Trucks for Night of 10/3');
+  await page.fill('[data-truckinput="R2"]', 'T-9');
+  await page.click('[data-settruck="R2"]');
+  await expect.poll(() => truckCalls(calls).length).toBe(2);
+  expect(truckCalls(calls)[1].body).toMatchObject({ route_id: 'R2', truck: 'T-9', shift: NIGHT3 });
+});
+
+test("Change offers nothing earlier than the post's shift", async ({ page }) => {
+  // 7:30 AM on 10/3 the shifts on offer are Night of 10/2, Day of 10/3, Night of 10/3. The post is the DAY
+  // of 10/3, so the night of 10/2 (already over) is not offered.
+  const w = dayPostWorld('2026-10-03T07:50:18.445-08:00');
+  await open(page, { token: 'tok-matt', snow: fakeSnow(w), clockAt: STORM_CLOCK });
+  await page.click('nav [data-tab="board"]');
+  await page.click('#truckchange');
+  await expect(pickerLabels(page)).toHaveText(['Day of 10/3', 'Night of 10/3']);
+});
+
 test('the Board loads the trucks a lead set', async ({ page }) => {
   // Alex set N1's truck from his phone this shift (the night of 10/2). Matt opens the app and goes straight
   // to the Board, never the Storm tab: the Board reads the trucks itself.
@@ -2822,6 +2922,12 @@ test('Enter in a Board truck box saves it, before the Storm tab was ever opened'
   await page.click('nav [data-tab="board"]');
   await page.fill('[data-truckinput="R1"]', 'T-14');
   await page.press('[data-truckinput="R1"]', 'Enter');
+  // 7:30 AM: later shifts are on offer, so Enter asks (10/4/26). The same Enter must not pick for him:
+  // the picker's first button takes focus, and the key's own keypress used to click it.
+  await expect(page.locator('#dlg')).toBeVisible();
+  await expect(pickerLabels(page)).toHaveText(['Night of 10/2', 'Day of 10/3', 'Night of 10/3']);
+  expect(truckCalls(calls)).toHaveLength(0);
+  await page.click('[data-shift="' + SHIFT + '"]');
   await expect.poll(() => truckCalls(calls).length).toBe(1);
   expect(truckCalls(calls)[0].body).toMatchObject({ route_id: 'R1', truck: 'T-14', shift: SHIFT });
   await expect(page.locator('[data-truckinput="R1"]')).toHaveValue('T-14');

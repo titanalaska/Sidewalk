@@ -227,9 +227,10 @@ body.has-ref.ref-min #mapbox{height:62vh}
 #printbar{position:sticky;top:0;z-index:1;display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--card);color:var(--ink);border-bottom:1px solid var(--line)}
 #printbar .muted{flex:1}
 #printsheets{max-width:8.5in;margin:12px auto;padding:0.5in;background:#fff;color:#000;box-shadow:0 1px 6px rgba(0,0,0,.25);font:11pt/1.35 Arial,Helvetica,sans-serif}
+/* Only while Print sheets is open (body.printing, set by lib/shiftlogui.js): any other print of the app is left alone. */
 @media print{
-  body>*:not(#printview){display:none !important}
-  #printview{position:static;overflow:visible;background:#fff}
-  #printbar{display:none}
-  #printsheets{max-width:none;margin:0;padding:0;box-shadow:none}
+  body.printing>*:not(#printview){display:none !important}
+  body.printing #printview{position:static;overflow:visible;background:#fff}
+  body.printing #printbar{display:none}
+  body.printing #printsheets{max-width:none;margin:0;padding:0;box-shadow:none}
 }

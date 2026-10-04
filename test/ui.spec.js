@@ -96,6 +96,16 @@ function fakeSnow(state, opts = {}) {
           out.cursor[t] = rows.length;
           out.reset[t] = reset;
         });
+        // Posts (final review I1): Matt's poll carries every Post after his cursor, slimmed to what a sheet's
+        // crew line reads (snow-app-script slimPost_): no phones, no shift counts, no site lists. Posts rows
+        // have no seq, so only the cursor counts. Everyone else: none, cursor 0.
+        if (role === 'admin') {
+          const cur = Math.max(0, Math.floor(Number((body.cursor || {}).posts) || 0)), reset = cur > state.posts.length;
+          out.posts = state.posts.slice(reset ? 0 : cur).map((p) => ({ id: p.id, shift: p.shift, posted_at: p.posted_at,
+            people: Object.fromEntries(Object.entries(p.people || {}).map(([id, x]) => [id, { name: String((x || {}).name || '') }])),
+            routes: (p.routes || []).map((r) => ({ id: r.id, lead: r.lead || null, members: (r.members || []).slice(), truck: r.truck === undefined ? null : r.truck })) }));
+          out.cursor.posts = state.posts.length; out.reset.posts = reset;
+        } else { out.posts = []; out.cursor.posts = 0; out.reset.posts = false; }
         return out;
       }
       const storm = SL.stormState(state.storms);
@@ -144,10 +154,11 @@ function fakeSnow(state, opts = {}) {
       return { ok: true, record: view(row), ...v };
     }
     // setTruck and retrySheets: the real reply shapes (snow-app-script reports for tasks 2 and 3).
-    // setTruck: the phone sends route_id and truck ONLY; the server stamps shift, who and when.
-    // A lead may set only the route the live Board has them leading. Crew never.
+    // setTruck: the server stamps who and when. The shift (final review C1): Matt names it and it must be one
+    // on offer now (CrewTime.shiftChoices), else "Pick a shift"; a lead's is always the server's own shiftFor,
+    // whatever is sent. A lead may set only the route the live Board has them leading. Crew never.
     if (body.action === 'setTruck') {
-      const SL = require('../lib/shiftlog.js'), B = require('../lib/board.js');
+      const SL = require('../lib/shiftlog.js'), B = require('../lib/board.js'), T = require('../lib/time.js');
       if (role === 'crew') return { ok: false, code: 'forbidden', reason: 'Only Matt can do that.', ...v };
       const truck = typeof body.truck === 'string' ? body.truck.trim() : '';
       if (truck.length < 1 || truck.length > 20) return { ok: false, code: 'invalid', reason: 'A truck is 1 to 20 characters', ...v };
@@ -159,7 +170,8 @@ function fakeSnow(state, opts = {}) {
       }
       state.trucks = state.trucks || [];
       const stamp = state.clock || '2026-10-03T07:50:18.445-08:00', n = state.trucks.length + 1;
-      const row = { id: 'T-' + n, seq: n, route_id: route.id, shift_id: SL.shiftFor(stamp, state.storms || []), truck,
+      if (role === 'admin' && !T.shiftChoices(stamp).includes(String(body.shift || ''))) return { ok: false, code: 'invalid', reason: 'Pick a shift', ...v };
+      const row = { id: 'T-' + n, seq: n, route_id: route.id, shift_id: role === 'admin' ? body.shift : SL.shiftFor(stamp, state.storms || []), truck,
         by_key: me.crew_id || 'admin', by_name: me.name, at: stamp };
       state.trucks.push(row);
       const record = role === 'admin' ? { ...row, by_profile: 'P1', rev: 1, archived: false } : row;
@@ -1626,8 +1638,9 @@ test('the phone asks only for rows after its cursor', async ({ page }) => {
   await expect.poll(() => shiftCalls(calls).length).toBe(2);
   const [first, second] = shiftCalls(calls).map((c) => c.body);
   // Trucks and Sheets (route sheets) are two more tabs on the same cursor; this fake has none of either.
-  expect(first.cursor).toEqual({ log: 0, storms: 0, visits: 0, trucks: 0, sheets: 0 });
-  expect(second.cursor).toEqual({ log: 2, storms: 1, visits: 0, trucks: 0, sheets: 0 });
+  // Posts ride the cursor too (Matt's only: Jordan's poll gets none, cursor 0); they have no seq, so no `last`.
+  expect(first.cursor).toEqual({ log: 0, storms: 0, visits: 0, trucks: 0, sheets: 0, posts: 0 });
+  expect(second.cursor).toEqual({ log: 2, storms: 1, visits: 0, trucks: 0, sheets: 0, posts: 0 });
   expect(second.last).toEqual({ log: 2, storms: 1, visits: null, trucks: null, sheets: null });
   await expect.poll(async () => (await phoneState(page)).cursor.log).toBe(2);
   expect((await phoneState(page)).log.map((r) => r.id)).toEqual(['L-1', 'L-2']); // nothing came twice
@@ -2712,25 +2725,120 @@ const postOf = (o = {}) => ({ ...POST, shift: SHIFT, routes: [
 const stubPrint = (page) => page.addInitScript(() => { window.__printed = 0; window.print = () => { window.__printed++; }; });
 
 test("Matt sets a route's truck on the Board and it is sent", async ({ page }) => {
+  // The storm clock (7:30 AM on 10/3) has the post for the night of 10/2 current: the Board's trucks are that shift's.
   const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(stormWorld()), clockAt: STORM_CLOCK });
   await page.click('nav [data-tab="board"]');
+  await expect(page.locator('#truckshift')).toHaveText('Trucks for Night of 10/2');
   // Blank until someone sets it: never a made-up truck.
   await expect(page.locator('[data-truckinput="R1"]')).toHaveValue('');
   await expect(page.locator('[data-truckinput="R2"]')).toHaveValue('');
   await page.fill('[data-truckinput="R1"]', ' T-14 ');
   await page.click('[data-settruck="R1"]');
   await expect.poll(() => truckCalls(calls).length).toBe(1);
-  // The phone names the route and the truck, nothing else: the server stamps the shift, who and when.
-  expect(Object.keys(truckCalls(calls)[0].body).sort()).toEqual(['action', 'route_id', 'token', 'truck']);
-  expect(truckCalls(calls)[0].body).toMatchObject({ route_id: 'R1', truck: 'T-14' }); // trimmed
+  // The phone names the route, the truck and the shift (the current post's); the server stamps who and when.
+  expect(Object.keys(truckCalls(calls)[0].body).sort()).toEqual(['action', 'route_id', 'shift', 'token', 'truck']);
+  expect(truckCalls(calls)[0].body).toMatchObject({ route_id: 'R1', truck: 'T-14', shift: SHIFT }); // trimmed
   await expect(page.locator('[data-truckinput="R1"]')).toHaveValue('T-14');
   // Any route: N2 too, and N1 keeps its own.
   await page.fill('[data-truckinput="R2"]', 'T-9');
   await page.click('[data-settruck="R2"]');
   await expect.poll(() => truckCalls(calls).length).toBe(2);
-  expect(truckCalls(calls)[1].body).toMatchObject({ route_id: 'R2', truck: 'T-9' });
+  expect(truckCalls(calls)[1].body).toMatchObject({ route_id: 'R2', truck: 'T-9', shift: SHIFT });
   await expect(page.locator('[data-truckinput="R1"]')).toHaveValue('T-14');
   await expect(page.locator('[data-truckinput="R2"]')).toHaveValue('T-9');
+});
+
+// Final review C1. 4 PM on 10/3, no storm, no night_on: the shift running is the DAY of 10/3. Matt posted
+// the night of 10/3 at 3:30 and sets N1's truck for it. Worked by hand: the Board sends shift
+// night-2026-10-03 (the current post's), the server files it there, and every screen shows that
+// shift's truck: the Board box keeps T-14 after the save, and Matt's live view says "Truck: T-14".
+// (Shown for the running day shift instead, both would be blank: the bug.)
+const NIGHT3 = 'night-2026-10-03';
+const AT_4PM = '2026-10-03T16:00:00-08:00';
+test('a truck set at 4 PM for the posted night is sent with that shift and shown after the save', async ({ page }) => {
+  const w = stormWorld();
+  w.storms = [];
+  w.clock = '2026-10-03T16:00:30.000-08:00';
+  w.posts = [{ ...postOf(), shift: NIGHT3, posted_at: '2026-10-03T15:30:00.000-08:00' }];
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w), clockAt: AT_4PM });
+  await page.click('nav [data-tab="board"]');
+  await expect(page.locator('#truckshift')).toHaveText('Trucks for Night of 10/3');
+  await page.fill('[data-truckinput="R1"]', 'T-14');
+  await page.click('[data-settruck="R1"]');
+  await expect.poll(() => truckCalls(calls).length).toBe(1);
+  expect(truckCalls(calls)[0].body).toMatchObject({ route_id: 'R1', truck: 'T-14', shift: NIGHT3 });
+  await expect(page.locator('#dlg')).toBeHidden();                       // a current post: nothing to ask
+  expect(w.trucks.map((t) => [t.route_id, t.shift_id, t.truck])).toEqual([['R1', NIGHT3, 'T-14']]);
+  await expect(page.locator('#toast')).toBeVisible();
+  await expect(page.locator('[data-truckinput="R1"]')).toHaveValue('T-14');
+  await page.click('nav [data-tab="storm"]');
+  await expect(page.locator('[data-liveroute="R1"] [data-truckrow="R1"]')).toHaveText('Truck: T-14');
+  await expect(page.locator('[data-liveroute="R2"] [data-truckrow="R2"]')).toHaveText('Truck: —');
+});
+
+test('with no current post, the Board asks once which shift its trucks are for', async ({ page }) => {
+  // 4 PM on 10/3, nothing posted. The first Save asks (the shifts on offer at 4 PM: Day of 10/3, Night of
+  // 10/3, none picked); Matt picks the night. The second route's Save does not ask again.
+  const w = stormWorld();
+  w.storms = []; w.posts = [];
+  w.clock = '2026-10-03T16:00:30.000-08:00';
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w), clockAt: AT_4PM });
+  await page.click('nav [data-tab="board"]');
+  await expect(page.locator('#truckshift')).toHaveText('Trucks: nothing is posted, so Save asks which shift');
+  await page.fill('[data-truckinput="R1"]', 'T-14');
+  await page.click('[data-settruck="R1"]');
+  await expect(page.locator('#dlg')).toBeVisible();
+  await expect(page.locator('.shiftpick [data-shift]')).toHaveText(['Day of 10/3', 'Night of 10/3']);
+  await expect(page.locator('.shiftpick [aria-pressed="true"]')).toHaveCount(0);
+  expect(truckCalls(calls)).toHaveLength(0);                             // nothing is sent before the pick
+  await page.click('[data-shift="' + NIGHT3 + '"]');
+  await expect.poll(() => truckCalls(calls).length).toBe(1);
+  expect(truckCalls(calls)[0].body).toMatchObject({ route_id: 'R1', truck: 'T-14', shift: NIGHT3 });
+  await expect(page.locator('#truckshift')).toHaveText('Trucks for Night of 10/3');
+  await expect(page.locator('[data-truckinput="R1"]')).toHaveValue('T-14');
+  await page.fill('[data-truckinput="R2"]', 'T-9');
+  await page.click('[data-settruck="R2"]');
+  await expect.poll(() => truckCalls(calls).length).toBe(2);
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(truckCalls(calls)[1].body).toMatchObject({ route_id: 'R2', truck: 'T-9', shift: NIGHT3 });
+  await expect(page.locator('[data-truckinput="R2"]')).toHaveValue('T-9');
+  await expect(page.locator('[data-truckinput="R1"]')).toHaveValue('T-14');
+});
+
+test('the Board loads the trucks a lead set', async ({ page }) => {
+  // Alex set N1's truck from his phone this shift (the night of 10/2). Matt opens the app and goes straight
+  // to the Board, never the Storm tab: the Board reads the trucks itself.
+  const w = stormWorld();
+  w.trucks = [truckRow(1, 'R1', 'T-22', 'Alex Test', 'C01')];
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w), clockAt: STORM_CLOCK });
+  await page.click('nav [data-tab="board"]');
+  await expect(page.locator('[data-truckinput="R1"]')).toHaveValue('T-22');
+  await expect(page.locator('[data-truckinput="R2"]')).toHaveValue('');
+  expect(shiftCalls(calls).length).toBeGreaterThanOrEqual(1);
+});
+
+test('Enter in a Board truck box saves it, before the Storm tab was ever opened', async ({ page }) => {
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(stormWorld()), clockAt: STORM_CLOCK });
+  await page.click('nav [data-tab="board"]');
+  await page.fill('[data-truckinput="R1"]', 'T-14');
+  await page.press('[data-truckinput="R1"]', 'Enter');
+  await expect.poll(() => truckCalls(calls).length).toBe(1);
+  expect(truckCalls(calls)[0].body).toMatchObject({ route_id: 'R1', truck: 'T-14', shift: SHIFT });
+  await expect(page.locator('[data-truckinput="R1"]')).toHaveValue('T-14');
+});
+
+test("a lead sees the posted night's truck read-only until that night is running", async ({ page }) => {
+  // 4 PM on 10/3: the day shift is running, and the post (Alex leads N1) is for the night of 10/3, with
+  // Matt's truck T-14 set for it. Alex's save would be filed under the DAY (a lead's truck is always the
+  // shift running), so his screen shows the night's truck read-only: no box until the night is on.
+  const w = stormWorld();
+  w.storms = [];
+  w.moves = boardMoves();
+  w.posts = [{ ...postOf(), shift: NIGHT3, posted_at: '2026-10-03T15:30:00.000-08:00' }];
+  w.trucks = [{ ...truckRow(1, 'R1', 'T-14'), shift_id: NIGHT3 }];
+  await openStorm(page, w, { token: 'tok-alex', clockAt: AT_4PM });
+  await expect(page.locator('[data-truckrow="R1"]')).toHaveText('Truck: T-14');
+  await expect(page.locator('[data-truckinput]')).toHaveCount(0);
 });
 
 test("a lead changes their own route's truck from the Storm tab", async ({ page }) => {
@@ -2749,6 +2857,7 @@ test("a lead changes their own route's truck from the Storm tab", async ({ page 
   await page.click('[data-settruck="R1"]');
   await expect.poll(() => truckCalls(calls).length).toBe(1);
   expect(truckCalls(calls)[0].body).toMatchObject({ route_id: 'R1', truck: 'T-22' });
+  expect(truckCalls(calls)[0].body.shift).toBeUndefined(); // a lead's truck is the shift running: the server's, never the phone's
   await expect(page.locator('[data-truckinput="R1"]')).toHaveValue('T-22'); // the newest row wins over Matt's T-9
   // The same control is on the route when it is opened.
   await openRoute(page, 'R1');
@@ -2985,15 +3094,112 @@ test('"N of M saved" offers Retry only ten minutes after the End', async ({ page
   await expect(page.locator('#retrySheets')).toHaveCount(0);
 });
 
-test("the Sheets status and Retry are Matt's alone; leads can still print", async ({ page }) => {
+test("the Sheets status, Retry and Print sheets are Matt's alone", async ({ page, browser }) => {
+  // Final review I2: Print is in "Matt's live view" (the spec). A lead's phone holds no Posts but the
+  // newest, so its print could differ from the PDF in Drive: leads have no Print (they have Copy for BT).
   const w = stormWorld();
   w.storms = [START_ROW, { id: 'ST-2', seq: 2, kind: 'end', storm_id: 'ST-1', at: at('08:00'), by_name: 'Matthew' }];
   w.sheets = [{ id: 'SH-1', seq: 1, storm_id: 'ST-1', route_id: 'R1', shift_id: SHIFT, end_seq: 2, status: 'failed', error: 'x', name: 'N1 Night of 10-2.pdf', updated: false }];
   await openStorm(page, w, { token: 'tok-alex' });
   await expect(page.locator('#stormhead')).toHaveText('No storm open');
+  await expect(page.locator('#stormctl')).toBeVisible();                 // the controls drew: Reopen is there
   await expect(page.locator('#sheetsstatus')).toHaveCount(0);
   await expect(page.locator('#retrySheets')).toHaveCount(0);
-  await expect(page.locator('#printSheets')).toBeVisible();
+  await expect(page.locator('#printSheets')).toHaveCount(0);
+  // Matt, same storm, his own phone: all three.
+  const matt = await browser.newContext({ timezoneId: 'America/Anchorage', viewport: { width: 390, height: 844 } }); // as playwright.config.js
+  try {
+    const p2 = await matt.newPage();
+    await openStorm(p2, w, { token: 'tok-matt' });
+    await expect(p2.locator('#printSheets')).toBeVisible();
+    await expect(p2.locator('#sheetsstatus')).toBeVisible();
+    await expect(p2.locator('#retrySheets')).toBeVisible();
+  } finally { await matt.close(); }
+});
+
+test('an ended storm with nothing logged says so, with no Retry', async ({ page }) => {
+  // Final review M2. Started 6:00, ended 8:00, nobody tapped, carded or was posted: no sheet is owed
+  // (the server makes none and writes no Sheets row). Twenty minutes later it must not still say
+  // "making…" with a Retry that can only answer "Nothing to retry".
+  const w = endedAt8();
+  w.posts = [];
+  await openStorm(page, w, { token: 'tok-matt', clockAt: at('08:20') });
+  await expect(page.locator('#sheetsstatus')).toBeVisible();
+  await expect(page.locator('#sheetsstatus')).toHaveText('Sheets: none (nothing logged)');
+  await expect(page.locator('#retrySheets')).toHaveCount(0);
+});
+
+// Final review I1. A storm from the day of 10/2 (start 10:00) into that night. Two Posts: the DAY's
+// (Jordan leads N2, nobody on N1), then the night's, which is the newest (Alex leads N1 with Jordan; N2
+// empty). The Board (moved at 5 PM on 10/2) has Alex and Jordan on N1, nobody on N2.
+const DAY2 = 'day-2026-10-02';
+const twoPostStorm = () => {
+  const w = stormWorld();
+  w.storms = [{ ...START_ROW, at: '2026-10-02T10:00:00.000-08:00' }];
+  w.moves = boardMoves();
+  w.posts = [
+    { ...postOf({ R1: { lead: null, members: [] }, R2: { lead: 'C03', members: [] } }), id: 'P-day', shift: DAY2, posted_at: '2026-10-02T09:30:00.000-08:00' },
+    { ...postOf({ R2: { lead: null, members: [] } }), id: 'P-night', posted_at: '2026-10-02T17:30:00.000-08:00' },
+  ];
+  return w;
+};
+
+test("Print of an earlier shift shows that shift's posted crew, not the Board", async ({ page }) => {
+  // Taps: Jordan cleared TUDOR-TRANSIT (N2) at 11:00 on 10/2 (day of 10/2); Alex cleared Main entry (N1)
+  // at 6:30 on 10/3 (night of 10/2). Sheets, worked by hand: N2 Day of 10/2 (its tap; crew from the DAY's
+  // Post: Jordan leads), N1 Night of 10/2 (its tap; the night's Post: Alex, Jordan). N1 has no day sheet
+  // (no tap, empty in the day Post); N2 none at night (no tap, empty in the night Post).
+  // With only the newest Post, the day sheet's crew would come from the Board: "—", "not posted".
+  const w = twoPostStorm();
+  w.log = [logRow(1, 'S2', 'whole', 'cleared', 'Jordan Demo', { by_key: 'C03', shift_id: DAY2, at: '2026-10-02T11:00:00.000-08:00' }),
+    logRow(2, 'S1', 'Z1', 'cleared', 'Alex Test', { at: at('06:30') })];
+  await stubPrint(page);
+  await openStorm(page, w, { token: 'tok-matt' });
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await page.click('#printSheets');
+  await expect(page.locator('#printview')).toBeVisible();
+  const sheets = page.locator('#printsheets .sheet');
+  await expect(sheets).toHaveCount(2);
+  await expect(sheets.nth(0).locator('h1')).toHaveText('Route N2Day of 10/2');
+  await expect(sheets.nth(0).locator('.head')).toContainText('Lead: Jordan Demo');
+  await expect(sheets.nth(0)).not.toContainText('not posted');
+  await expect(sheets.nth(1).locator('h1')).toHaveText('Route N1Night of 10/2');
+  await expect(sheets.nth(1).locator('.head')).toContainText('Lead: Alex Test');
+  await expect(sheets.nth(1).locator('.head')).toContainText('Crew: Jordan Demo');
+});
+
+test("the Sheets count expects an earlier shift's posted crew that logged nothing", async ({ page }) => {
+  // The same storm, ended at 8:00 on 10/3. One tap: Alex, Main entry (N1), 6:30, night of 10/2. Sheets owed,
+  // worked by hand: N2 Day of 10/2 (the DAY's Post sent Jordan out on N2: a true "Not done") and N1 Night
+  // of 10/2 (the tap). N1's night file is saved: "1 of 2 saved", not "1 saved". Nine minutes after the End.
+  const w = twoPostStorm();
+  w.storms.push({ id: 'ST-2', seq: 2, kind: 'end', storm_id: 'ST-1', at: at('08:00'), by_name: 'Matthew' });
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: at('06:30') })];
+  w.sheets = [savedRow(1, 'R1')];
+  await openStorm(page, w, { token: 'tok-matt', clockAt: at('08:09') });
+  await expect(page.locator('#sheetsstatus')).toBeVisible();
+  await expect(page.locator('#sheetsstatus')).toHaveText('Sheets: 1 of 2 saved · making…');
+});
+
+test('the print rule hides the app only while Print sheets is open', async ({ page }) => {
+  // Final review M6: the @media print rule hid everything but #printview on ANY print of the app (a
+  // browser's own Print, a screenshot to PDF). It now applies only while the Print view is open.
+  await stubPrint(page);
+  await openStorm(page, stormWorld(), { token: 'tok-matt' });
+  await page.emulateMedia({ media: 'print' });
+  await expect(page.locator('header')).toBeVisible();
+  await expect(page.locator('main')).toBeVisible();
+  await page.click('#printSheets');
+  await expect(page.locator('body')).toHaveClass(/(^|\s)printing(\s|$)/);
+  await expect(page.locator('header')).toBeHidden();
+  await expect(page.locator('#printsheets')).toBeVisible();
+  await page.emulateMedia({ media: 'screen' });                          // the bar (and its Back) is not printed
+  await page.click('#printBack');
+  await page.emulateMedia({ media: 'print' });
+  await expect(page.locator('#printview')).toHaveCount(0);
+  await expect(page.locator('body')).not.toHaveClass(/(^|\s)printing(\s|$)/);
+  await expect(page.locator('header')).toBeVisible();
+  await expect(page.locator('main')).toBeVisible();
 });
 
 test('a note with <b> prints as text', async ({ page }) => {

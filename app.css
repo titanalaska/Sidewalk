@@ -217,3 +217,19 @@ body.has-ref.ref-min #mapbox{height:62vh}
 .live-status.bad{color:var(--warn);font-weight:600}
 .offroute{font-size:12px;font-weight:700;padding:1px 8px;border-radius:999px;background:var(--yellow-bg);color:var(--yellow-ink);border:1px solid var(--yellow-line)}
 .live-totals{margin-top:4px}
+/* Route sheets (10/3/26): the truck line, the Sheets status, and the Print view. */
+.truckrow{margin:6px 0;display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:15px}
+.truckrow label{display:flex;align-items:center;gap:8px;flex:1;min-width:160px;margin:0}
+.truckrow input{width:auto;flex:1;min-width:90px}
+.truckrow .err{flex-basis:100%;margin:0}
+.sheetsstatus{margin-top:8px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+#printview{position:fixed;inset:0;z-index:20;overflow:auto;background:#d9d8d4;color:#000}
+#printbar{position:sticky;top:0;z-index:1;display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--card);color:var(--ink);border-bottom:1px solid var(--line)}
+#printbar .muted{flex:1}
+#printsheets{max-width:8.5in;margin:12px auto;padding:0.5in;background:#fff;color:#000;box-shadow:0 1px 6px rgba(0,0,0,.25);font:11pt/1.35 Arial,Helvetica,sans-serif}
+@media print{
+  body>*:not(#printview){display:none !important}
+  #printview{position:static;overflow:visible;background:#fff}
+  #printbar{display:none}
+  #printsheets{max-width:none;margin:0;padding:0;box-shadow:none}
+}

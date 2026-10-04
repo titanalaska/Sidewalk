@@ -19,7 +19,7 @@ const TOKENS = { 'tok-matt': 'admin', 'tok-jordan': 'crew', 'tok-alex': 'lead' }
 // A small fake of the snow backend, with the real reply shapes.
 function fakeSnow(state, opts = {}) {
   return (body) => {
-    const v = { version: opts.version || 'shiftlog-1' };
+    const v = { version: opts.version || 'sheets-1' };
     if (opts.expired && opts.expired.on) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     if (body.token === 'tok-nina') return { ok: false, code: 'not_on_roster', name: 'Nina Nursery', reason: "You're signed in, but not on the snow crew yet. Ask Matt to add you.", ...v };
     const role = TOKENS[body.token];
@@ -84,11 +84,15 @@ function fakeSnow(state, opts = {}) {
       const refuse = (code, reason) => ({ ok: false, code, reason, ...v });
       if (body.action === 'getShiftLog') {
         const out = { ok: true, cursor: {}, reset: {}, ...v };
-        [['log', state.log], ['storms', state.storms], ['visits', state.visits]].forEach(([t, rows]) => {
+        // Route sheets (snow-app-script test/routesheet-api.test.js): trucks go to everyone (admin
+        // rows are whole rows); the Sheets tab is Matt's only. A non-admin gets [] / cursor 0 / reset false.
+        state.trucks = state.trucks || []; state.sheets = state.sheets || [];
+        const tview = (row) => (role === 'admin' ? { ...row, by_profile: 'P1', rev: 1, archived: false } : row);
+        [['log', state.log], ['storms', state.storms], ['visits', state.visits], ['trucks', state.trucks], ['sheets', role === 'admin' ? state.sheets : []]].forEach(([t, rows]) => {
           const cur = Math.max(0, Math.floor(Number((body.cursor || {})[t]) || 0)), last = (body.last || {})[t];
           let reset = cur > rows.length;
           if (!reset && cur >= 1 && last != null && Number(rows[cur - 1].seq) !== Number(last)) reset = true;
-          out[t] = rows.slice(reset ? 0 : cur).map(view);
+          out[t] = rows.slice(reset ? 0 : cur).map(t === 'trucks' ? tview : t === 'sheets' ? (x) => x : view);
           out.cursor[t] = rows.length;
           out.reset[t] = reset;
         });
@@ -139,6 +143,32 @@ function fakeSnow(state, opts = {}) {
       state.log.push(row);
       return { ok: true, record: view(row), ...v };
     }
+    // setTruck and retrySheets: the real reply shapes (snow-app-script reports for tasks 2 and 3).
+    // setTruck: the phone sends route_id and truck ONLY; the server stamps shift, who and when.
+    // A lead may set only the route the live Board has them leading. Crew never.
+    if (body.action === 'setTruck') {
+      const SL = require('../lib/shiftlog.js'), B = require('../lib/board.js');
+      if (role === 'crew') return { ok: false, code: 'forbidden', reason: 'Only Matt can do that.', ...v };
+      const truck = typeof body.truck === 'string' ? body.truck.trim() : '';
+      if (truck.length < 1 || truck.length > 20) return { ok: false, code: 'invalid', reason: 'A truck is 1 to 20 characters', ...v };
+      const route = state.routes.find((r) => r.id === body.route_id && !r.archived);
+      if (!route) return { ok: false, code: 'invalid', reason: 'Unknown route', ...v };
+      if (role === 'lead') {
+        const board = B.boardFrom(state.moves, state.routes.filter((r) => !r.archived), Object.fromEntries(state.crew.map((c) => [c.id, c])));
+        if (board.routes[route.id].lead !== me.crew_id) return { ok: false, code: 'forbidden', reason: "Only Matt or that route's lead can set its truck.", ...v };
+      }
+      state.trucks = state.trucks || [];
+      const stamp = state.clock || '2026-10-03T07:50:18.445-08:00', n = state.trucks.length + 1;
+      const row = { id: 'T-' + n, seq: n, route_id: route.id, shift_id: SL.shiftFor(stamp, state.storms || []), truck,
+        by_key: me.crew_id || 'admin', by_name: me.name, at: stamp };
+      state.trucks.push(row);
+      const record = role === 'admin' ? { ...row, by_profile: 'P1', rev: 1, archived: false } : row;
+      return { ok: true, record, ...v };
+    }
+    if (body.action === 'retrySheets') {
+      if (role !== 'admin') return { ok: false, code: 'forbidden', reason: 'Only Matt can do that.', ...v };
+      return { ...(opts.retryReply || { ok: true, storm_id: body.storm_id, failed: 1, owed: 1, scheduled: true }), ...v };
+    }
     if (/^archive/.test(body.action)) {
       if (role !== 'admin') return { ok: false, code: 'forbidden', reason: 'Only Matt can do that.', ...v };
       const tab = { archiveCrew: 'crew', archiveSite: 'sites', archiveRoute: 'routes', archiveZone: 'zones' }[body.action];
@@ -154,6 +184,8 @@ function fakeSnow(state, opts = {}) {
       const tab = { saveCrew: 'crew', saveSite: 'sites', saveRoute: 'routes', saveZone: 'zones' }[body.action];
       state[tab] = state[tab] || [];
       const rec = { ...body.record, rev: (body.record.rev || 0) + 1 };
+      // The real saveSite: a site is saved with both unit keys (missing = blank, trimmed, text).
+      if (tab === 'sites') rec.units = { bobcat: String(((body.record.units || {}).bobcat) || '').trim(), snowrator: String(((body.record.units || {}).snowrator) || '').trim() };
       // A fresh id per new record, as the real backend does (one fixed id let a
       // second new zone overwrite the first and hid nothing until the import test).
       if (!rec.id) rec.id = (tab === 'crew' ? 'C' : 'X') + (90 + (state._made = (state._made || 0) + 1));
@@ -446,7 +478,7 @@ test('after a conflict the app reloads the latest, so the retry can save', async
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'shiftlog-1' };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'sheets-1' };
     }
     return base(b);
   } });
@@ -1593,9 +1625,10 @@ test('the phone asks only for rows after its cursor', async ({ page }) => {
   await pollNow(page);
   await expect.poll(() => shiftCalls(calls).length).toBe(2);
   const [first, second] = shiftCalls(calls).map((c) => c.body);
-  expect(first.cursor).toEqual({ log: 0, storms: 0, visits: 0 });
-  expect(second.cursor).toEqual({ log: 2, storms: 1, visits: 0 });
-  expect(second.last).toEqual({ log: 2, storms: 1, visits: null });
+  // Trucks and Sheets (route sheets) are two more tabs on the same cursor; this fake has none of either.
+  expect(first.cursor).toEqual({ log: 0, storms: 0, visits: 0, trucks: 0, sheets: 0 });
+  expect(second.cursor).toEqual({ log: 2, storms: 1, visits: 0, trucks: 0, sheets: 0 });
+  expect(second.last).toEqual({ log: 2, storms: 1, visits: null, trucks: null, sheets: null });
   await expect.poll(async () => (await phoneState(page)).cursor.log).toBe(2);
   expect((await phoneState(page)).log.map((r) => r.id)).toEqual(['L-1', 'L-2']); // nothing came twice
 });
@@ -2661,6 +2694,266 @@ test('a cancelled card whose save fails says so by name, not inside the next car
   await expect(page.locator('#dlg')).toBeVisible();
   await expect(page.locator('#vc_err')).toHaveText('');
   await expect(page.locator('#vc_depth')).toHaveValue('7');
+});
+
+// ---------------- route sheets (sub-project 5, 10/3/26) ----------------
+// A truck per route and shift (newest row wins), unit numbers on a site, the Print
+// view (every sheet, one per page) and the Sheets status line.
+// The storm clock above (7:30 AM on 10/3) is still the night of 10/2, and the fake
+// files every row there, so a truck set in these tests belongs to this shift.
+const SHIFT = 'night-2026-10-02';
+const truckRow = (n, routeId, truck, by = 'Matthew', byKey = 'admin') => ({ id: 'T-' + n, seq: n, route_id: routeId, shift_id: SHIFT, truck, by_key: byKey, by_name: by, at: at('06:10') });
+const truckCalls = (calls) => calls.filter((c) => c.body.action === 'setTruck');
+// The post of this shift: N1 led by Alex (C01) with Jordan, N2 led by Alex. `o.R1` / `o.R2` override a route's fields.
+const postOf = (o = {}) => ({ ...POST, shift: SHIFT, routes: [
+  { id: 'R1', name: 'N1', sites: [{ id: 'S1', name: 'PAC' }], lead: 'C01', members: ['C03'], truck: null, ...(o.R1 || {}) },
+  { id: 'R2', name: 'N2', sites: [{ id: 'S2', name: 'TUDOR-TRANSIT' }], lead: 'C01', members: [], truck: null, ...(o.R2 || {}) }] });
+// The window's print dialog is not opened in a test: count the asks instead.
+const stubPrint = (page) => page.addInitScript(() => { window.__printed = 0; window.print = () => { window.__printed++; }; });
+
+test("Matt sets a route's truck on the Board and it is sent", async ({ page }) => {
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(stormWorld()), clockAt: STORM_CLOCK });
+  await page.click('nav [data-tab="board"]');
+  // Blank until someone sets it: never a made-up truck.
+  await expect(page.locator('[data-truckinput="R1"]')).toHaveValue('');
+  await expect(page.locator('[data-truckinput="R2"]')).toHaveValue('');
+  await page.fill('[data-truckinput="R1"]', ' T-14 ');
+  await page.click('[data-settruck="R1"]');
+  await expect.poll(() => truckCalls(calls).length).toBe(1);
+  // The phone names the route and the truck, nothing else: the server stamps the shift, who and when.
+  expect(Object.keys(truckCalls(calls)[0].body).sort()).toEqual(['action', 'route_id', 'token', 'truck']);
+  expect(truckCalls(calls)[0].body).toMatchObject({ route_id: 'R1', truck: 'T-14' }); // trimmed
+  await expect(page.locator('[data-truckinput="R1"]')).toHaveValue('T-14');
+  // Any route: N2 too, and N1 keeps its own.
+  await page.fill('[data-truckinput="R2"]', 'T-9');
+  await page.click('[data-settruck="R2"]');
+  await expect.poll(() => truckCalls(calls).length).toBe(2);
+  expect(truckCalls(calls)[1].body).toMatchObject({ route_id: 'R2', truck: 'T-9' });
+  await expect(page.locator('[data-truckinput="R1"]')).toHaveValue('T-14');
+  await expect(page.locator('[data-truckinput="R2"]')).toHaveValue('T-9');
+});
+
+test("a lead changes their own route's truck from the Storm tab", async ({ page }) => {
+  // The Board has Alex (C01) leading N1 only. The post says Alex leads N1 and Jordan (C03) leads N2.
+  // Matt set N1's truck to T-9 at 6:10 AM; Alex changes it to T-22. N2 is not his: read-only.
+  const w = stormWorld();
+  w.moves = boardMoves();
+  w.posts = [postOf({ R2: { lead: 'C03', members: [] } })];
+  w.trucks = [truckRow(1, 'R1', 'T-9')];
+  const calls = await openStorm(page, w, { token: 'tok-alex' });
+  await expect(page.locator('[data-truckinput="R1"]')).toHaveValue('T-9');
+  await expect(page.locator('[data-truckinput="R2"]')).toHaveCount(0);
+  await expect(page.locator('[data-truckrow="R2"]')).toHaveText('Truck: —');
+  await expect(page.locator('[data-settruck="R2"]')).toHaveCount(0);
+  await page.fill('[data-truckinput="R1"]', 'T-22');
+  await page.click('[data-settruck="R1"]');
+  await expect.poll(() => truckCalls(calls).length).toBe(1);
+  expect(truckCalls(calls)[0].body).toMatchObject({ route_id: 'R1', truck: 'T-22' });
+  await expect(page.locator('[data-truckinput="R1"]')).toHaveValue('T-22'); // the newest row wins over Matt's T-9
+  // The same control is on the route when it is opened.
+  await openRoute(page, 'R1');
+  await expect(page.locator('[data-truckinput="R1"]')).toHaveValue('T-22');
+});
+
+test('a refused truck says why and keeps what was typed; a blank one is not sent', async ({ page }) => {
+  // The post names Alex as N1's lead, but the Board does not: the server refuses and says so.
+  const w = stormWorld();
+  w.moves = [];
+  w.posts = [postOf()];
+  const calls = await openStorm(page, w, { token: 'tok-alex' });
+  await page.click('[data-settruck="R1"]');
+  await expect(page.locator('[data-truckrow="R1"] .err')).toHaveText('Type the truck first');
+  expect(truckCalls(calls)).toHaveLength(0);
+  await page.fill('[data-truckinput="R1"]', 'T-5');
+  await page.click('[data-settruck="R1"]');
+  await expect(page.locator('[data-truckrow="R1"] .err')).toContainText("Only Matt or that route's lead can set its truck.");
+  await expect(page.locator('[data-truckinput="R1"]')).toHaveValue('T-5');
+  expect(truckCalls(calls)).toHaveLength(1);
+});
+
+test('crew see the truck but cannot change it', async ({ page }) => {
+  // Jordan (crew) is on N1 (Trucks row: T-9), and the post even names him N1's lead: still no box,
+  // because only a lead account gets one. N2 has no Trucks row but the post carries T-4.
+  const w = stormWorld();
+  w.posts = [postOf({ R1: { lead: 'C03', members: [] }, R2: { truck: 'T-4' } })];
+  w.trucks = [truckRow(1, 'R1', 'T-9')];
+  await openStorm(page, w); // Jordan, crew
+  await expect(page.locator('[data-truckrow="R1"]')).toHaveText('Truck: T-9');
+  await page.click('#otherRoutes');
+  await expect(page.locator('[data-truckrow="R2"]')).toHaveText('Truck: T-4');
+  await expect(page.locator('[data-truckinput]')).toHaveCount(0);
+  await expect(page.locator('[data-settruck]')).toHaveCount(0);
+  // Crew print nothing and see no Sheets line.
+  await expect(page.locator('#printSheets')).toHaveCount(0);
+  await expect(page.locator('#sheetsstatus')).toHaveCount(0);
+  // Tonight shows the same two trucks.
+  await page.click('nav [data-tab="tonight"]');
+  await expect(page.locator('.tonight-route.mine')).toContainText('Truck: T-9');
+  await expect(page.locator('.tonight-route:not(.mine)')).toContainText('Truck: T-4');
+  await expect(page.locator('[data-truckinput]')).toHaveCount(0);
+});
+
+test('site units are typed in the site box and sent, blank by default', async ({ page }) => {
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
+  const saves = () => calls.filter((c) => c.body.action === 'saveSite');
+  await page.click('nav [data-tab="sites"]');
+  await page.click('[data-edit="site:S1"]');
+  await expect(page.locator('#s_bobcat')).toHaveValue('');
+  await expect(page.locator('#s_snowrator')).toHaveValue('');
+  await page.click('#s_save'); // nothing typed: both fields still go, blank
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(saves()[0].body.record.units).toEqual({ bobcat: '', snowrator: '' });
+  await page.click('[data-edit="site:S1"]');
+  await page.fill('#s_bobcat', ' B-2 ');
+  await page.fill('#s_snowrator', 'SR-1');
+  await page.click('#s_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(saves()[1].body.record.units).toEqual({ bobcat: 'B-2', snowrator: 'SR-1' });
+  // They come back; clearing one on purpose is sent as blank, and the other stays.
+  await page.click('[data-edit="site:S1"]');
+  await expect(page.locator('#s_bobcat')).toHaveValue('B-2');
+  await expect(page.locator('#s_snowrator')).toHaveValue('SR-1');
+  await page.fill('#s_bobcat', '');
+  await page.click('#s_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(saves()[2].body.record.units).toEqual({ bobcat: '', snowrator: 'SR-1' });
+  // A new site sends both too.
+  await page.click('[data-edit="site:"]');
+  await page.fill('#s_name', 'New Lot');
+  await page.click('#s_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(saves()[3].body.record.units).toEqual({ bobcat: '', snowrator: '' });
+});
+
+test('Print sheets shows one page per route and shift, with not-done sites', async ({ page }) => {
+  // liveWorld: N1 = PAC + EXTRA, N10 = NEWSITE, N2 = TUDOR-TRANSIT. One tap this shift: Alex cleared Main entry (PAC).
+  // The post puts Alex and Jordan on N1 and Alex on N2; it does not list N10.
+  // Sheets (one per route with a tap or a posted crew), in route order: N1, N2. N10 has neither: no sheet.
+  //   N1: PAC prints its tap and "Heated walk: Not done"; EXTRA has no tap at all: "Not done this shift".
+  //   N2: nobody tapped, but a crew was posted: TUDOR-TRANSIT "Not done this shift".
+  const w = liveWorld();
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: at('06:30') })];
+  w.posts = [postOf()];
+  await stubPrint(page);
+  await openStorm(page, w, { token: 'tok-matt' });
+  await page.click('#printSheets');
+  await expect(page.locator('#printview')).toBeVisible();
+  const sheets = page.locator('#printsheets .sheet');
+  await expect(sheets).toHaveCount(2);
+  await expect(sheets.nth(0)).toContainText('Route N1');
+  await expect(sheets.nth(0)).toContainText('Night of 10/2');
+  await expect(sheets.nth(0).locator('.site').filter({ hasText: 'PAC' })).toContainText('Main entry: Cleared');
+  await expect(sheets.nth(0).locator('.site').filter({ hasText: 'PAC' })).toContainText('Heated walk: Not done');
+  await expect(sheets.nth(0).locator('.site').filter({ hasText: 'EXTRA' })).toContainText('Not done this shift');
+  await expect(sheets.nth(1)).toContainText('Route N2');
+  await expect(sheets.nth(1).locator('.site').filter({ hasText: 'TUDOR-TRANSIT' })).toContainText('Not done this shift');
+  await expect(page.locator('#printsheets')).not.toContainText('NEWSITE');
+  // One page each: a break after every sheet but the last.
+  expect(await sheets.nth(0).evaluate((e) => getComputedStyle(e).breakAfter)).toBe('page');
+  expect(await sheets.nth(1).evaluate((e) => getComputedStyle(e).breakAfter)).toBe('auto');
+  // The print dialog is asked for once, and again from the Print button.
+  await expect.poll(() => page.evaluate(() => window.__printed)).toBe(1);
+  await page.click('#printNow');
+  await expect.poll(() => page.evaluate(() => window.__printed)).toBe(2);
+  // The sheet's own style does not leak into the app (its body rule would restyle the whole page).
+  expect(await page.evaluate(() => getComputedStyle(document.querySelector('header h1')).fontFamily)).not.toMatch(/Arial/);
+});
+
+test('Back closes the print view', async ({ page }) => {
+  await stubPrint(page);
+  await openStorm(page, stormWorld(), { token: 'tok-matt' });
+  await page.click('#printSheets');
+  await expect(page.locator('#printview')).toBeVisible();
+  await expect.poll(() => backSteps(page)).toEqual(['print']);
+  await page.goBack(); // the phone's Back
+  await expect(page.locator('#printview')).toBeHidden();
+  await expect(page.locator('[data-liveroute]')).toHaveCount(2); // the live view, still in the app
+  expect(page.url()).toContain('index.html');
+  expect(await backSteps(page)).toEqual([]);
+  // The in-app Back takes its step with it, so the next phone Back is not eaten by a stale one.
+  await page.click('#printSheets');
+  await expect(page.locator('#printview')).toBeVisible();
+  await page.click('#printBack');
+  await expect(page.locator('#printview')).toBeHidden();
+  await expect.poll(() => backSteps(page)).toEqual([]);
+  await page.click('#printSheets');
+  await expect(page.locator('#printview')).toBeVisible();
+  await page.goBack();
+  await expect(page.locator('#printview')).toBeHidden();
+  expect(page.url()).toContain('index.html');
+});
+
+test('the sheets status shows saved, failed with Retry, and making', async ({ page }) => {
+  // Storm ST-1: Start (seq 1), End (2), Reopen (3), End again (4). The newest End is seq 4, so only
+  // Sheets rows with end_seq 4 count, and the newest row per route and shift wins.
+  const w = stormWorld();
+  w.storms = [START_ROW, { id: 'ST-2', seq: 2, kind: 'end', storm_id: 'ST-1', at: at('08:00'), by_name: 'Matthew' },
+    { id: 'ST-3', seq: 3, kind: 'reopen', storm_id: 'ST-1', at: at('09:00'), by_name: 'Matthew' },
+    { id: 'ST-4', seq: 4, kind: 'end', storm_id: 'ST-1', at: at('10:00'), by_name: 'Matthew' }];
+  const sh = (n, route, endSeq, status) => ({ id: 'SH-' + n, seq: n, storm_id: 'ST-1', route_id: route, shift_id: SHIFT, end_seq: endSeq,
+    file_id: status === 'saved' ? 'f' + n : '', url: status === 'saved' ? 'https://drive.example/f' + n : '', name: (route === 'R1' ? 'N1' : 'N2') + ' Night of 10-2.pdf',
+    made_at: at('15:01'), status, error: status === 'failed' ? 'Drive said no' : '', updated: endSeq === 4, by_name: 'Sidewalk' });
+  // The first End's set: one saved, one failed. They belong to End 2, which is no longer the newest.
+  w.sheets = [sh(1, 'R1', 2, 'saved'), sh(2, 'R2', 2, 'failed')];
+  const fake = {};
+  const calls = await openStorm(page, w, { token: 'tok-matt', fake });
+  const status = page.locator('#sheetsstatus');
+  const retries = () => calls.filter((c) => c.body.action === 'retrySheets');
+  // The newest End (4) has no Sheets row yet: making. The old End's failed row is not counted.
+  await expect(status).toBeVisible();
+  await expect(status).toHaveText('Sheets: making…');
+  await expect(page.locator('#retrySheets')).toHaveCount(0);
+  // End 4's files: N1 saved, N2 failed -> "1 not saved", with Retry.
+  w.sheets.push(sh(3, 'R1', 4, 'saved'), sh(4, 'R2', 4, 'failed'));
+  await pollNow(page);
+  await expect(status).toHaveText('Sheets: 1 not saved · Retry');
+  // Retry: a double tap sends one, naming the storm; the reply says it is scheduled.
+  await page.evaluate(() => { const b = document.getElementById('retrySheets'); b.click(); b.click(); });
+  await expect.poll(() => retries().length).toBe(1);
+  expect(retries()[0].body).toMatchObject({ storm_id: 'ST-1', token: 'tok-matt' });
+  await expect(page.locator('#sheetsmsg')).toContainText('Retrying');
+  // A Retry while the job is already running is queued, and the phone says so.
+  fake.retryReply = { ok: true, storm_id: 'ST-1', failed: 1, owed: 1, scheduled: false, running: true };
+  await page.click('#retrySheets');
+  await expect.poll(() => retries().length).toBe(2);
+  await expect(page.locator('#sheetsmsg')).toHaveText('Sheets are being made now; your Retry is queued');
+  // The job saves N2: its newest row (seq 5) is saved, so all is saved and Retry goes.
+  w.sheets.push(sh(5, 'R2', 4, 'saved'));
+  await pollNow(page);
+  await expect(status).toHaveText('Sheets: 2 saved');
+  await expect(page.locator('#retrySheets')).toHaveCount(0);
+  // Open again: no line while the storm is open.
+  w.storms.push({ id: 'ST-5', seq: 5, kind: 'reopen', storm_id: 'ST-1', at: at('11:00'), by_name: 'Matthew' });
+  await pollNow(page);
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect(status).toHaveCount(0);
+});
+
+test("the Sheets status and Retry are Matt's alone; leads can still print", async ({ page }) => {
+  const w = stormWorld();
+  w.storms = [START_ROW, { id: 'ST-2', seq: 2, kind: 'end', storm_id: 'ST-1', at: at('08:00'), by_name: 'Matthew' }];
+  w.sheets = [{ id: 'SH-1', seq: 1, storm_id: 'ST-1', route_id: 'R1', shift_id: SHIFT, end_seq: 2, status: 'failed', error: 'x', name: 'N1 Night of 10-2.pdf', updated: false }];
+  await openStorm(page, w, { token: 'tok-alex' });
+  await expect(page.locator('#stormhead')).toHaveText('No storm open');
+  await expect(page.locator('#sheetsstatus')).toHaveCount(0);
+  await expect(page.locator('#retrySheets')).toHaveCount(0);
+  await expect(page.locator('#printSheets')).toBeVisible();
+});
+
+test('a note with <b> prints as text', async ({ page }) => {
+  // The note, and the site's materials line, hold markup. Both must print as the characters typed.
+  const w = stormWorld();
+  w.sites = w.sites.map((s) => (s.id === 'S1' ? { ...s, materials_needed: '<script>window.__x = 1</script>' } : s));
+  w.log = [logRow(1, 'S1', 'Z1', 'problem', 'Alex Test', { note: '<b>ice</b> & "mud"', at: at('06:30') })];
+  await stubPrint(page);
+  await openStorm(page, w, { token: 'tok-matt' });
+  await page.click('#printSheets');
+  await expect(page.locator('#printview')).toBeVisible();
+  await expect(page.locator('#printsheets .note')).toHaveText('<b>ice</b> & "mud"');
+  await expect(page.locator('#printsheets .note b')).toHaveCount(0);
+  await expect(page.locator('#printsheets')).toContainText('<script>window.__x = 1</script>');
+  await expect(page.locator('#printsheets script')).toHaveCount(0);
+  expect(await page.evaluate(() => window.__x)).toBeUndefined();
 });
 
 // Final review minor 1: a map opened from a drilled-in route sits on top of the route.

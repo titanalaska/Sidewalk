@@ -1111,6 +1111,27 @@ test('a Bootprint job imports its walks as sidewalk zones, and nothing else leav
   }
 });
 
+// Matt 10/4/26: hand work keeps its own colour, and a pile shows the Bobcat
+// operator where snow goes. A pile is not a walk, so it is counted on its own.
+test('hand work and snow piles import as their own types, and piles are not called walks', async ({ page }) => {
+  const calls = await adminMap(page, mapWorld());
+  await page.click('#mapedit');
+  await importFile(page, Buffer.from(JSON.stringify({ schema: 'bootprint-library-export', version: 1, jobs: [
+    { id: 'NEAR', name: 'Near PAC', zones: [
+      { id: 1, name: 'Front walk', mode: 'area', surface: 'walk', pins: bpRect(-80, -20), widthFt: '' },
+      { id: 2, name: 'Lot cleanout', mode: 'area', surface: 'hand', pins: bpRect(-80, -40), widthFt: '' },
+      { id: 3, name: 'Snow pile 1', mode: 'area', surface: 'storage', pins: bpRect(-80, -60), widthFt: '' },
+    ] }] })));
+  // The job button: 2 walks (front walk + lot cleanout), 1 snow pile.
+  await expect(page.locator('#bp_jobs [data-bpjob]').first()).toContainText('2 walks · 1 snow pile');
+  await page.locator('#bp_jobs [data-bpjob]').first().click();
+  await expect(page.locator('#bp_sum')).toContainText('2 walks · 1 snow pile to add');
+  await page.click('#bp_add');
+  await expect.poll(() => calls.filter((c) => c.body.action === 'saveZone').length).toBe(3);
+  expect(calls.filter((c) => c.body.action === 'saveZone').map((c) => [c.body.record.name, c.body.record.type])).toEqual([
+    ['Front walk', 'sidewalk'], ['Lot cleanout', 'hand'], ['Snow pile 1', 'storage']]);
+});
+
 test('importing the same Bootprint job twice adds nothing the second time', async ({ page }) => {
   const calls = await adminMap(page, mapWorld());
   await page.click('#mapedit');

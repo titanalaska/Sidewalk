@@ -27,16 +27,26 @@ test('a walk area comes across as a sidewalk zone with the same corners', () => 
   assert.ok(Math.abs(sqm(z.ring) - 50) < 0.25, sqm(z.ring));
 });
 
-test('hand areas (stairs, by the door) are the sidewalk crew too', () => {
-  assert.strictEqual(BP.convertJob(job([zone(1, 'area', 'hand', SQUARE)]), []).zones.length, 1);
+test('hand areas (lot cleanouts, stairs) come in as hand work for the sidewalk crew', () => {
+  const r = BP.convertJob(job([zone(1, 'area', 'hand', SQUARE)]), []);
+  assert.deepStrictEqual(r.zones.map((z) => z.type), ['hand']);
 });
 
-test('lots, storage and cut-outs are skipped and counted, never sent', () => {
+test('lots and cut-outs are skipped and counted; storage comes in as snow storage', () => {
   const r = BP.convertJob(job([zone(1, 'area', 'plow', SQUARE), zone(2, 'area', 'storage', SQUARE),
     zone(3, 'cut', 'walk', SQUARE), zone(4, 'area', undefined, SQUARE)]), []);
-  assert.strictEqual(r.zones.length, 0);
+  // Matt, 10/4/26: a pile on the map tells the Bobcat operator where snow goes.
+  assert.deepStrictEqual(r.zones.map((z) => [z.from, z.type]), [['bootprint:J1:2', 'storage']]);
   // A zone with no surface is an older or summer job: Bootprint's default is plow.
-  assert.deepStrictEqual(r.skipped, { lots: 2, storage: 1, cutouts: 1, noWidth: 0, tooSharp: 0, already: 0, unfinished: 0 });
+  assert.deepStrictEqual(r.skipped, { lots: 2, cutouts: 1, noWidth: 0, tooSharp: 0, already: 0, unfinished: 0 });
+});
+
+test('a storage run with a width becomes a storage strip', () => {
+  // A pile drawn as a 20 m line, 10 ft wide: a strip like any run, typed storage.
+  const r = BP.convertJob(job([zone(1, 'line', 'storage', [pin(0, 0), pin(20, 0)], 10)]), []);
+  assert.deepStrictEqual(r.zones.map((z) => z.type), ['storage']);
+  // 20 m x 3.048 m = 60.96 m2.
+  assert.ok(Math.abs(sqm(r.zones[0].ring) - 60.96) < 0.3, sqm(r.zones[0].ring));
 });
 
 test('a run with no width is skipped, not given a made-up width', () => {

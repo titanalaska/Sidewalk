@@ -1751,6 +1751,42 @@ const cardBtn = (page, id) => page.locator('[data-card="' + id + '"]');
 const visitCalls = (calls) => calls.filter((c) => c.body.action === 'saveVisit');
 const openCard = async (page, id) => { await cardBtn(page, id).click(); await expect(page.locator('#dlg')).toBeVisible(); };
 
+// Copy for BT (Matt, 10/3/26): the lead copies the text and posts it in BuilderTrend
+// as themselves. The app never talks to BT; this only fills the clipboard.
+const stubClipboard = (page) => page.addInitScript(() => {
+  window.__copied = [];
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (t) => { window.__copied.push(t); } } });
+});
+test('the lead copies a site\'s BT note and sees the times to type', async ({ page }) => {
+  // PAC: Main entry cleared 6:30 AM, Heated walk checked 6:45 AM, both this shift (night of 10/2, clock 7:30 AM).
+  // Walks in name order: "Cleared: Main entry. Checked: Heated walk." Time in 6:30 AM, out 6:45 AM.
+  const w = stormWorld();
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: '2026-10-03T06:30:00.000-08:00' }),
+    logRow(2, 'S1', 'Z2', 'checked', 'Alex Test', { at: '2026-10-03T06:45:00.000-08:00' })];
+  await stubClipboard(page);
+  const calls = await openStorm(page, w, { token: 'tok-alex' });
+  await openRoute(page, 'R1');
+  await page.locator('[data-bt="S1"]').click();
+  await expect(page.locator('#bt_in')).toHaveText('6:30 AM');
+  await expect(page.locator('#bt_out')).toHaveText('6:45 AM');
+  await expect(page.locator('#bt_text')).toHaveValue('Cleared: Main entry. Checked: Heated walk.');
+  await page.click('#bt_copy');
+  await expect(page.locator('#toast')).toContainText('Copied');
+  expect(await page.evaluate(() => window.__copied)).toEqual(['Cleared: Main entry. Checked: Heated walk.']);
+  // Nothing is sent anywhere: copying makes no server call.
+  expect(calls.filter((c) => !['bootstrap', 'getShiftLog', 'getPost', 'getZones'].includes(c.body.action))).toEqual([]);
+});
+test('crew have no Copy for BT button; Matt does', async ({ page }) => {
+  await openStorm(page, stormWorld());
+  await expect(page.locator('[data-walkrow="S1|Z1"]')).toBeVisible();
+  await expect(page.locator('[data-bt]')).toHaveCount(0);
+});
+test('Matt sees Copy for BT on a route he opens', async ({ page }) => {
+  await openStorm(page, stormWorld(), { token: 'tok-matt' });
+  await openRoute(page, 'R1');
+  await expect(page.locator('[data-bt="S1"]')).toBeVisible();
+});
+
 test('the site card sends depth, materials and ticked equipment minutes only', async ({ page }) => {
   const w = stormWorld();
   const calls = await openStorm(page, w);

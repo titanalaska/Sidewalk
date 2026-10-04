@@ -2896,7 +2896,8 @@ test('the sheets status shows saved, failed with Retry, and making', async ({ pa
   // The first End's set: one saved, one failed. They belong to End 2, which is no longer the newest.
   w.sheets = [sh(1, 'R1', 2, 'saved'), sh(2, 'R2', 2, 'failed')];
   const fake = {};
-  const calls = await openStorm(page, w, { token: 'tok-matt', fake });
+  // The clock is pinned at 10:05, five minutes after End 4 (10:00): too soon to offer Retry on "making".
+  const calls = await openStorm(page, w, { token: 'tok-matt', fake, clockAt: at('10:05') });
   const status = page.locator('#sheetsstatus');
   const retries = () => calls.filter((c) => c.body.action === 'retrySheets');
   // The newest End (4) has no Sheets row yet: making. The old End's failed row is not counted.
@@ -2927,6 +2928,61 @@ test('the sheets status shows saved, failed with Retry, and making', async ({ pa
   await pollNow(page);
   await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
   await expect(status).toHaveCount(0);
+});
+
+// Ten minutes after the newest End, a sheet that has still not appeared is not "being made": the job
+// never ran (or died), and Matt can Retry. Before that, only the wait is shown. The clock is pinned at
+// 8:09 AM, 9 minutes after an End at 8:00, then moved to 8:11 (11 minutes after).
+const endedAt8 = () => {
+  const w = stormWorld();
+  w.storms = [START_ROW, { id: 'ST-2', seq: 2, kind: 'end', storm_id: 'ST-1', at: at('08:00'), by_name: 'Matthew' }];
+  w.sheets = [];
+  return w;
+};
+const savedRow = (n, route) => ({ id: 'SH-' + n, seq: n, storm_id: 'ST-1', route_id: route, shift_id: SHIFT, end_seq: 2, file_id: 'f' + n,
+  url: 'https://drive.example/f' + n, name: (route === 'R1' ? 'N1' : 'N2') + ' Night of 10-2.pdf', made_at: at('08:02'), status: 'saved', error: '', updated: false, by_name: 'Sidewalk' });
+
+test('"making" offers Retry only ten minutes after the End, and Retry answers are said', async ({ page }) => {
+  const w = endedAt8(), fake = {};
+  const calls = await openStorm(page, w, { token: 'tok-matt', fake, clockAt: at('08:09') });
+  const retries = () => calls.filter((c) => c.body.action === 'retrySheets');
+  await expect(page.locator('#sheetsstatus')).toHaveText('Sheets: making…'); // 9 minutes: still waiting
+  await expect(page.locator('#retrySheets')).toHaveCount(0);
+  await page.clock.fastForward(2 * 60 * 1000); // 8:11, 11 minutes after the End
+  await pollNow(page);
+  await expect(page.locator('#sheetsstatus')).toHaveText('Sheets: making… · Retry');
+  await page.click('#retrySheets');
+  await expect.poll(() => retries().length).toBe(1);
+  expect(retries()[0].body).toMatchObject({ storm_id: 'ST-1' });
+  await expect(page.locator('#sheetsmsg')).toContainText('Retrying');
+  // Nothing owed (the sheets arrived in the meantime): the phone says so.
+  fake.retryReply = { ok: true, storm_id: 'ST-1', failed: 0, owed: 0, scheduled: false };
+  await page.click('#retrySheets');
+  await expect.poll(() => retries().length).toBe(2);
+  await expect(page.locator('#sheetsmsg')).toHaveText('Nothing to retry.');
+  // A refusal is shown with its reason.
+  fake.retryReply = { ok: false, code: 'invalid', reason: 'That storm is open: its sheets are made when it is ended' };
+  await page.click('#retrySheets');
+  await expect.poll(() => retries().length).toBe(3);
+  await expect(page.locator('#sheetsmsg')).toHaveText('Retry not sent: That storm is open: its sheets are made when it is ended');
+});
+
+test('"N of M saved" offers Retry only ten minutes after the End', async ({ page }) => {
+  // The post names Alex on N1 and N2: this phone expects two sheets (N1 and N2, night of 10/2).
+  // Only N1's file has been made: 1 of 2. Nothing failed, so before 10 minutes it is "making", after it Retry.
+  const w = endedAt8();
+  w.sheets = [savedRow(1, 'R1')];
+  await openStorm(page, w, { token: 'tok-matt', clockAt: at('08:09') });
+  await expect(page.locator('#sheetsstatus')).toHaveText('Sheets: 1 of 2 saved · making…');
+  await expect(page.locator('#retrySheets')).toHaveCount(0);
+  await page.clock.fastForward(2 * 60 * 1000);
+  await pollNow(page);
+  await expect(page.locator('#sheetsstatus')).toHaveText('Sheets: 1 of 2 saved · Retry');
+  // The second file lands: all saved, no Retry.
+  w.sheets.push(savedRow(2, 'R2'));
+  await pollNow(page);
+  await expect(page.locator('#sheetsstatus')).toHaveText('Sheets: 2 saved');
+  await expect(page.locator('#retrySheets')).toHaveCount(0);
 });
 
 test("the Sheets status and Retry are Matt's alone; leads can still print", async ({ page }) => {

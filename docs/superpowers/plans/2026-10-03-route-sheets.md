@@ -12,14 +12,14 @@
 
 ## Global Constraints
 
-- Phone repo `Snow-App-repo` branch `route-sheets` (PUBLIC, code only, no data files). Backend `snow-app-script` on `master`.
+- Phone repo `Snow-App-repo` branch `route-sheets`, rebased on Copy for BT (5e3b33e; shell 15 is taken) (PUBLIC, code only, no data files). Backend `snow-app-script` on `master`.
 - `routesheet.js` byte-identical in both repos (identity test strips `\r`); pushed after `time.js`, `board.js`, `shiftlog.js` in `.clasp.json` `filePushOrder`.
 - Append-only tabs (`Trucks`, `Sheets`): rows are never edited or deleted; seq/ids via `appendSeq_` under `locked_`.
 - `by_*` always from the token. Names only on a sheet: never phone, PIN, profile id or private roster fields.
 - Blank, never invented: site units default `''`; a missing truck prints "—".
 - A site on the route is never left off a sheet: no taps that shift → "Not done this shift".
 - End storm never waits for PDFs and never fails because of them.
-- Backend `VERSION = 'sheets-1'`; phone `EXPECTED_BACKEND: 'sheets-1'`; shell `titan-snow-shell-15`.
+- Backend `VERSION = 'sheets-1'`; phone `EXPECTED_BACKEND: 'sheets-1'`; shell `titan-snow-shell-16`.
 - Edit/Write tools only for source edits. Every backend guard gets a mutation; phone guards a hand mutation noted in the commit.
 
 ## Review Focus
@@ -101,7 +101,7 @@
 
 ### Task 4: Phone — truck, site units, Print sheets, Sheets status
 
-**Files:** Modify `lib/boardui.js` (truck field per route on the Board), `lib/shiftlogui.js` (lead's truck on their route; crew read-only truck; live view: Print sheets button, Sheets status + Retry), `lib/app.js` (site edit box units; `S.trucks`, `S.sheets` from the poll), `index.html` (script `lib/routesheet.js` after `shiftlog.js`), `lib/config.js` (`EXPECTED_BACKEND: 'sheets-1'`), `sw.js` (SHELL + `titan-snow-shell-15`), `app.css`, `test/ui.spec.js` (fake: setTruck, trucks/sheets in poll, units on sites, retrySheets), `test/sw.spec.js`, `test/manifest.test.js`
+**Files:** Modify `lib/boardui.js` (truck field per route on the Board), `lib/shiftlogui.js` (lead's truck on their route; crew read-only truck; live view: Print sheets button, Sheets status + Retry), `lib/app.js` (site edit box units; `S.trucks`, `S.sheets` from the poll), `index.html` (script `lib/routesheet.js` after `shiftlog.js`), `lib/config.js` (`EXPECTED_BACKEND: 'sheets-1'`), `sw.js` (SHELL + `titan-snow-shell-16`), `app.css`, `test/ui.spec.js` (fake: setTruck, trucks/sheets in poll, units on sites, retrySheets), `test/sw.spec.js`, `test/manifest.test.js`
 
 **Interfaces:**
 - Consumes `setTruck`, `retrySheets`, poll `trucks`/`sheets`, `CrewRouteSheet.sheetsFor/sheetData/sheetHtml`.

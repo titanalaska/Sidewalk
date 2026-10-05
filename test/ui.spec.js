@@ -19,7 +19,7 @@ const TOKENS = { 'tok-matt': 'admin', 'tok-jordan': 'crew', 'tok-alex': 'lead' }
 // A small fake of the snow backend, with the real reply shapes.
 function fakeSnow(state, opts = {}) {
   return (body) => {
-    const v = { version: opts.version || 'customer-1' };
+    const v = { version: opts.version || 'callouts-1' };
     if (opts.expired && opts.expired.on) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     if (body.token === 'tok-nina') return { ok: false, code: 'not_on_roster', name: 'Nina Nursery', reason: "You're signed in, but not on the snow crew yet. Ask Matt to add you.", ...v };
     const role = TOKENS[body.token];
@@ -72,7 +72,7 @@ function fakeSnow(state, opts = {}) {
     // Rows are only ever appended; seq is the row's place in its tab. Crew and
     // lead rows are allow-listed (no by_profile, undoes null); Matt's are raw
     // (by_profile present, no undoes key on a tap). Refusals are {ok:false, code, reason}.
-    if (['getShiftLog', 'tapZone', 'undoTap', 'stormAction', 'saveVisit', 'cleanAgain'].includes(body.action)) {
+    if (['getShiftLog', 'tapZone', 'undoTap', 'stormAction', 'saveVisit', 'cleanAgain', 'depthNow'].includes(body.action)) {
       const SL = require('../lib/shiftlog.js');
       state.log = state.log || []; state.storms = state.storms || []; state.visits = state.visits || [];
       const stamp = state.clock || '2026-10-03T07:50:18.445-08:00';
@@ -142,6 +142,13 @@ function fakeSnow(state, opts = {}) {
         if (why) return refuse('invalid', why);
         row = { id: 'L-' + n, seq: n, storm_id: storm.storm_id, shift_id: 'night-2026-10-02', site_id: body.site_id, zone_id: '*',
           state: 'again', note: '', by_key: me.crew_id || 'admin', by_name: me.name, at: stamp, off_route: false, snowing_warned: false, undoes: null };
+      } else if (body.action === 'depthNow') {
+        // New snow (Part B2): the server's rules (snow-app-script depthNow_) -- Matt or a lead; a JSON number 0 to 60.
+        if (role === 'crew') return refuse('forbidden', "Only Matt or a route lead on tonight's Board can do that.");
+        const d = body.depth_in;
+        if (typeof d !== 'number' || !isFinite(d) || d < 0 || d > 60) return refuse('invalid', 'Depth is 0 to 60 inches');
+        row = { id: 'L-' + n, seq: n, storm_id: storm.storm_id, shift_id: 'night-2026-10-02', site_id: body.site_id, zone_id: '*',
+          state: 'depth', depth_in: d, note: '', by_key: me.crew_id || 'admin', by_name: me.name, at: stamp, off_route: false, snowing_warned: false, undoes: null };
       } else if (body.action === 'tapZone') {
         const walk = SL.walksFor(body.site_id, state.zones || []).find((w) => w.zone_id === body.zone_id);
         if (!walk) return refuse('invalid', 'That zone is not walked at this site');
@@ -202,6 +209,13 @@ function fakeSnow(state, opts = {}) {
       if (opts.saveReply) return { ...opts.saveReply, ...v };
       const tab = { saveCrew: 'crew', saveSite: 'sites', saveRoute: 'routes', saveZone: 'zones' }[body.action];
       state[tab] = state[tab] || [];
+      // The real site checks (snow-app-script roster.js validate), word for word, joined with '; '.
+      if (tab === 'sites') {
+        const r = body.record, errs = [];
+        if (r.callout_in != null && !(typeof r.callout_in === 'number' && r.callout_in > 0 && r.callout_in <= 24)) errs.push('Callout depth is inches, more than 0 and at most 24');
+        if (r.day_rank != null && !(Number.isInteger(r.day_rank) && r.day_rank >= 1 && r.day_rank <= 99)) errs.push('Day rank is a whole number from 1 to 99');
+        if (errs.length) return { ok: false, code: 'invalid', reason: errs.join('; '), ...v };
+      }
       const rec = { ...body.record, rev: (body.record.rev || 0) + 1 };
       // The real saveSite: a site is saved with both unit keys (missing = blank, trimmed, text).
       if (tab === 'sites') rec.units = { bobcat: String(((body.record.units || {}).bobcat) || '').trim(), snowrator: String(((body.record.units || {}).snowrator) || '').trim() };
@@ -497,7 +511,7 @@ test('after a conflict the app reloads the latest, so the retry can save', async
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'customer-1' };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'callouts-1' };
     }
     return base(b);
   } });
@@ -1854,6 +1868,49 @@ test('the Sites tab groups sites by customer, and the site form edits it', async
   expect(calls.find((c) => c.body.action === 'saveSite').body.record.customer).toBe('MOA');
 });
 
+// Callouts and day ranking (Part B2, Matt 10/4/26): two numbers Matt decides per site, so they ship
+// blank and blank is sent as null, never 0. PAC (S1) is a site saved before this work: it has no
+// callout_in or day_rank key at all, and its boxes must read empty, never "undefined".
+test('the site form sets a callout depth and a day rank, sent as numbers; blank sends null', async ({ page }) => {
+  const w = world();
+  w.sites = [{ id: 'S1', name: 'PAC', rev: 1 }, { id: 'S2', name: 'TUDOR-TRANSIT', rev: 1, callout_in: 1.5, day_rank: 3 }];
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
+  const saves = () => calls.filter((c) => c.body.action === 'saveSite');
+  await page.click('nav [data-tab="sites"]');
+  await page.click('[data-edit="site:S1"]');
+  await expect(page.locator('label[for="s_callout"]')).toHaveText('Callout depth (inches), blank = no nudge');
+  await expect(page.locator('label[for="s_rank"]')).toHaveText('Day rank (1 = first on day shift), blank = by choice');
+  await expect(page.locator('#s_callout')).toHaveValue('');
+  await expect(page.locator('#s_rank')).toHaveValue('');
+  await page.fill('#s_callout', '1');
+  await page.fill('#s_rank', '2');
+  await page.click('#s_save');
+  await expect.poll(() => saves().length).toBe(1);
+  expect(saves()[0].body.record.callout_in).toBe(1);   // the number 1, never the text '1'
+  expect(saves()[0].body.record.day_rank).toBe(2);
+  // Reopened: the stored values are in the boxes. Cleared: both are sent as null (the key is there).
+  await page.click('[data-edit="site:S1"]');
+  await expect(page.locator('#s_callout')).toHaveValue('1');
+  await expect(page.locator('#s_rank')).toHaveValue('2');
+  await page.fill('#s_callout', '');
+  await page.fill('#s_rank', '');
+  await page.click('#s_save');
+  await expect.poll(() => saves().length).toBe(2);
+  expect(saves()[1].body.record).toHaveProperty('callout_in', null);
+  expect(saves()[1].body.record).toHaveProperty('day_rank', null);
+  await page.click('[data-edit="site:S2"]');
+  await expect(page.locator('#s_callout')).toHaveValue('1.5');
+  await expect(page.locator('#s_rank')).toHaveValue('3');
+  // Something that is not a number is sent as typed: the server refuses it in its own words.
+  await page.fill('#s_callout', 'abc');
+  await page.fill('#s_rank', '2.5');
+  await page.click('#s_save');
+  await expect.poll(() => saves().length).toBe(3);
+  expect(saves()[2].body.record.callout_in).toBe('abc');
+  expect(saves()[2].body.record.day_rank).toBe(2.5);
+  await expect(page.locator('#s_err')).toHaveText('Callout depth is inches, more than 0 and at most 24; Day rank is a whole number from 1 to 99');
+});
+
 test('crew see their own route\'s walks first and other routes behind a button', async ({ page }) => {
   await openStorm(page, stormWorld());
   await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
@@ -2748,6 +2805,7 @@ test('treated while stopped shows no warning', async ({ page }) => {
 const NWS_POINT = [-149.5149, 61.3351];
 const NWS_POINTS = 'https://api.weather.gov/points/61.34,-149.51';
 const NWS_HOURLY = 'https://api.weather.gov/gridpoints/ZZZ/1,1/forecast/hourly';
+const NWS_GRID = 'https://api.weather.gov/gridpoints/ZZZ/1,1';
 const NWS_PERIODS = ['Light Snow', 'Snow', 'Snow Showers', ...Array(9).fill('Mostly Cloudy')].map((t, i) => ({
   startTime: '2026-10-03T' + String(7 + i).padStart(2, '0') + ':00:00-08:00', shortForecast: t }));
 async function nws(page, o = {}) {
@@ -2757,7 +2815,8 @@ async function nws(page, o = {}) {
     const u = route.request().url();
     seen.push(u);
     if (o.fail) return route.abort();
-    if (u === NWS_POINTS) return route.fulfill({ contentType: 'application/geo+json', headers: cors, body: JSON.stringify({ properties: { forecastHourly: NWS_HOURLY } }) });
+    if (u === NWS_POINTS) return route.fulfill({ contentType: 'application/geo+json', headers: cors, body: JSON.stringify({ properties: { forecastHourly: NWS_HOURLY, forecastGridData: NWS_GRID } }) });
+    if (u === NWS_GRID) return route.fulfill({ contentType: 'application/geo+json', headers: cors, body: JSON.stringify({ properties: { snowfallAmount: { uom: 'wmoUnit:mm', values: o.grid || [] } } }) });
     if (u === NWS_HOURLY) return route.fulfill({ contentType: 'application/geo+json', headers: cors, body: JSON.stringify({ properties: { periods: NWS_PERIODS } }) });
     return route.fulfill({ status: 404, headers: cors, body: '{}' });
   });
@@ -2820,6 +2879,258 @@ test('a forecast failure shows no hint and taps still work', async ({ page }) =>
   await pollNow(page);
   await expect(page.locator('#stormhint')).toHaveCount(0);
   expect(seen).toHaveLength(1); // no hammering a failing service
+});
+
+// ---------------- Callouts: new snow since the last cleaning (Part B2, Matt 10/4/26) ----------------
+// Worked on paper. Clock 7:30 AM Alaska on 10/3: night shift (before the 9 AM cutover); the storm
+// started 6:00 AM. Both sites have the same saved view, so the same rounded point and ONE fetch.
+//   PAC (S1, N1): Main entry cleared 6:30 AM by Alex, so its new snow is counted from 6:30.
+//   TUDOR-TRANSIT (S2, N2): nothing tapped, so from the storm's start, 6:00.
+// The gridpoint has one period, 6:30-7:30 AM (14:30Z for 1 h), 30 mm. Both spans cover all of it:
+// 30 / 25.4 = 1.18 -> shown 1.2, which meets a callout of 1 and not one of 2. TUDOR-TRANSIT's span
+// starts 6:00 but the series only starts 6:30: its line says "since 6:30 AM", never the storm start.
+const GRID_30MM = [{ validTime: '2026-10-03T14:30:00+00:00/PT1H', value: 30 }];
+const gridHits = (seen) => seen.filter((u) => u === NWS_GRID).length;
+const calloutWorld = (callout = 1) => {
+  const w = withView(withView(stormWorld(), 'S1', NWS_POINT), 'S2', NWS_POINT);
+  w.sites = w.sites.map((s) => ({ ...s, callout_in: callout }));
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test')];
+  return w;
+};
+const depthRow = (n, siteId, inches, at) => ({ ...logRow(n, siteId, '*', 'depth', 'Alex Test', { at }), depth_in: inches });
+
+test('Callouts: the NWS estimate lists sites whose new snow meets the callout, with Clean again once the pass has a tap', async ({ page }) => {
+  const seen = await nws(page, { grid: GRID_30MM });
+  await openStorm(page, calloutWorld(1), { token: 'tok-matt' });
+  const box = page.locator('#callouts');
+  await expect(box).toBeVisible();
+  await expect(box.locator('h2')).toHaveText('Callouts (2)');
+  await expect(box.locator('[data-callout="S1"]')).toContainText('PAC · ~1.2" since 6:30 AM (estimate) · callout 1"');
+  await expect(box.locator('[data-callout="S2"]')).toContainText('TUDOR-TRANSIT · ~1.2" since 6:30 AM (estimate) · callout 1"');
+  await expect(box.locator('[data-callout="S1"] [data-again="S1"]')).toBeVisible();
+  await expect(box.locator('[data-again="S2"]')).toHaveCount(0); // nothing tapped at TUDOR-TRANSIT this pass
+  expect(gridHits(seen)).toBe(1);                                 // one point, one fetch, two sites
+  await box.locator('[data-again="S1"]').click();                 // the same Clean again as the site card's
+  await expect(page.locator('#dlgIn h2')).toHaveText('Clean PAC again?');
+});
+
+test('Callouts: an estimate under the callout is not listed', async ({ page }) => {
+  // 1.2 meets TUDOR-TRANSIT's 1 and not PAC's 2: one line, and PAC's is hidden.
+  const seen = await nws(page, { grid: GRID_30MM });
+  const w = calloutWorld(1);
+  w.sites = w.sites.map((s) => (s.id === 'S1' ? { ...s, callout_in: 2 } : s));
+  await openStorm(page, w, { token: 'tok-matt' });
+  await expect(page.locator('[data-callout="S2"]')).toBeVisible();
+  await expect(page.locator('#callouts h2')).toHaveText('Callouts (1)');
+  await expect(page.locator('[data-callout="S1"]')).toBeHidden();
+  expect(gridHits(seen)).toBe(1);
+});
+
+test('Callouts: with every callout above the estimate the box is hidden', async ({ page }) => {
+  const seen = await nws(page, { grid: GRID_30MM });
+  await openStorm(page, calloutWorld(2), { token: 'tok-matt' });
+  await expect.poll(() => gridHits(seen)).toBe(1);
+  await expect(page.locator('#stormhint')).toHaveText('Snow until 10 AM');
+  await page.waitForTimeout(500); // the snowfall reply lands and redraws
+  await expect(page.locator('#stormctl')).toBeVisible();
+  await expect(page.locator('#callouts')).toBeHidden();
+});
+
+test('Callouts: a lead measures new snow; the depth goes as a number and the line says measured', async ({ page }) => {
+  // PAC has a callout but no saved view and no outline: no point, so no estimate and no fetch.
+  // TUDOR-TRANSIT has no callout: no New snow button.
+  const seen = await nws(page);
+  const w = stormWorld();
+  w.sites = w.sites.map((s) => (s.id === 'S1' ? { ...s, callout_in: 1 } : s));
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test')];
+  const calls = await openStorm(page, w, { token: 'tok-alex' }); // Alex leads N1 and N2 on the post
+  const depthCalls = () => calls.filter((c) => c.body.action === 'depthNow');
+  await expect(page.locator('#stormctl')).toBeVisible();
+  await expect(page.locator('#callouts')).toBeHidden();
+  await openRoute(page, 'R2');
+  await expect(page.locator('[data-shiftsite="S2"]')).toBeVisible();
+  await expect(page.locator('[data-depth]')).toHaveCount(0);
+  await page.click('#liveBack');
+  await openRoute(page, 'R1');
+  // A refusal shows its reason on the site, as Clean again's does.
+  await page.click('[data-depth="S1"]');
+  await expect(page.locator('#dlgIn h2')).toHaveText('New snow at PAC');
+  await expect(page.locator('label[for="dn_in"]')).toHaveText('Inches since the last cleaning');
+  await page.fill('#dn_in', '61');
+  await page.click('#dn_save');
+  await expect(page.locator('[data-shiftsite="S1"]')).toContainText('Not saved: Depth is 0 to 60 inches');
+  await expect(page.locator('[data-depth="S1"]')).toHaveText('New snow');
+  await page.click('[data-depth="S1"]');
+  await page.fill('#dn_in', '2');
+  await page.click('#dn_save');
+  await expect.poll(() => depthCalls().length).toBe(2);
+  expect(depthCalls()[1].body.site_id).toBe('S1');
+  expect(depthCalls()[1].body.depth_in).toBe(2); // the number 2: the server refuses the text '2'
+  await expect(page.locator('[data-shiftsite="S1"]')).not.toContainText('Not saved');
+  await page.click('#liveBack');
+  await expect(page.locator('#callouts')).toBeVisible();
+  await expect(page.locator('#callouts [data-callout="S1"]')).toContainText('PAC · 2" measured 7:50 AM by Alex Test · callout 1"');
+  expect(gridHits(seen)).toBe(0);
+});
+
+test('Callouts: a crew member never sees the box or New snow, and never asks the NWS for snowfall', async ({ page }) => {
+  const seen = await nws(page, { grid: GRID_30MM });
+  const w = calloutWorld(1);
+  w.log.push(depthRow(2, 'S1', 3, '2026-10-03T07:00:00.000-08:00'));
+  await openStorm(page, w); // Jordan, a member of N1
+  await expect(page.locator('#stormhint')).toHaveText('Snow until 10 AM'); // the hint still comes: PAC has a point
+  await expect(page.locator('[data-walk^="S1|"]').first()).toBeVisible();
+  await page.click('#otherRoutes');
+  await expect(page.locator('[data-shiftsite="S2"]')).toBeVisible();
+  await pollNow(page);
+  await page.waitForTimeout(500);
+  await expect(page.locator('#callouts')).toHaveCount(0);
+  await expect(page.locator('[data-depth]')).toHaveCount(0);
+  expect(gridHits(seen)).toBe(0);
+});
+
+test('Callouts: with the NWS down there is no estimate and no error; a measured depth still lists', async ({ page }) => {
+  // TUDOR-TRANSIT: 1.5" measured at 7:05 AM, nothing tapped. A depth row is not a tap, so no Clean again.
+  const seen = await nws(page, { fail: true });
+  const w = calloutWorld(1);
+  w.log.push(depthRow(2, 'S2', 1.5, '2026-10-03T07:05:00.000-08:00'));
+  const calls = await openStorm(page, w, { token: 'tok-matt' });
+  await expect(page.locator('#callouts')).toBeVisible();
+  await expect(page.locator('#callouts h2')).toHaveText('Callouts (1)');
+  await expect(page.locator('[data-callout="S2"]')).toContainText('TUDOR-TRANSIT · 1.5" measured 7:05 AM by Alex Test · callout 1"');
+  await expect(page.locator('[data-callout="S2"] [data-again]')).toHaveCount(0);
+  await expect(page.locator('[data-callout="S1"]')).toHaveCount(0);
+  await expect(page.locator('main .err')).toHaveCount(0);
+  // Asked once (the hint and the snowfall each ask for the point), and a failure is kept: a poll asks nothing.
+  await expect.poll(() => seen.filter((u) => u === NWS_POINTS).length).toBe(2);
+  const before = shiftCalls(calls).length;
+  await pollNow(page);
+  await expect.poll(() => shiftCalls(calls).length).toBe(before + 1);
+  await page.waitForTimeout(300);
+  expect(seen.filter((u) => u === NWS_POINTS)).toHaveLength(2);
+  await expect(page.locator('[data-callout="S2"]')).toBeVisible();
+});
+
+test('Callouts: Clean again from the box retires the old reading; a reading after it lists again', async ({ page }) => {
+  // PAC: cleared 6:30, 3" measured at 7:00 (seq 2). No point, so no estimate. Clean again (seq 3,
+  // stamped 7:50 by the fake) moves "since" past the reading: off the list. New snow 1" (seq 4) after it: back on.
+  const seen = await nws(page);
+  const w = stormWorld();
+  w.sites = w.sites.map((s) => (s.id === 'S1' ? { ...s, callout_in: 1 } : s));
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test'), depthRow(2, 'S1', 3, '2026-10-03T07:00:00.000-08:00')];
+  await openStorm(page, w, { token: 'tok-matt' });
+  await expect(page.locator('[data-callout="S1"]')).toContainText('PAC · 3" measured 7:00 AM by Alex Test · callout 1"');
+  await page.click('[data-callout="S1"] [data-again="S1"]');
+  await page.click('#ag_yes');
+  await expect(page.locator('#callouts')).toBeHidden();
+  await openRoute(page, 'R1');
+  await expect(page.locator('[data-passline="S1"]')).toBeVisible();
+  await page.click('[data-depth="S1"]');
+  await page.fill('#dn_in', '1');
+  await page.click('#dn_save');
+  await page.click('#liveBack');
+  await expect(page.locator('[data-callout="S1"]')).toContainText('PAC · 1" measured 7:50 AM by Matthew · callout 1"');
+  await expect(page.locator('[data-callout="S1"] [data-again]')).toHaveCount(0); // a reading is not a tap: nothing to clean again yet
+  expect(gridHits(seen)).toBe(0);
+});
+
+test('Callouts: a site on two routes is listed once', async ({ page }) => {
+  const seen = await nws(page);
+  const w = stormWorld();
+  w.routes = [{ id: 'R1', name: 'N1', rev: 1, site_ids: ['S1'] }, { id: 'R2', name: 'N2', rev: 1, site_ids: ['S2', 'S1'] }];
+  w.sites = w.sites.map((s) => ({ ...s, callout_in: 1 }));
+  w.log = [depthRow(1, 'S1', 2, '2026-10-03T07:00:00.000-08:00'), depthRow(2, 'S2', 2, '2026-10-03T07:05:00.000-08:00')];
+  await openStorm(page, w, { token: 'tok-matt' });
+  await expect(page.locator('#callouts h2')).toHaveText('Callouts (2)');
+  expect(await page.locator('[data-callout]').evaluateAll((els) => els.map((e) => e.dataset.callout))).toEqual(['S1', 'S2']);
+  expect(gridHits(seen)).toBe(0);
+});
+
+test('Callouts: polls inside 30 minutes fetch the snowfall once; after 30 minutes it is asked again', async ({ page }) => {
+  const seen = await nws(page, { grid: GRID_30MM });
+  const calls = await openStorm(page, calloutWorld(1), { token: 'tok-matt' });
+  await expect(page.locator('[data-callout="S1"]')).toBeVisible();
+  for (let i = 1; i <= 2; i++) { // one at a time: a poll already running swallows the next
+    const before = shiftCalls(calls).length;
+    await pollNow(page);
+    await expect.poll(() => shiftCalls(calls).length).toBe(before + 1);
+    await page.waitForTimeout(300);
+  }
+  expect(gridHits(seen)).toBe(1);
+  await page.clock.fastForward('16:00'); // the hint asks again after 15 minutes; the snowfall does not
+  await expect.poll(() => seen.filter((u) => u === NWS_HOURLY).length).toBe(2);
+  expect(gridHits(seen)).toBe(1);
+  await page.clock.fastForward('15:00'); // 31 minutes
+  await expect.poll(() => gridHits(seen)).toBe(2);
+  await expect(page.locator('[data-callout="S1"]')).toBeVisible();
+});
+
+// ---- Day ranking (Part B2, Matt 10/4/26) ----
+// Route N1 drives PAC (S1), TUDOR-TRANSIT (S2), APMB (S3). Ranks: APMB 1, TUDOR-TRANSIT 2, PAC none
+// (no key at all, as an old site). Day: APMB, TUDOR-TRANSIT, PAC (ranked first by rank, then the
+// unranked in route order). Night: route order, PAC, TUDOR-TRANSIT, APMB.
+const rankWorld = (shift) => {
+  const w = stormWorld();
+  w.sites = [{ id: 'S1', name: 'PAC', rev: 1 }, { id: 'S2', name: 'TUDOR-TRANSIT', rev: 1, day_rank: 2 }, { id: 'S3', name: 'APMB', rev: 1, day_rank: 1 }];
+  w.routes = [{ id: 'R1', name: 'N1', rev: 1, site_ids: ['S1', 'S2', 'S3'] }];
+  w.posts = [{ ...POST, shift, routes: [{ id: 'R1', name: 'N1', lead: 'C01', members: ['C03'],
+    sites: [{ id: 'S1', name: 'PAC' }, { id: 'S2', name: 'TUDOR-TRANSIT' }, { id: 'S3', name: 'APMB' }] }] }];
+  return w;
+};
+const idsOf = (page, attr) => page.locator('[' + attr + ']').evaluateAll((els, a) => els.map((e) => e.getAttribute(a)), attr);
+const tonightIds = (page) => page.locator('.tonight-route [data-map]').evaluateAll((els) => els.map((e) => e.dataset.map));
+const DAY_ORDER = ['S3', 'S2', 'S1'], ROUTE_ORDER = ['S1', 'S2', 'S3'];
+
+test('day shift: ranked sites lead Tonight and the Storm tab', async ({ page }) => {
+  await open(page, { token: 'tok-jordan', snow: fakeSnow(rankWorld('day-2026-10-03')), clockAt: '2026-10-03T10:00:00-08:00' });
+  await expect(page.locator('.tonight-route')).toHaveCount(1);
+  expect(await tonightIds(page)).toEqual(DAY_ORDER);
+  await page.click('nav [data-tab="storm"]');
+  await expect(page.locator('[data-shiftsite]')).toHaveCount(3);
+  expect(await idsOf(page, 'data-shiftsite')).toEqual(DAY_ORDER);
+});
+
+test('night shift: Tonight and the Storm tab keep route order', async ({ page }) => {
+  const w = rankWorld('night-2026-10-03');
+  w.storms = [START_ROW, { id: 'ST-2', seq: 2, kind: 'night_on', storm_id: 'ST-1', at: '2026-10-03T18:00:00.000-08:00', by_name: 'Matthew' }];
+  await open(page, { token: 'tok-jordan', snow: fakeSnow(w), clockAt: '2026-10-03T22:00:00-08:00' });
+  await expect(page.locator('.tonight-route')).toHaveCount(1);
+  expect(await tonightIds(page)).toEqual(ROUTE_ORDER);
+  await page.click('nav [data-tab="storm"]');
+  await expect(page.locator('[data-shiftsite]')).toHaveCount(3);
+  expect(await idsOf(page, 'data-shiftsite')).toEqual(ROUTE_ORDER);
+});
+
+test("Tonight orders by the post's own shift: tonight's post read at 4 PM keeps route order", async ({ page }) => {
+  // 4 PM is day by the clock (no night_on), so the Storm tab ranks; the post is for tonight, so Tonight does not.
+  await open(page, { token: 'tok-jordan', snow: fakeSnow(rankWorld('night-2026-10-03')), clockAt: '2026-10-03T16:00:00-08:00' });
+  await expect(page.locator('.tonight-route')).toHaveCount(1);
+  expect(await tonightIds(page)).toEqual(ROUTE_ORDER);
+  await page.click('nav [data-tab="storm"]');
+  await expect(page.locator('[data-shiftsite]')).toHaveCount(3);
+  expect(await idsOf(page, 'data-shiftsite')).toEqual(DAY_ORDER);
+});
+
+test("9 AM cutover: Matt's live view re-orders into day rank on the next draw, no reload", async ({ page }) => {
+  await openStorm(page, rankWorld('night-2026-10-02'), { token: 'tok-matt', clockAt: '2026-10-03T08:58:00-08:00' });
+  await expect(page.locator('[data-livesite]')).toHaveCount(3);
+  expect(await idsOf(page, 'data-livesite')).toEqual(ROUTE_ORDER);
+  await expect(page.locator('#shiftnow')).toHaveText('Night shift');
+  await page.clock.fastForward('03:00'); // 9:01 AM: the 20 s poll redraws
+  await expect(page.locator('#shiftnow')).toHaveText('Day shift');
+  expect(await idsOf(page, 'data-livesite')).toEqual(DAY_ORDER);
+  await openRoute(page, 'R1');
+  expect(await idsOf(page, 'data-shiftsite')).toEqual(DAY_ORDER);
+});
+
+test('"Last tap" counts walk taps only, never a Clean again or a depth row', async ({ page }) => {
+  const t = (hhmm) => '2026-10-03T' + hhmm + ':00.000-08:00';
+  const w = stormWorld();
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: t('06:30') }), logRow(2, 'S1', 'Z2', 'checked', 'Alex Test', { at: t('06:40') }),
+    logRow(3, 'S1', '*', 'again', 'Matthew', { at: t('07:10') }), depthRow(4, 'S1', 1, t('07:20')), depthRow(5, 'S2', 2, t('07:25'))];
+  await openStorm(page, w, { token: 'tok-matt' });
+  await expect(page.locator('[data-liveroute="R1"] .live-last')).toHaveText('Last tap 6:40 AM');
+  await expect(page.locator('[data-liveroute="R2"] .live-last')).toHaveText('No taps yet');
 });
 
 test('the map marks done and problem walks', async ({ page }) => {

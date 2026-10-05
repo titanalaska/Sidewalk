@@ -6,7 +6,7 @@ no remote). Builds on the shift log (3), route sheets (5) and Copy for BT.
 
 ## Why
 
-Sites have different callout depths: ANTHC calls out at 1", JBER at 5". A site like the ER can
+Sites have different callout depths, set per site by Matt. A site like the ER can
 need cleaning several times in one storm. Today a walk marked Cleared stays Cleared until the
 next Start storm, so a second pass can't be logged. Matt's answers (10/4) also made "who may
 change things" depend on tonight's Board, not a roster badge.
@@ -28,11 +28,8 @@ callout; on day shift the crew work sites in Matt's ranking.
 | Q6 | Start/Finish times ignore Undo rows |
 | Q2 wording | Matt's "end of storm" = snow stopped (melt + rock OK) = the app's Stopped switch; the app's End = close after cleanup. Relabel: **"Snow stopped (melt + rock OK)"** and **"Close storm (cleanup done)"** |
 
-Day ranking Matt gave (app names): 1 ANMC (ER, 4315 Diplomacy) · 2 HCB & COB (3900/4000
-Ambassador) · 3 ULMC (3801 University Lake) · 4 Tudor overflow lot for 4000 Ambassador (not yet
-a site) · 5 DIP (4500 Diplomacy) · 6 CDC (4055 Tudor Centre) · 7 PG (4043 Tudor Centre, not yet a
-site) · 8 IB and ED (4141 / 4115 Ambassador); the rest by choice. Ranks are data Matt types in
-the site boxes — never shipped in code (public repo).
+Matt's day ranking and callout depths are data he types in the site boxes. They are never
+written in code or docs (public repo).
 
 ## Part A (built first): active = on the current Board, relabels, Undo-free times
 

@@ -1567,7 +1567,7 @@ test('off the posted Board: the Storm tab is read-only and says why', async ({ p
   w.posts = [boardPost({ lead: 'C01' }, {})]; // Jordan is not on it
   w.log = [logRow(2, 'S1', 'Z1', 'cleared', 'Alex Test')];
   await openStorm(page, w);
-  await expect(page.locator('main')).toContainText("You're not on tonight's Board. Ask Matt to add you.");
+  await expect(page.locator('main')).toContainText("You're not on tonight's posted Board.");
   await page.click('#otherRoutes');
   await expect(page.locator('main')).toContainText('PAC');
   await expect(page.locator('[data-walk]')).toHaveCount(0);
@@ -1602,7 +1602,20 @@ test('a roster lead who is not on the posted Board gets no storm controls', asyn
   await openStorm(page, w, { token: 'tok-alex' });
   await expect(page.locator('#stormhead')).toBeVisible();
   await expect(page.locator('#stormctl')).toHaveCount(0);
-  await expect(page.locator('main')).toContainText("You're not on tonight's Board. Ask Matt to add you.");
+  await expect(page.locator('main')).toContainText("You're not on tonight's posted Board.");
+});
+
+// Review fix (10/4/26): Matt posts Jordan as N1's lead while Jordan has the Storm tab open.
+// The 60 s post check redraws the tab, and the controls follow the new post, no reopen needed.
+test('a new post that makes you lead brings the storm controls without reopening the tab', async ({ page }) => {
+  const w = stormWorld();
+  w.posts = [boardPost({ members: ['C03'] }, {})]; // Jordan rides N1
+  await openStorm(page, w);
+  await expect(page.locator('[data-walk^="S1|"]').first()).toBeVisible();
+  await expect(page.locator('#stormctl')).toHaveCount(0);
+  w.posts = [{ ...boardPost({ lead: 'C03' }, {}), id: 'P2', posted_at: '2026-10-03T15:30:00.000Z' }];
+  await page.clock.runFor(60000); // three 20 s ticks: the third re-reads the post
+  await expect(page.locator('#stormctl')).toBeVisible();
 });
 
 test('crew see their own route\'s walks first and other routes behind a button', async ({ page }) => {

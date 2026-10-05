@@ -3035,14 +3035,17 @@ test('Callouts: Clean again from the box retires the old reading; a reading afte
 });
 
 test('Callouts: a site on two routes is listed once', async ({ page }) => {
+  // On paper: the live view sorts routes by name, N1 then N2. N1 = [S2]; N2 = [S1, S2]. First
+  // appearances: S2 (N1), then S1 (N2); the second S2 is dropped. So [S2, S1], unlike the Sites
+  // list order [S1, S2]. Night shift (7:30 AM) and no ranks: no re-ordering.
   const seen = await nws(page);
   const w = stormWorld();
-  w.routes = [{ id: 'R1', name: 'N1', rev: 1, site_ids: ['S1'] }, { id: 'R2', name: 'N2', rev: 1, site_ids: ['S2', 'S1'] }];
+  w.routes = [{ id: 'R1', name: 'N1', rev: 1, site_ids: ['S2'] }, { id: 'R2', name: 'N2', rev: 1, site_ids: ['S1', 'S2'] }];
   w.sites = w.sites.map((s) => ({ ...s, callout_in: 1 }));
   w.log = [depthRow(1, 'S1', 2, '2026-10-03T07:00:00.000-08:00'), depthRow(2, 'S2', 2, '2026-10-03T07:05:00.000-08:00')];
   await openStorm(page, w, { token: 'tok-matt' });
   await expect(page.locator('#callouts h2')).toHaveText('Callouts (2)');
-  expect(await page.locator('[data-callout]').evaluateAll((els) => els.map((e) => e.dataset.callout))).toEqual(['S1', 'S2']);
+  expect(await page.locator('[data-callout]').evaluateAll((els) => els.map((e) => e.dataset.callout))).toEqual(['S2', 'S1']);
   expect(gridHits(seen)).toBe(0);
 });
 
@@ -3066,15 +3069,16 @@ test('Callouts: polls inside 30 minutes fetch the snowfall once; after 30 minute
 });
 
 // ---- Day ranking (Part B2, Matt 10/4/26) ----
-// Route N1 drives PAC (S1), TUDOR-TRANSIT (S2), APMB (S3). Ranks: APMB 1, TUDOR-TRANSIT 2, PAC none
-// (no key at all, as an old site). Day: APMB, TUDOR-TRANSIT, PAC (ranked first by rank, then the
-// unranked in route order). Night: route order, PAC, TUDOR-TRANSIT, APMB.
+// Route N1 drives PAC (S1), TUDOR-TRANSIT (S2), RANK-TEST (S3, a made-up name: the repo is public, so no
+// rank ever sits on a real site code). Ranks: RANK-TEST 1, TUDOR-TRANSIT 2, PAC none (no key at all, as an
+// old site). Day: RANK-TEST, TUDOR-TRANSIT, PAC (ranked first by rank, then the unranked in route order).
+// Night: route order, PAC, TUDOR-TRANSIT, RANK-TEST.
 const rankWorld = (shift) => {
   const w = stormWorld();
-  w.sites = [{ id: 'S1', name: 'PAC', rev: 1 }, { id: 'S2', name: 'TUDOR-TRANSIT', rev: 1, day_rank: 2 }, { id: 'S3', name: 'APMB', rev: 1, day_rank: 1 }];
+  w.sites = [{ id: 'S1', name: 'PAC', rev: 1 }, { id: 'S2', name: 'TUDOR-TRANSIT', rev: 1, day_rank: 2 }, { id: 'S3', name: 'RANK-TEST', rev: 1, day_rank: 1 }];
   w.routes = [{ id: 'R1', name: 'N1', rev: 1, site_ids: ['S1', 'S2', 'S3'] }];
   w.posts = [{ ...POST, shift, routes: [{ id: 'R1', name: 'N1', lead: 'C01', members: ['C03'],
-    sites: [{ id: 'S1', name: 'PAC' }, { id: 'S2', name: 'TUDOR-TRANSIT' }, { id: 'S3', name: 'APMB' }] }] }];
+    sites: [{ id: 'S1', name: 'PAC' }, { id: 'S2', name: 'TUDOR-TRANSIT' }, { id: 'S3', name: 'RANK-TEST' }] }] }];
   return w;
 };
 const idsOf = (page, attr) => page.locator('[' + attr + ']').evaluateAll((els, a) => els.map((e) => e.getAttribute(a)), attr);

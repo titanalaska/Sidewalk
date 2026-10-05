@@ -19,7 +19,7 @@ const TOKENS = { 'tok-matt': 'admin', 'tok-jordan': 'crew', 'tok-alex': 'lead' }
 // A small fake of the snow backend, with the real reply shapes.
 function fakeSnow(state, opts = {}) {
   return (body) => {
-    const v = { version: opts.version || 'passes-1' };
+    const v = { version: opts.version || 'customer-1' };
     if (opts.expired && opts.expired.on) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     if (body.token === 'tok-nina') return { ok: false, code: 'not_on_roster', name: 'Nina Nursery', reason: "You're signed in, but not on the snow crew yet. Ask Matt to add you.", ...v };
     const role = TOKENS[body.token];
@@ -497,7 +497,7 @@ test('after a conflict the app reloads the latest, so the retry can save', async
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'passes-1' };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'customer-1' };
     }
     return base(b);
   } });
@@ -1707,6 +1707,24 @@ test('short site names show their address on the Routes tab, in the route editor
   await page.click('#dlgClose');
   await openStorm(page, w);
   await expect(page.locator('.shift-site').first()).toContainText('4001 TUDOR CENTRE');
+});
+
+// Matt 10/4/26: the Sites tab groups by customer so the hospital sites sit together. A site with
+// no customer yet goes last, under its own heading; nothing is guessed.
+test('the Sites tab groups sites by customer, and the site form edits it', async ({ page }) => {
+  const w = world();
+  w.sites = [{ id: 'S1', name: 'PAC', rev: 1, customer: 'ANTHC' }, { id: 'S2', name: 'TUDOR-TRANSIT', rev: 1 },
+    { id: 'S3', name: 'APMB', rev: 1, customer: 'ANTHC' }];
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
+  await page.click('nav [data-tab="sites"]');
+  expect(await page.locator('.site-group').allTextContents()).toEqual(['ANTHC', 'No customer yet']);
+  expect(await page.locator('.site-card').evaluateAll((els) => els.map((e) => e.dataset.site))).toEqual(['S3', 'S1', 'S2']);
+  await page.click('[data-edit="site:S2"]');
+  await expect(page.locator('#s_cust')).toHaveValue('');
+  await page.fill('#s_cust', 'MOA');
+  await page.click('#s_save');
+  await expect.poll(() => calls.filter((c) => c.body.action === 'saveSite').length).toBe(1);
+  expect(calls.find((c) => c.body.action === 'saveSite').body.record.customer).toBe('MOA');
 });
 
 test('crew see their own route\'s walks first and other routes behind a button', async ({ page }) => {

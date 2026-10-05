@@ -19,7 +19,7 @@ const TOKENS = { 'tok-matt': 'admin', 'tok-jordan': 'crew', 'tok-alex': 'lead' }
 // A small fake of the snow backend, with the real reply shapes.
 function fakeSnow(state, opts = {}) {
   return (body) => {
-    const v = { version: opts.version || 'sheets-1' };
+    const v = { version: opts.version || 'passes-1' };
     if (opts.expired && opts.expired.on) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     if (body.token === 'tok-nina') return { ok: false, code: 'not_on_roster', name: 'Nina Nursery', reason: "You're signed in, but not on the snow crew yet. Ask Matt to add you.", ...v };
     const role = TOKENS[body.token];
@@ -72,7 +72,7 @@ function fakeSnow(state, opts = {}) {
     // Rows are only ever appended; seq is the row's place in its tab. Crew and
     // lead rows are allow-listed (no by_profile, undoes null); Matt's are raw
     // (by_profile present, no undoes key on a tap). Refusals are {ok:false, code, reason}.
-    if (['getShiftLog', 'tapZone', 'undoTap', 'stormAction', 'saveVisit'].includes(body.action)) {
+    if (['getShiftLog', 'tapZone', 'undoTap', 'stormAction', 'saveVisit', 'cleanAgain'].includes(body.action)) {
       const SL = require('../lib/shiftlog.js');
       state.log = state.log || []; state.storms = state.storms || []; state.visits = state.visits || [];
       const stamp = state.clock || '2026-10-03T07:50:18.445-08:00';
@@ -135,7 +135,14 @@ function fakeSnow(state, opts = {}) {
       }
       const n = state.log.length + 1;
       let row;
-      if (body.action === 'tapZone') {
+      // Clean again (Part B1): the server's rules -- Matt or a lead; something done in the current pass first.
+      if (body.action === 'cleanAgain') {
+        if (role === 'crew') return refuse('forbidden', "Only Matt or a route lead on tonight's Board can do that.");
+        const why = SL.checkAgain(state.log, storm.storm_id, body.site_id);
+        if (why) return refuse('invalid', why);
+        row = { id: 'L-' + n, seq: n, storm_id: storm.storm_id, shift_id: 'night-2026-10-02', site_id: body.site_id, zone_id: '*',
+          state: 'again', note: '', by_key: me.crew_id || 'admin', by_name: me.name, at: stamp, off_route: false, snowing_warned: false, undoes: null };
+      } else if (body.action === 'tapZone') {
         const walk = SL.walksFor(body.site_id, state.zones || []).find((w) => w.zone_id === body.zone_id);
         if (!walk) return refuse('invalid', 'That zone is not walked at this site');
         const why = SL.checkTap({ walk, state: body.state, note: body.note });
@@ -490,7 +497,7 @@ test('after a conflict the app reloads the latest, so the retry can save', async
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'sheets-1' };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'passes-1' };
     }
     return base(b);
   } });
@@ -1616,6 +1623,52 @@ test('a new post that makes you lead brings the storm controls without reopening
   w.posts = [{ ...boardPost({ lead: 'C03' }, {}), id: 'P2', posted_at: '2026-10-03T15:30:00.000Z' }];
   await page.clock.runFor(60000); // three 20 s ticks: the third re-reads the post
   await expect(page.locator('#stormctl')).toBeVisible();
+});
+
+
+// ---- Clean again (Part B1, Matt 10/4/26) ----
+// PAC (S1) on N1: Z1 cleared + Z2 checked by Alex (seq 1, 2: the fake numbers new rows by count). The fake stamps rows 7:50 AM.
+const cleanedWorld = () => { const w = stormWorld(); w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test'), logRow(2, 'S1', 'Z2', 'checked', 'Alex Test')]; return w; };
+const pressed = (page, key) => page.locator('[data-walk="' + key + '"][aria-pressed="true"]');
+
+test('Matt cleans a site again: every walk starts over and the site shows pass 2', async ({ page }) => {
+  const calls = await openStorm(page, cleanedWorld(), { token: 'tok-matt' });
+  await openRoute(page, 'R1');
+  await expect(pressed(page, 'S1|Z1')).toHaveCount(1);
+  await page.click('[data-again="S1"]');
+  await expect(page.locator('#dlgIn h2')).toHaveText('Clean PAC again?');
+  await expect(page.locator('#dlgIn')).toContainText('Every walk at PAC goes back to not done for pass 2. Pass 1 stays on the record.');
+  await page.click('#ag_yes');
+  await expect.poll(() => calls.filter((c) => c.body.action === 'cleanAgain').length).toBe(1);
+  await expect(page.locator('[data-passline="S1"]')).toContainText('Pass 2 · Clean again 7:50 AM by Matthew');
+  await expect(pressed(page, 'S1|Z1')).toHaveCount(0);
+  await expect(pressed(page, 'S1|Z2')).toHaveCount(0);
+});
+
+test('Undo on the pass line puts pass 1 back', async ({ page }) => {
+  await openStorm(page, cleanedWorld(), { token: 'tok-matt' });
+  await openRoute(page, 'R1');
+  await page.click('[data-again="S1"]');
+  await page.click('#ag_yes');
+  await expect(page.locator('[data-passline="S1"]')).toBeVisible();
+  await page.click('[data-passline="S1"] [data-undo]');
+  await expect(page.locator('[data-passline="S1"]')).toHaveCount(0);
+  await expect(pressed(page, 'S1|Z1')).toHaveCount(1);
+});
+
+test('a member sees no Clean again; the posted lead does', async ({ page }) => {
+  await openStorm(page, cleanedWorld()); // Jordan, a member of N1
+  await expect(page.locator('[data-walk^="S1|"]').first()).toBeVisible();
+  await expect(page.locator('[data-again]')).toHaveCount(0);
+});
+
+test('the posted lead gets Clean again; a refusal shows its reason', async ({ page }) => {
+  const w = stormWorld(); // nothing done yet at PAC
+  await openStorm(page, w, { token: 'tok-alex' }); // Alex leads N1 on the post
+  await openRoute(page, 'R1');
+  await page.click('[data-again="S1"]');
+  await page.click('#ag_yes');
+  await expect(page.locator('[data-shiftsite="S1"]')).toContainText('Nothing to clean again yet');
 });
 
 test('crew see their own route\'s walks first and other routes behind a button', async ({ page }) => {

@@ -21,7 +21,7 @@
 
 ## Review Focus
 
-1. No fresh Post yet (Matt hasn't posted tonight): crew phones go read-only with `Tonight's Board isn't posted yet.` (the phone can't see the live Board); Matt is unaffected. The server stays the authority either way.
+1. No fresh Post yet (Matt hasn't posted tonight): the phone can't see the live Board, so it does NOT lock anyone out — it shows the walk buttons and lets the server decide (a refusal shows its reason). Read-only only when a fresh Post exists and doesn't list them. Storm controls with no fresh Post: admin only (unchanged for Matt); a Board lead uses Matt's post. Task 3 adds a test for this case.
 2. Crew moved OFF the Board mid-storm: their next tap is refused with the reason, and the phone's Retry does not loop.
 3. A member undoing a lead's tap: allowed (any spot); a person not on the Board undoing their own earlier tap: refused.
 4. setTruck by a Board lead whose roster `is_lead` is false: allowed for their own route.

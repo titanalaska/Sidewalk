@@ -37,11 +37,11 @@ test('the shell is cached, Apps Script never is, and other apps\' caches survive
   await page.waitForTimeout(500);
   const state = await page.evaluate(async () => {
     const names = await caches.keys();
-    const shell = await caches.open('titan-snow-shell-23');
+    const shell = await caches.open('titan-snow-shell-24');
     const urls = (await shell.keys()).map((r) => r.url);
     return { names, urls };
   });
-  expect(state.names).toContain('titan-snow-shell-23');
+  expect(state.names).toContain('titan-snow-shell-24');
   expect(state.names).toContain('wolf-beds-v2');
   expect(state.names).toContain('groundwork-shell-v34');
   expect(state.names).not.toContain('titan-snow-shell-2');          // its own old versions are cleaned up
@@ -68,7 +68,7 @@ test('the shell is cached, Apps Script never is, and other apps\' caches survive
   // The map pieces are in the shell, so a map opens with no signal (zones only, no photo).
   for (const f of ['/vendor/maplibre-gl.js', '/vendor/maplibre-gl.css', '/lib/geo.js', '/lib/mapview.js', '/lib/bpimport.js', '/lib/mapedit.js',
     '/lib/time.js', '/lib/board.js', '/lib/history.js', '/lib/gear.js', '/lib/warnings.js', '/lib/pairing.js', '/lib/boardui.js',
-    '/lib/shiftlog.js', '/lib/routesheet.js', '/lib/shiftlogui.js', '/lib/weather.js', '/lib/callout.js', '/manifest.json', '/icon-192.png', '/icon-512.png', '/icon-maskable-512.png']) {
+    '/lib/shiftlog.js', '/lib/routesheet.js', '/lib/shiftlogui.js', '/lib/weather.js', '/lib/callout.js', '/lib/share.js', '/manifest.json', '/icon-192.png', '/icon-512.png', '/icon-maskable-512.png']) {
     expect(state.urls.some((u) => u.endsWith(f)), f).toBe(true);
   }
   expect(state.urls.some((u) => u.endsWith('/lib/app.js'))).toBe(true);

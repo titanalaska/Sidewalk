@@ -81,6 +81,9 @@ header button{min-height:40px;padding:6px 12px;font-size:15px}
 .chip .ph,.tile .ph{display:flex;align-items:center;justify-content:center;color:var(--muted);font-weight:600;font-size:13px}
 .tile .ph{font-size:28px}
 header button,.badge{white-space:nowrap}
+/* Share joined the top bar (10/5/26): on a small phone the name badge gives way (trimmed with …), never the buttons. */
+header #who{min-width:0;overflow:hidden;text-overflow:ellipsis}
+header button{flex:none}
 
 /* ---- snow app (Foundation) ---- */
 .banner{background:var(--warn-bg);color:var(--warn);padding:8px 16px;font-size:14px;border-bottom:1px solid var(--warn)}

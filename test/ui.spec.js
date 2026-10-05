@@ -261,6 +261,88 @@ async function open(page, { token, snow, inv, abortSnow, clockAt, delay, abortIf
   return calls;
 }
 
+// ---------- Share (Matt, 10/5/26: text the app to future workers) ----------
+// The page here is file://…/index.html, nowhere near the real address: whatever is
+// shared must still be exactly https://titanalaska.github.io/Sidewalk/.
+const APP_URL = 'https://titanalaska.github.io/Sidewalk/';
+// sheet: 'ok' | 'cancel' | 'refuse' | null (no share sheet); clip: true | false (clipboard works) | null (none)
+async function stubShare(page, sheet, clip) {
+  await page.addInitScript(([sheet, clip]) => {
+    window.__shared = []; window.__copied = [];
+    const def = (k, v) => Object.defineProperty(navigator, k, { value: v, configurable: true });
+    def('share', sheet === null ? undefined : async (d) => {
+      window.__shared.push(d);
+      if (sheet === 'cancel') throw new DOMException('cancelled', 'AbortError');
+      if (sheet === 'refuse') throw new DOMException('no', 'NotAllowedError');
+    });
+    def('clipboard', clip === null ? undefined : { writeText: async (t) => { if (!clip) throw new Error('blocked'); window.__copied.push(t); } });
+  }, [sheet, clip]);
+}
+
+test('Share is on the sign-in screen and sends the fixed app address, never this page', async ({ page }) => {
+  await stubShare(page, 'ok', true);
+  await open(page, { snow: fakeSnow(world()) });
+  await expect(page.locator('#signin')).toBeVisible();
+  await expect(page.locator('#share')).toBeVisible();
+  await page.click('#share');
+  await expect.poll(() => page.evaluate(() => window.__shared.length)).toBe(1);
+  const d = await page.evaluate(() => window.__shared[0]);
+  expect(d.url).toBe(APP_URL);
+  expect(d.text).toContain('Request access');
+  expect(await page.evaluate(() => window.__copied.length)).toBe(0); // the sheet took it: nothing copied
+});
+
+test('Share is in the top bar once signed in, for crew and for Matt', async ({ page }) => {
+  await stubShare(page, 'ok', true);
+  await open(page, { token: 'tok-jordan', snow: fakeSnow(world()) });
+  await expect(page.locator('#who')).toContainText('Jordan');
+  await expect(page.locator('#share')).toBeVisible();
+  await page.click('#share');
+  await expect.poll(() => page.evaluate(() => window.__shared.map((d) => d.url))).toEqual([APP_URL]);
+});
+
+test('backing out of the share sheet copies nothing and says nothing', async ({ page }) => {
+  await stubShare(page, 'cancel', true);
+  await open(page, { token: 'tok-jordan', snow: fakeSnow(world()) });
+  await page.click('#share');
+  await expect.poll(() => page.evaluate(() => window.__shared.length)).toBe(1);
+  await page.waitForTimeout(200); // a wrong fallback would copy right after the sheet's reply
+  expect(await page.evaluate(() => window.__copied.length)).toBe(0);
+  await expect(page.locator('#toast')).toBeHidden();
+});
+
+test('no share sheet: the message and the fixed address are copied, and it says so', async ({ page }) => {
+  await stubShare(page, null, true);
+  await open(page, { token: 'tok-jordan', snow: fakeSnow(world()) });
+  await page.click('#share');
+  await expect(page.locator('#toast')).toBeVisible();
+  await expect(page.locator('#toast')).toContainText('Link copied');
+  const c = await page.evaluate(() => window.__copied);
+  expect(c).toHaveLength(1);
+  expect(c[0].endsWith(' ' + APP_URL)).toBe(true);
+});
+
+test('nothing to share or copy with: the link shows on screen to copy by hand', async ({ page }) => {
+  await stubShare(page, null, false);
+  await open(page, { token: 'tok-jordan', snow: fakeSnow(world()) });
+  await page.click('#share');
+  await expect(page.locator('#sharetext')).toBeVisible();
+  expect(await page.locator('#sharetext').inputValue()).toContain(APP_URL);
+  await page.click('#dlgClose');
+  await expect(page.locator('#sharetext')).toBeHidden();
+});
+
+test('the top bar still fits a small phone with Share in it (Matt signed in, the longest badge)', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
+  await expect(page.locator('#signout')).toBeVisible();
+  for (const id of ['#share', '#signout']) {
+    const b = await page.locator(id).boundingBox();
+    expect(b.x + b.width).toBeLessThanOrEqual(360); // on screen, not pushed off the right edge
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+});
+
 test('signed out shows the sign-in screen; pending people can find their name', async ({ page }) => {
   await open(page, { snow: fakeSnow(world()) });
   await expect(page.locator('#signin')).toBeVisible();

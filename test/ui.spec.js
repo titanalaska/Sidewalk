@@ -735,8 +735,9 @@ test('Save view stores the map centre and zoom on the site, keeping its other fi
 
 test('the old-map picture shows beside the map and is never sent or stored', async ({ page }) => {
   const calls = await adminMap(page, mapWorld());
-  const before = await page.evaluate(() => JSON.stringify(Object.keys(localStorage).sort().map((k) => [k, localStorage.getItem(k)])));
   await page.click('#mapedit');
+  // After Edit map, which stores its own on/off flag: from here, nothing new may be kept.
+  const before = await page.evaluate(() => JSON.stringify(Object.keys(localStorage).sort().map((k) => [k, localStorage.getItem(k)])));
   await page.setInputFiles('#ed_reffile', { name: 'Night 1 - PAC.png', mimeType: 'image/png', buffer: PNG1 });
   await expect(page.locator('#refpanel img')).toBeVisible();
   expect(await page.locator('#refpanel img').getAttribute('src')).toMatch(/^blob:/);
@@ -1261,6 +1262,52 @@ test('the file pickers do not open mid-import', async ({ page }) => {
   await page.waitForTimeout(400);
   expect(opened).toBe(0);
   await expect(page.locator('#toast')).toBeVisible();
+});
+
+// Matt 10/4/26: mapping site after site, the editor dropped back to view after
+// every Back and every reload. Edit map now stays on until Done.
+const inEditor = (page) => expect(page.locator('#ed_new')).toBeVisible();
+async function reopenS1(page) {
+  await page.click('nav [data-tab="sites"]');
+  await page.click('[data-map="S1"]');
+  await page.waitForFunction(() => window.SnowMapView && window.SnowMapView.getSource('zones'));
+}
+
+test('Edit map stays on after ‹ Back, the phone\'s Back and a reload, until Done', async ({ page }) => {
+  await adminMap(page, mapWorld());
+  await page.click('#mapedit');
+  await inEditor(page);
+  await page.click('#mapback');
+  await page.click('[data-map="S2"]'); // another site: still in the editor
+  await inEditor(page);
+  await expect(page.locator('#mapedit')).toBeHidden();
+  await phoneBack(page);
+  await expect(page.locator('#mapbox')).toHaveCount(0);
+  await page.reload();
+  await reopenS1(page);
+  await inEditor(page);
+  await page.click('#ed_done');
+  await expect(page.locator('#ed_new')).toHaveCount(0);
+  await page.click('#mapback');
+  await reopenS1(page);
+  await expect(page.locator('#mapedit')).toBeVisible(); // Done ended it: the map opens to view
+  await expect(page.locator('#ed_new')).toHaveCount(0);
+});
+
+test('signing out ends Edit map: the next map opens to view', async ({ page }) => {
+  await adminMap(page, mapWorld());
+  await page.click('#mapedit');
+  await inEditor(page);
+  await page.click('#signout');
+  expect(await page.evaluate(() => localStorage.getItem('titan-snow-editing'))).toBeNull();
+});
+
+test('a crew phone never opens a map in the editor, whatever this device remembers', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('titan-snow-editing', '1'));
+  await openMap(page, 'tok-jordan', mapWorld());
+  await zoneSource(page);
+  await expect(page.locator('#ed_new')).toHaveCount(0);
+  await expect(page.locator('#edbar')).toHaveCount(0);
 });
 
 test('a file that is not a Bootprint export is refused with a reason', async ({ page }) => {

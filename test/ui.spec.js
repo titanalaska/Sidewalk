@@ -1692,6 +1692,23 @@ test('an open Problem stays in the Problems box after Clean again, marked (pass 
   await expect(page.locator('#problems')).toHaveCount(0);
 });
 
+// Matt 10/4/26: short site codes ("PH", "PG") are unreadable, even to Matt. Every list shows the
+// address beside the code; the name itself stays the code the crew know.
+test('short site names show their address on the Routes tab, in the route editor and on the Storm tab', async ({ page }) => {
+  const w = stormWorld();
+  w.sites = w.sites.map((s) => ({ ...s, address: s.id === 'S1' ? '4001 TUDOR CENTRE' : '3600 MLK' }));
+  w.routes = [{ id: 'R1', name: 'N1', rev: 1, site_ids: ['S1'] }, { id: 'R2', name: 'N2', rev: 1, site_ids: [] }];
+  await open(page, { token: 'tok-matt', snow: fakeSnow(w), clockAt: STORM_CLOCK });
+  await page.click('nav [data-tab="routes"]');
+  await expect(page.locator('.sitelist li').first()).toContainText('PAC');
+  await expect(page.locator('.sitelist li').first()).toContainText('4001 TUDOR CENTRE');
+  await page.click('[data-edit="route:R2"]');
+  await expect(page.locator('#r_add option[value="S1"]')).toHaveText('PAC · 4001 TUDOR CENTRE');
+  await page.click('#dlgClose');
+  await openStorm(page, w);
+  await expect(page.locator('.shift-site').first()).toContainText('4001 TUDOR CENTRE');
+});
+
 test('crew see their own route\'s walks first and other routes behind a button', async ({ page }) => {
   await openStorm(page, stormWorld());
   await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');

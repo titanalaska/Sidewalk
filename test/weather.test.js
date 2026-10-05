@@ -257,12 +257,26 @@ test('fetchSnowfall: every failure is null', async () => {
     'grid 503': () => { const r = gridRoutes(good); r[GRID] = { ok: false, status: 503 }; return r; },
     'grid bad JSON': () => { const r = gridRoutes(good); r[GRID] = { badJson: true }; return r; },
     'no snowfallAmount': () => { const r = gridRoutes(good); r[GRID] = { body: { properties: {} } }; return r; },
-    'values not a list': () => { const r = gridRoutes(good); r[GRID] = { body: { properties: { snowfallAmount: { values: 'x' } } } }; return r; },
+    'values not a list': () => { const r = gridRoutes(good); r[GRID] = { body: { properties: { snowfallAmount: { uom: 'wmoUnit:mm', values: 'x' } } } }; return r; },
   };
   for (const name of Object.keys(cases)) {
     stubFetch(cases[name]());
     assert.equal(await SnowWeather.fetchSnowfall(61.34, -149.51), null, name);
   }
+});
+
+// The amounts are summed as mm (/ 25.4 for inches). A grid in any other unit (or none named) would
+// put a wrong number in front of Matt, so it is no estimate at all.
+test('fetchSnowfall: a grid not in millimetres is null', async () => {
+  const good = [{ validTime: '2026-10-03T12:00:00+00:00/PT1H', value: 7 }];
+  for (const uom of ['wmoUnit:cm', 'wmoUnit:in', undefined, '']) {
+    const r = gridRoutes(good);
+    r[GRID] = { body: { properties: { snowfallAmount: { uom, values: good } } } };
+    stubFetch(r);
+    assert.equal(await SnowWeather.fetchSnowfall(61.34, -149.51), null, String(uom));
+  }
+  stubFetch(gridRoutes(good)); // and wmoUnit:mm still reads
+  assert.deepEqual(await SnowWeather.fetchSnowfall(61.34, -149.51), [{ start: T0, end: T0 + 3600000, mm: 7 }]);
 });
 
 test('fetchSnowfall: a non-number point is refused before any request', async () => {

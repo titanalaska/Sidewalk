@@ -83,8 +83,9 @@ function fakeSnow(state, opts = {}) {
       };
       // Storms rows reach crew and leads through the server's allow-list (snow-app-script roster.js
       // PUBLIC_STORM_FIELDS, publicRow): a missing field is null, so a start row carries shift_id: null and
-      // a handoff row loses its truck_seq and by_profile. Matt gets the whole row.
-      const STORM_FIELDS = ['id', 'seq', 'kind', 'storm_id', 'at', 'by_name', 'shift_id', 'log_seq', 'visit_seq', 'night_routes'];
+      // a handoff row loses its truck_seq and by_profile. Matt gets the whole row. The list is
+      // test/storm-fields.js, checked against the backend's own by test/storm-fields.test.js.
+      const STORM_FIELDS = require('./storm-fields.js');
       const stormView = (row) => (role === 'admin' ? { by_profile: 'P1', ...row } : Object.fromEntries(STORM_FIELDS.map((k) => [k, row[k] === undefined ? null : row[k]])));
       const refuse = (code, reason) => ({ ok: false, code, reason, ...v });
       if (body.action === 'getShiftLog') {
@@ -4258,6 +4259,26 @@ test('the card is hidden at night: 10 PM, after night shift on', async ({ page }
   await expect(card(page)).toBeHidden();
 });
 
+test('the card is up at 8:30, after the 8:00 run: the night handed off, before the day crew starts', async ({ page }) => {
+  // 8:30 AM on 10/3 is still the night of 10/2 by the clock (9 AM cutover): the night the row hands off.
+  await openStorm(page, handoffWorld(), { clockAt: at('08:30') });
+  await expect(card(page)).toBeVisible();
+  await expect(card(page).locator('h2')).toHaveText('Handoff from Night of 10/2 · 8:00 AM');
+  expect(await leftIds(page)).toEqual(['S4', 'S3', 'S2']);
+});
+
+test('after a quiet night the old card does not come back the next day', async ({ page }) => {
+  // The night of 10/2 was handed off at 8:00 on 10/3. Night shift on at 6 PM on 10/3, nothing tapped that
+  // night, so the 8 AM run on 10/4 handed off nothing. At 9:30 on 10/4 (the day of 10/4) the only handoff is
+  // the night of 10/2's, whose day was 10/3: no card.
+  const w = handoffWorld();
+  w.storms.push({ id: 'ST-3', seq: 3, kind: 'night_on', storm_id: 'ST-1', at: at('18:00'), by_name: 'Matthew' });
+  await openStorm(page, w, { token: 'tok-matt', clockAt: '2026-10-04T09:30:00-08:00' });
+  await expect(page.locator('#shiftnow')).toHaveText('Day shift');
+  await expect(page.locator('[data-liveroute="R1"]')).toBeVisible();
+  await expect(card(page)).toBeHidden();
+});
+
 test('the card is hidden with no handoff', async ({ page }) => {
   const w = handoffWorld(); w.storms = [START_ROW];
   await openStorm(page, w, { clockAt: HO_DAY });
@@ -4422,7 +4443,9 @@ test("Hand off now asks first, in Matt's words; Yes sends handOff and the night 
   await expect(page.locator('#handoffdone')).toHaveText('Handoff from Night of 10/2 · 6:30 AM · by Matthew');
   await expect(page.locator('#handOffNow')).toHaveCount(0);
   await expect(page.locator('#sheetsstatus')).toHaveText('Handoff sheets: making…');
-  await expect(card(page)).toBeHidden(); // still night: the card waits for the day shift
+  // Still the night of 10/2, the night just handed off: the card is up from the handoff on (ruling, fix round 1).
+  await expect(card(page)).toBeVisible();
+  await expect(card(page).locator('h2')).toHaveText('Handoff from Night of 10/2 · 6:30 AM · by Matthew');
 });
 
 test('a refused Hand off now shows its reason: nothing tapped tonight', async ({ page }) => {
@@ -4489,6 +4512,30 @@ test("Matt's sheets line after a handoff: making, then the night's saved count; 
   await page.click('#retrySheets');
   await expect.poll(() => calls.filter((c) => c.body.action === 'retrySheets').length).toBe(1);
   expect(calls.filter((c) => c.body.action === 'retrySheets')[0].body).toMatchObject({ storm_id: 'ST-1' });
+});
+
+test("Matt's line counts the handoff's night set: 1 of 2 saved is not \"saved\"", async ({ page }) => {
+  // The handoff's night set, the server's rule (snow-app-script handoffJobs_): sheetsFor at the handoff moment
+  // (Log, Visits, Trucks cut at the marks; Posts and Moves made by 8:00), that night's pairs on night_routes
+  // [R1, R2]. On paper: N1 (its taps), N2 (Alex on the 5:30 PM night Post): 2. D1 is not a night route.
+  const w = handoffWorld();
+  w.sheets = [hoSheet(1, 'route', 'R1', SHIFT, 'N1 Night of 10-2.pdf', 'saved'), hoSheet(2, 'day', 'R3', DAY3, 'D1 Day handoff 10-3.pdf', 'saved'),
+    hoSheet(3, 'day', 'R2', DAY3, 'N2 Day handoff 10-3.pdf', 'saved')];
+  await openStorm(page, w, { token: 'tok-matt', clockAt: at('08:05') });
+  const status = page.locator('#sheetsstatus');
+  await expect(status).toHaveText('Handoff sheets: 1 of 2 saved · making…'); // 5 minutes: still being made
+  await expect(page.locator('#retrySheets')).toHaveCount(0);
+  // 8:12. Meanwhile Matt re-posted the night at 8:10 with nobody on N2. The handoff's set is the 8:00 one, so
+  // N2's night sheet is still owed (a count from the live Posts would drop it and say "(1)").
+  w.posts.push({ ...HO_NIGHT_POST, id: 'P-night-2', posted_at: at('08:10'), routes: hoRoutes({}, { lead: 'C01', members: ['C03'] }, {}) });
+  await page.clock.fastForward(7 * 60 * 1000); // its 20 s tick polls, and carries the re-post
+  await pollNow(page);
+  await expect.poll(async () => (await phoneState(page)).posts.map((p) => p.id)).toContain('P-night-2'); // the phone holds it
+  await expect(status).toHaveText('Handoff sheets: 1 of 2 saved · Retry');
+  w.sheets.push(hoSheet(4, 'route', 'R2', SHIFT, 'N2 Night of 10-2.pdf', 'saved'));
+  await pollNow(page);
+  await expect(status).toHaveText('Night sheets saved at handoff 8:00 AM (2)');
+  await expect(page.locator('#retrySheets')).toHaveCount(0);
 });
 
 test('after Close storm, a night the handoff saved counts as saved: no false "of" and no Retry', async ({ page }) => {
@@ -4569,4 +4616,53 @@ test('without lib/handoff.js the Storm tab still works: no card, no throw, and P
     await expect(p2.locator('#handoff')).toHaveCount(0);
   } finally { await crew.close(); }
   expect(errors).toEqual([]);
+});
+
+test("without lib/handoff.js at night Matt's live view still draws, with Hand off now (the server decides)", async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  await page.route((u) => u.href.endsWith('/lib/handoff.js'), (r) => r.abort());
+  await openStorm(page, nightWorld(), { token: 'tok-matt', clockAt: HO_NIGHT });
+  expect(await page.evaluate(() => typeof CrewHandoff)).toBe('undefined');
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
+  await expect(page.locator('#shiftnow')).toHaveText('Night shift');
+  await expect(page.locator('[data-liveroute="R1"]')).toBeVisible();
+  await expect(page.locator('#handOffNow')).toBeVisible();
+  await expect(card(page)).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('a card that throws while it is drawn leaves the rest of the Storm tab drawn', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  const w = handoffWorld();
+  await openStorm(page, w, { clockAt: HO_DAY }); // Jordan
+  await expect(card(page)).toBeVisible();
+  // One of the card's words breaks (a bad copy of lib/handoff.js, say); the next redraw is a poll's.
+  await page.evaluate(() => { CrewHandoff.leftoverParts = () => { throw new Error('broken leftover line'); }; });
+  w.log.push(dayTap(6, 'S5', 'whole', 'cleared', 'Alex Test', 'C01', '09:40'));
+  await pollNow(page);
+  await expect(walkRow(page, 'S5|whole')).toContainText('Cleared · Alex Test · 9:40 AM'); // the poll landed and drew
+  await expect(card(page)).toHaveCount(0);
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
+  await expect(walkBtn(page, 'S5|whole', 'treated')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('a day handoff sheet whose page cannot be read is left out and said, not printed as a bare name', async ({ page }) => {
+  // D1's page comes back with no <body>: only N2's day sheet prints after the two route sheets.
+  await stubPrint(page);
+  await openStorm(page, handoffWorld(), { token: 'tok-matt', clockAt: HO_DAY });
+  await expect(card(page)).toBeVisible();
+  await page.evaluate(() => {
+    const real = CrewHandoff.handoffHtml;
+    CrewHandoff.handoffHtml = (data, id, madeAt) => (id === 'R3' ? '<p>no page here</p>' : real(data, id, madeAt));
+  });
+  await page.click('#printSheets');
+  await expect(page.locator('#printview')).toBeVisible();
+  await expect(page.locator('#printbar .muted')).toHaveText('3 sheets');
+  await expect(page.locator('#printsheets .printname')).toHaveText(['N2 Day handoff 10-3.pdf']);
+  await expect(page.locator('#printsheets .sheet')).toHaveCount(3);
+  await expect(page.locator('#printsheets .sheet').nth(2).locator('h1')).toHaveText('Route N2Day of 10/3');
+  await expect(page.locator('#toast')).toHaveText("1 day handoff sheet couldn't be built on this phone.");
 });

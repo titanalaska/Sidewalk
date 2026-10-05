@@ -83,3 +83,15 @@ test('a site with no zones drawn reports its Whole site walk', () => {
   o.log = [row(1, 'whole', 'cleared', { site_id: 'S2' })];
   assert.equal(N.btNote(o, 'night-2026-12-04').text.split('\n')[0], 'Cleared: Whole site.');
 });
+
+test('hand work is listed like a walk; a snow pile never is (10/4/26)', () => {
+  // Z4 hand "Lot row" cleared (seq 3); Z5 storage never listed. Name order:
+  // Back stairs (not done), Heated walk (not done), Lot row, Main entry (not done).
+  const o = base();
+  o.zones = ZONES.concat([{ id: 'Z4', site_id: 'S1', type: 'hand', name: 'Lot row' },
+    { id: 'Z5', site_id: 'S1', type: 'storage', name: 'Snow pile 1' }]);
+  o.log = [row(3, 'Z4', 'cleared')];
+  const n = N.btNote(o, 'night-2026-12-04');
+  assert.equal(n.text.split('\n')[0], 'Cleared: Lot row. Not done: Back stairs, Heated walk, Main entry.');
+  assert.ok(!/Snow pile/.test(n.text));
+});

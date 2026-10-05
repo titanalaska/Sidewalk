@@ -553,25 +553,22 @@ test('the legend and the editor list the five zone types in order', async ({ pag
     ['sidewalk:Sidewalk', 'hand:Hand', 'heated:Heated', 'storage:Snow storage', 'no_touch:Do not touch']);
 });
 
-// 10/4/26: the photo switch asked the map about the city photo layer before the
-// map had built it, and MapLibre throws "non-existing layer" -- the map then
-// failed to open (six times in one session). Make the map behave as it does
-// mid-build, every time: a site map must still open, the switch reading the
-// city photo.
-test('a site map opens even while the map has not built its photo layer yet', async ({ page }) => {
-  // MapLibre loads on demand and the map opens the moment it arrives, so patch
-  // it as it is assigned, not on a timer.
-  await page.addInitScript(() => {
-    let gl;
-    Object.defineProperty(window, 'maplibregl', { configurable: true, get: () => gl, set: (v) => {
-      gl = v;
-      if (v && v.Map) v.Map.prototype.getLayoutProperty = function (id) { throw new Error('Cannot get style of non-existing layer "' + id + '".'); };
-    } });
-  });
+// 10/4/26: the photo switch asked the map about the city photo layer right
+// after new Map(), before the style is built. MapLibre logs "non-existing
+// layer moa" as a console error on every map open (six in one session in
+// Claude's pane). The real library, no patches: five opens, no errors, and the
+// switch still reads the city photo.
+test('opening site maps logs no errors, and the photo switch reads the city photo', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   await openMap(page, 'tok-jordan', mapWorld());
-  await zoneSource(page);
-  await expect(page.locator('#photoswitch')).toHaveText('Photo: City 2024');
-  await expect(page.locator('#mapwarn')).toBeHidden();
+  for (let i = 0; i < 5; i++) {
+    await zoneSource(page);
+    await expect(page.locator('#photoswitch')).toHaveText('Photo: City 2024');
+    if (i < 4) { await page.click('nav [data-tab="sites"]'); await page.click('[data-map="S1"]'); }
+  }
+  expect(errors.filter((e) => /layer|maplibre|Style/i.test(e))).toEqual([]);
 });
 
 test('the crew map draws every zone with its type and a legend', async ({ page }) => {

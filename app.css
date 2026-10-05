@@ -235,10 +235,24 @@ body.has-ref.ref-min #mapbox{height:62vh}
 #printbar{position:sticky;top:0;z-index:1;display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--card);color:var(--ink);border-bottom:1px solid var(--line)}
 #printbar .muted{flex:1}
 #printsheets{max-width:8.5in;margin:12px auto;padding:0.5in;background:#fff;color:#000;box-shadow:0 1px 6px rgba(0,0,0,.25);font:11pt/1.35 Arial,Helvetica,sans-serif}
+/* The day handoff card (10/5/26): what night left, at the top of the Storm tab by day. */
+.handoff h2{font-size:17px;margin:0 0 6px}
+.handoff-part{font-size:15px;margin:12px 0 4px;color:var(--muted)}
+.handoff-route{font-size:15px;margin:4px 0}
+.handoff ul{list-style:none;margin:0;padding:0}
+.handoff li{border-top:1px solid var(--line)}
+.handoff li:first-child{border-top:0}
+.handoff-sites li{padding:6px 0}
+.handoff-line{display:block;width:100%;text-align:left;border:0;border-radius:0;padding:8px 0;background:none;color:var(--ink)}
+.handoff-line.done{color:var(--muted)}
+.handoff-callout{font-size:14px;font-weight:600;color:var(--warn);padding:0 0 8px}
+#handoffdone{margin-top:8px}
+#printsheets .printname{font:600 12px/1.3 system-ui,sans-serif;color:#555;margin:14px 0 4px}
 /* Only while Print sheets is open (body.printing, set by lib/shiftlogui.js): any other print of the app is left alone. */
 @media print{
   body.printing>*:not(#printview){display:none !important}
   body.printing #printview{position:static;overflow:visible;background:#fff}
   body.printing #printbar{display:none}
+  body.printing #printsheets .printname{display:none}
   body.printing #printsheets{max-width:none;margin:0;padding:0;box-shadow:none}
 }

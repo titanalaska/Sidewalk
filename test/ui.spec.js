@@ -19,7 +19,7 @@ const TOKENS = { 'tok-matt': 'admin', 'tok-jordan': 'crew', 'tok-alex': 'lead' }
 // A small fake of the snow backend, with the real reply shapes.
 function fakeSnow(state, opts = {}) {
   return (body) => {
-    const v = { version: opts.version || 'callouts-1' };
+    const v = { version: opts.version || 'handoff-1' };
     if (opts.expired && opts.expired.on) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     if (body.token === 'tok-nina') return { ok: false, code: 'not_on_roster', name: 'Nina Nursery', reason: "You're signed in, but not on the snow crew yet. Ask Matt to add you.", ...v };
     const role = TOKENS[body.token];
@@ -72,7 +72,7 @@ function fakeSnow(state, opts = {}) {
     // Rows are only ever appended; seq is the row's place in its tab. Crew and
     // lead rows are allow-listed (no by_profile, undoes null); Matt's are raw
     // (by_profile present, no undoes key on a tap). Refusals are {ok:false, code, reason}.
-    if (['getShiftLog', 'tapZone', 'undoTap', 'stormAction', 'saveVisit', 'cleanAgain', 'depthNow'].includes(body.action)) {
+    if (['getShiftLog', 'tapZone', 'undoTap', 'stormAction', 'saveVisit', 'cleanAgain', 'depthNow', 'handOff'].includes(body.action)) {
       const SL = require('../lib/shiftlog.js');
       state.log = state.log || []; state.storms = state.storms || []; state.visits = state.visits || [];
       const stamp = state.clock || '2026-10-03T07:50:18.445-08:00';
@@ -81,6 +81,11 @@ function fakeSnow(state, opts = {}) {
         const { undoes, ...raw } = row;
         return { ...raw, by_profile: 'P1', ...(undoes ? { undoes } : {}) };
       };
+      // Storms rows reach crew and leads through the server's allow-list (snow-app-script roster.js
+      // PUBLIC_STORM_FIELDS, publicRow): a missing field is null, so a start row carries shift_id: null and
+      // a handoff row loses its truck_seq and by_profile. Matt gets the whole row.
+      const STORM_FIELDS = ['id', 'seq', 'kind', 'storm_id', 'at', 'by_name', 'shift_id', 'log_seq', 'visit_seq', 'night_routes'];
+      const stormView = (row) => (role === 'admin' ? { by_profile: 'P1', ...row } : Object.fromEntries(STORM_FIELDS.map((k) => [k, row[k] === undefined ? null : row[k]])));
       const refuse = (code, reason) => ({ ok: false, code, reason, ...v });
       if (body.action === 'getShiftLog') {
         const out = { ok: true, cursor: {}, reset: {}, ...v };
@@ -92,7 +97,7 @@ function fakeSnow(state, opts = {}) {
           const cur = Math.max(0, Math.floor(Number((body.cursor || {})[t]) || 0)), last = (body.last || {})[t];
           let reset = cur > rows.length;
           if (!reset && cur >= 1 && last != null && Number(rows[cur - 1].seq) !== Number(last)) reset = true;
-          out[t] = rows.slice(reset ? 0 : cur).map(t === 'trucks' ? tview : t === 'sheets' ? (x) => x : view);
+          out[t] = rows.slice(reset ? 0 : cur).map(t === 'trucks' ? tview : t === 'sheets' ? (x) => x : t === 'storms' ? stormView : view);
           out.cursor[t] = rows.length;
           out.reset[t] = reset;
         });
@@ -120,7 +125,29 @@ function fakeSnow(state, opts = {}) {
         const n = state.storms.length + 1, id = 'ST-' + n;
         const row = { id, seq: n, kind, storm_id: kind === 'start' ? id : storm.storm_id, at: stamp, by_name: me.name };
         state.storms.push(row);
-        return { ok: true, record: view(row), ...v };
+        return { ok: true, record: stormView(row), ...v };
+      }
+      // Hand off now (snow-app-script handOffNow_, 10/5/26): Matt or a Board lead. Refused, in this order:
+      // no storm open; the server's own shift is not a night; no real tap that night in this storm (an undo,
+      // a tap whose undo stands, a '*' row are not work); this night already handed off. The mark carries the
+      // newest seq of Log, Visits and Trucks, and the night's routes frozen (CrewHandoff.nightRouteIds).
+      if (body.action === 'handOff') {
+        const HO = require('../lib/handoff.js'), RS = require('../lib/routesheet.js');
+        if (role === 'crew') return refuse('forbidden', "Only Matt or a route lead on tonight's Board can do that.");
+        if (!storm.open) return refuse('invalid', 'No storm is open');
+        const shift = SL.shiftFor(stamp, state.storms);
+        if (shift.indexOf('night-') !== 0) return refuse('invalid', "It isn't night shift");
+        const stormLog = state.log.filter((r) => r.storm_id === storm.storm_id);
+        if (!SL.realTaps(stormLog).some((r) => r.shift_id === shift)) return refuse('invalid', 'Nothing to hand off yet');
+        const already = HO.newestHandoff(state.storms.filter((r) => r.shift_id === shift), storm.storm_id);
+        if (already) return refuse('invalid', 'Already handed off at ' + RS.clock(String(already.at)));
+        const top = (rows) => (rows || []).reduce((m, r) => Math.max(m, Number(r.seq) || 0), 0), n = state.storms.length + 1;
+        const mark = { id: 'ST-' + n, seq: n, kind: 'handoff', storm_id: storm.storm_id, shift_id: shift, at: stamp, by_name: me.name,
+          by_profile: role === 'admin' ? 'P1' : 'P2', log_seq: top(state.log), visit_seq: top(state.visits), truck_seq: top(state.trucks) };
+        mark.night_routes = HO.nightRouteIds({ storm_id: storm.storm_id, routes: state.routes, posts: state.posts, storms: state.storms,
+          log: stormLog, visits: state.visits, trucks: state.trucks || [] }, mark);
+        state.storms.push(mark);
+        return { ok: true, record: stormView(mark), ...v };
       }
       if (!storm.open) return refuse('invalid', 'No storm is open');
       // An undo names only the row (seq); a tap or a card names a site.
@@ -593,7 +620,7 @@ test('after a conflict the app reloads the latest, so the retry can save', async
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'callouts-1' };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'handoff-1' };
     }
     return base(b);
   } });
@@ -4133,4 +4160,413 @@ test('Back from a site map opened on a route returns to the route, then the live
   await expect(page.locator('[data-liveroute]')).toHaveCount(2);
   expect(page.url()).toContain('index.html');
   expect(await backSteps(page)).toEqual([]);
+});
+
+// ---------------- the 8 AM handoff (handoff sheets, Matt 10/5/26) ----------------
+// Night crews stop at 8 AM and the day crew starts at 9. The night of 10/2 is handed off at 8:00 AM on
+// 10/3 by the 8 AM run (by_name 'Sidewalk'). Worked by hand:
+//   Routes by name: D1 (R3: DAY-SITE), N1 (R1: PAC, LEFT-RANK-2, LEFT-RANK-1), N2 (R2: TUDOR-TRANSIT).
+//   Night Post (night of 10/2): Alex leads N1 with Jordan, Alex leads N2, D1 empty. So night_routes = [R1, R2].
+//   Day Post (day of 10/3, posted 8:30, the newest, so the one a crew phone holds): Alex leads D1 with
+//   Jordan, Alex leads N2, N1 empty. Day routes, by name: D1 (Alex, Jordan), N2 (Alex).
+//   Night's taps, seq 1-5 (the mark's log_seq is 5):
+//     PAC: Main entry cleared 6:00, Heated walk checked 6:05: done, so not left by night.
+//     LEFT-RANK-2 (day rank 2; Walk A-E): A cleared 6:10, B cleared 6:15, D Problem "ice at door" 6:20: 2 of 5 walks.
+//     LEFT-RANK-1 (day rank 1; no zones: one Whole site walk) and TUDOR-TRANSIT (unranked): untouched.
+//   Left by night, in day order: LEFT-RANK-1 (rank 1), LEFT-RANK-2 (rank 2), TUDOR-TRANSIT (unranked).
+//   Route order would put LEFT-RANK-2 first.
+// The repo is public: every site carrying a day rank or a callout has a made-up name.
+const hoRoutes = (d1, n1, n2) => [
+  { id: 'R3', name: 'D1', sites: [{ id: 'S5', name: 'DAY-SITE' }], lead: null, members: [], ...d1 },
+  { id: 'R1', name: 'N1', sites: [{ id: 'S1', name: 'PAC' }, { id: 'S3', name: 'LEFT-RANK-2' }, { id: 'S4', name: 'LEFT-RANK-1' }], lead: null, members: [], ...n1 },
+  { id: 'R2', name: 'N2', sites: [{ id: 'S2', name: 'TUDOR-TRANSIT' }], lead: null, members: [], ...n2 }];
+const HO_NIGHT_POST = { ...POST, id: 'P-night', shift: SHIFT, posted_at: '2026-10-02T17:30:00.000-08:00', routes: hoRoutes({}, { lead: 'C01', members: ['C03'] }, { lead: 'C01' }) };
+const HO_DAY_POST = { ...POST, id: 'P-day', shift: DAY3, posted_at: '2026-10-03T08:30:00.000-08:00', routes: hoRoutes({ lead: 'C01', members: ['C03'] }, {}, { lead: 'C01' }) };
+const HANDOFF_ROW = { id: 'ST-2', seq: 2, kind: 'handoff', storm_id: 'ST-1', shift_id: SHIFT, at: at('08:00'), by_name: 'Sidewalk', by_profile: '',
+  log_seq: 5, visit_seq: 0, truck_seq: 0, night_routes: ['R1', 'R2'] };
+const HO_DAY = '2026-10-03T09:30:00-08:00', HO_NIGHT = '2026-10-03T06:30:00-08:00';
+const handoffWorld = () => {
+  const w = stormWorld();
+  w.sites = [{ id: 'S1', name: 'PAC', rev: 1 }, { id: 'S2', name: 'TUDOR-TRANSIT', rev: 1 }, { id: 'S3', name: 'LEFT-RANK-2', rev: 1, day_rank: 2 },
+    { id: 'S4', name: 'LEFT-RANK-1', rev: 1, day_rank: 1 }, { id: 'S5', name: 'DAY-SITE', rev: 1 }];
+  w.routes = [{ id: 'R1', name: 'N1', rev: 1, site_ids: ['S1', 'S3', 'S4'] }, { id: 'R2', name: 'N2', rev: 1, site_ids: ['S2'] },
+    { id: 'R3', name: 'D1', rev: 1, site_ids: ['S5'] }];
+  w.zones = w.zones.concat(['A', 'B', 'C', 'D', 'E'].map((x, i) => ({ id: 'Z3' + (i + 1), site_id: 'S3', type: 'sidewalk', name: 'Walk ' + x, rev: 1 })));
+  w.posts = [HO_NIGHT_POST, HO_DAY_POST];
+  w.storms = [START_ROW, HANDOFF_ROW];
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: at('06:00') }), logRow(2, 'S1', 'Z2', 'checked', 'Alex Test', { at: at('06:05') }),
+    logRow(3, 'S3', 'Z31', 'cleared', 'Alex Test', { at: at('06:10') }), logRow(4, 'S3', 'Z32', 'cleared', 'Alex Test', { at: at('06:15') }),
+    logRow(5, 'S3', 'Z34', 'problem', 'Alex Test', { note: 'ice at door', at: at('06:20') })];
+  return w;
+};
+// A tap after the mark, filed under the day of 10/3 as the server would.
+const dayTap = (n, siteId, zoneId, state, by, byKey, hhmm) => logRow(n, siteId, zoneId, state, by, { by_key: byKey, shift_id: DAY3, at: at(hhmm) });
+const card = (page) => page.locator('#handoff');
+const leftIds = (page) => idsOf(page, 'data-leftover');
+
+test('the handoff card at 9:30: the heading, your day route, and what night left in day order', async ({ page }) => {
+  await openStorm(page, handoffWorld(), { clockAt: HO_DAY }); // Jordan, on D1 in the day Post
+  await expect(card(page)).toBeVisible();
+  await expect(card(page).locator('h2')).toHaveText('Handoff from Night of 10/2 · 8:00 AM'); // the 8 AM run: no "· by"
+  // Your route: Jordan's day-Post route only. N2 is crewed on the day Post too, but not with Jordan.
+  await expect(card(page).locator('.handoff-part')).toHaveText(['Your route', 'Left by night (3)']);
+  expect(await idsOf(page, 'data-handoffroute')).toEqual(['R3']);
+  await expect(card(page).locator('[data-handoffroute="R3"] .handoff-route')).toHaveText('D1 · Lead: Alex Test · Crew: Jordan Demo');
+  await expect(card(page).locator('[data-daysite="S5"]')).toHaveText('DAY-SITE · 0 of 1 walks');
+  // Left by night: the three sites night did not finish, ranked ones first by day rank, with walks and the Problem.
+  expect(await leftIds(page)).toEqual(['S4', 'S3', 'S2']);
+  await expect(page.locator('[data-leftover="S4"]')).toHaveText('LEFT-RANK-1 · Not started');
+  await expect(page.locator('[data-leftover="S3"]')).toHaveText('LEFT-RANK-2 · 2 of 5 walks · Problem: ice at door');
+  await expect(page.locator('[data-leftover="S2"]')).toHaveText('TUDOR-TRANSIT · Not started');
+  // Names only: the day Post carries phones, and none reaches the card.
+  await expect(card(page)).not.toContainText('555-01');
+  // At the top of the Storm tab, above Jordan's own route.
+  expect((await card(page).boundingBox()).y).toBeLessThan((await page.locator('.shift-route').first().boundingBox()).y);
+});
+
+test("Matt's card lists every day route, above the storm controls; a tapped handoff says who", async ({ page }) => {
+  const w = handoffWorld();
+  w.storms = [START_ROW, { ...HANDOFF_ROW, at: at('07:10'), by_name: 'Alex Test' }];
+  await openStorm(page, w, { token: 'tok-matt', clockAt: HO_DAY });
+  await expect(card(page)).toBeVisible();
+  await expect(card(page).locator('h2')).toHaveText('Handoff from Night of 10/2 · 7:10 AM · by Alex Test');
+  await expect(card(page).locator('.handoff-part')).toHaveText(['Day routes', 'Left by night (3)']);
+  expect(await idsOf(page, 'data-handoffroute')).toEqual(['R3', 'R2']); // D1, N2: by name
+  await expect(card(page).locator('[data-handoffroute="R2"] .handoff-route')).toHaveText('N2 · Lead: Alex Test · Crew: —');
+  await expect(card(page).locator('[data-daysite="S2"]')).toHaveText('TUDOR-TRANSIT · 0 of 1 walks');
+  expect(await leftIds(page)).toEqual(['S4', 'S3', 'S2']);
+  expect((await card(page).boundingBox()).y).toBeLessThan((await page.locator('#stormctl').boundingBox()).y);
+});
+
+test('with no day Post a crew card has no "Your route", and still lists what night left', async ({ page }) => {
+  // Only the night Post: at 9:30 it is stale, so Jordan's phone has no day route to show (ruling 10/5/26).
+  const w = handoffWorld(); w.posts = [HO_NIGHT_POST];
+  await openStorm(page, w, { clockAt: HO_DAY });
+  await expect(card(page)).toBeVisible();
+  await expect(card(page).locator('.handoff-part')).toHaveText(['Left by night (3)']);
+  await expect(page.locator('[data-handoffroute]')).toHaveCount(0);
+  expect(await leftIds(page)).toEqual(['S4', 'S3', 'S2']);
+});
+
+test('the card is hidden at night: 10 PM, after night shift on', async ({ page }) => {
+  // The same handoff, read at 10 PM on 10/3 with night shift on since 6 PM: the night of 10/3, not day.
+  const w = handoffWorld();
+  w.storms.push({ id: 'ST-3', seq: 3, kind: 'night_on', storm_id: 'ST-1', at: at('18:00'), by_name: 'Matthew' });
+  await openStorm(page, w, { clockAt: '2026-10-03T22:00:00-08:00' });
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped'); // the poll has landed
+  await expect(page.locator('[data-shiftsite="S5"]')).toBeVisible();
+  await expect(card(page)).toBeHidden();
+});
+
+test('the card is hidden with no handoff', async ({ page }) => {
+  const w = handoffWorld(); w.storms = [START_ROW];
+  await openStorm(page, w, { clockAt: HO_DAY });
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
+  await expect(page.locator('[data-shiftsite="S5"]')).toBeVisible();
+  await expect(card(page)).toBeHidden();
+});
+
+test('the card goes at Close storm', async ({ page }) => {
+  const w = handoffWorld();
+  await openStorm(page, w, { clockAt: HO_DAY });
+  await expect(card(page)).toBeVisible();
+  w.storms.push({ id: 'ST-3', seq: 3, kind: 'end', storm_id: 'ST-1', at: at('09:35'), by_name: 'Matthew' });
+  await pollNow(page);
+  await expect(page.locator('#stormhead')).toHaveText('No storm open');
+  await expect(card(page)).toBeHidden();
+});
+
+test("the next night's handoff replaces the card", async ({ page }) => {
+  // The storm runs on: night shift on at 6 PM on 10/3, TUDOR-TRANSIT cleared that night at 11 PM (seq 6),
+  // and the 8 AM run hands off the night of 10/3 at 8:00 on 10/4 (seq 4, log_seq 6). At 9:30 on 10/4 the
+  // card is that handoff's, and night left the two ranked sites (PAC done on 10/2, TUDOR-TRANSIT on 10/3).
+  const w = handoffWorld();
+  w.storms.push({ id: 'ST-3', seq: 3, kind: 'night_on', storm_id: 'ST-1', at: at('18:00'), by_name: 'Matthew' },
+    { ...HANDOFF_ROW, id: 'ST-4', seq: 4, shift_id: 'night-2026-10-03', at: '2026-10-04T08:00:00.000-08:00', log_seq: 6 });
+  w.log.push(logRow(6, 'S2', 'whole', 'cleared', 'Alex Test', { shift_id: 'night-2026-10-03', at: '2026-10-03T23:00:00.000-08:00' }));
+  await openStorm(page, w, { token: 'tok-matt', clockAt: '2026-10-04T09:30:00-08:00' });
+  await expect(card(page).locator('h2')).toHaveText('Handoff from Night of 10/3 · 8:00 AM');
+  expect(await leftIds(page)).toEqual(['S4', 'S3']);
+});
+
+test('a day tap on a leftover shows "Started by" on the next poll; a finished one moves last with Done', async ({ page }) => {
+  const w = handoffWorld();
+  await openStorm(page, w, { clockAt: HO_DAY });
+  await expect(page.locator('[data-leftover="S3"]')).toHaveText('LEFT-RANK-2 · 2 of 5 walks · Problem: ice at door');
+  await page.evaluate(() => { window.__sameLoad = true; });
+  // 9:41: Jordan clears Walk C at LEFT-RANK-2 from another phone. This one hears it on its next poll.
+  w.log.push(dayTap(6, 'S3', 'Z33', 'cleared', 'Jordan Demo', 'C03', '09:41'));
+  await pollNow(page);
+  await expect(page.locator('[data-leftover="S3"]')).toHaveText('LEFT-RANK-2 · 3 of 5 walks · Problem: ice at door · Started by Jordan Demo 9:41');
+  // 9:50: Alex clears LEFT-RANK-1's one walk. It is done, and goes to the end of the list.
+  w.log.push(dayTap(7, 'S4', 'whole', 'cleared', 'Alex Test', 'C01', '09:50'));
+  await pollNow(page);
+  await expect(page.locator('[data-leftover="S4"]')).toHaveText('LEFT-RANK-1 · 1 of 1 walks · Started by Alex Test 9:50 · Done 9:50');
+  expect(await leftIds(page)).toEqual(['S3', 'S2', 'S4']);
+  await expect(page.locator('[data-leftover="S4"]')).toHaveClass(/(^|\s)done(\s|$)/);
+  await expect(page.locator('[data-leftover="S3"]')).not.toHaveClass(/(^|\s)done(\s|$)/);
+  expect(await page.evaluate(() => window.__sameLoad)).toBe(true); // no reload
+});
+
+test("tapping a leftover opens that site's walks; Back returns to the card", async ({ page }) => {
+  const w = handoffWorld(); w.clock = at('09:35'); // the fake stamps Jordan's tap 9:35
+  const calls = await openStorm(page, w, { clockAt: HO_DAY });
+  await expect(card(page)).toBeVisible();
+  await page.click('[data-leftover="S3"]');
+  await expect(page.locator('#siteBack')).toBeVisible();
+  await expect(card(page)).toBeHidden();
+  expect(await idsOf(page, 'data-walkrow')).toEqual(['S3|Z31', 'S3|Z32', 'S3|Z33', 'S3|Z34', 'S3|Z35']);
+  await expect(walkRow(page, 'S3|Z34')).toContainText('Problem · Alex Test · 6:20 AM');
+  await expect.poll(() => backSteps(page)).toEqual(['route']);
+  await walkBtn(page, 'S3|Z33', 'cleared').click();
+  await expect(walkRow(page, 'S3|Z33')).toContainText('Cleared · Jordan Demo · 9:35 AM');
+  expect(tapCalls(calls).at(-1).body).toMatchObject({ site_id: 'S3', zone_id: 'Z33', state: 'cleared' });
+  await page.goBack(); // the phone's Back
+  await expect(page.locator('#siteBack')).toBeHidden();
+  await expect(page.locator('[data-leftover="S3"]')).toHaveText('LEFT-RANK-2 · 3 of 5 walks · Problem: ice at door · Started by Jordan Demo 9:35');
+  expect(await backSteps(page)).toEqual([]);
+  // The in-app ‹ Back does the same, and takes its step with it.
+  await page.click('[data-leftover="S2"]');
+  await expect(walkRow(page, 'S2|whole')).toBeVisible();
+  await page.click('#siteBack');
+  await expect(card(page)).toBeVisible();
+  await expect.poll(() => backSteps(page)).toEqual([]);
+});
+
+// LEFT-RANK-2 (callout 2"): 2" measured by Alex at 9:20, after its last tap (6:20): at its callout.
+// LEFT-RANK-1 (callout 1"): 0.5" measured at 9:25: under it. Neither site has a point: no estimate, no fetch.
+const calloutLeftovers = () => {
+  const w = handoffWorld();
+  w.sites = w.sites.map((s) => (s.id === 'S3' ? { ...s, callout_in: 2 } : s.id === 'S4' ? { ...s, callout_in: 1 } : s));
+  w.log.push({ ...depthRow(6, 'S3', 2, at('09:20')), shift_id: DAY3 }, { ...depthRow(7, 'S4', 0.5, at('09:25')), shift_id: DAY3 });
+  return w;
+};
+
+test('a leftover whose measured new snow is at its callout shows the callout line; one under it shows none', async ({ page }) => {
+  const seen = await nws(page);
+  await openStorm(page, calloutLeftovers(), { token: 'tok-matt', clockAt: HO_DAY });
+  await expect(card(page).locator('[data-leftsite="S3"] .handoff-callout')).toHaveText('LEFT-RANK-2 · 2" measured 9:20 AM by Alex Test · callout 2"');
+  await expect(card(page).locator('[data-leftsite="S4"]')).toBeVisible();
+  await expect(card(page).locator('[data-leftsite="S4"] .handoff-callout')).toHaveCount(0);
+  await expect(card(page).locator('[data-leftsite="S2"] .handoff-callout')).toHaveCount(0); // no callout set
+  // A depth reading is not a tap: neither line says "Started by".
+  await expect(page.locator('[data-leftover="S3"]')).toHaveText('LEFT-RANK-2 · 2 of 5 walks · Problem: ice at door');
+  await expect(page.locator('[data-leftover="S4"]')).toHaveText('LEFT-RANK-1 · Not started');
+  expect(gridHits(seen)).toBe(0);
+});
+
+test('a crew card shows the same measured callout line, and the crew phone never asks the NWS for snowfall', async ({ page }) => {
+  const seen = await nws(page);
+  await openStorm(page, calloutLeftovers(), { clockAt: HO_DAY }); // Jordan
+  await expect(card(page).locator('[data-leftsite="S3"] .handoff-callout')).toHaveText('LEFT-RANK-2 · 2" measured 9:20 AM by Alex Test · callout 2"');
+  await expect(card(page).locator('[data-leftsite="S4"] .handoff-callout')).toHaveCount(0);
+  await expect(page.locator('#callouts')).toHaveCount(0); // the Callouts box stays Matt's and the leads'
+  expect(gridHits(seen)).toBe(0);
+});
+
+// ---- Hand off now: the night of 10/2 at 6:30 AM, nothing handed off yet ----
+// Only the night Post is up: Alex leads N1 and N2 (a posted night lead), Jordan rides N1 (a member).
+const nightWorld = () => { const w = handoffWorld(); w.posts = [HO_NIGHT_POST]; w.storms = [START_ROW]; w.clock = at('06:30'); return w; };
+const handOffCalls = (calls) => calls.filter((c) => c.body.action === 'handOff');
+
+test('Hand off now is in the live view at 6:30 for Matt and for the posted night lead', async ({ page, browser }) => {
+  await openStorm(page, nightWorld(), { token: 'tok-matt', clockAt: HO_NIGHT });
+  await expect(page.locator('#shiftnow')).toHaveText('Night shift');
+  await expect(page.locator('#handOffNow')).toBeVisible();
+  await expect(page.locator('#handOffNow')).toHaveText('Hand off now');
+  const lead = await browser.newContext({ timezoneId: 'America/Anchorage', viewport: { width: 390, height: 844 } }); // as playwright.config.js
+  try {
+    const p2 = await lead.newPage();
+    await openStorm(p2, nightWorld(), { token: 'tok-alex', clockAt: HO_NIGHT });
+    await expect(p2.locator('#stormctl')).toBeVisible();
+    await expect(p2.locator('#handOffNow')).toBeVisible();
+  } finally { await lead.close(); }
+});
+
+test('a member never gets Hand off now', async ({ page }) => {
+  await openStorm(page, nightWorld(), { clockAt: HO_NIGHT }); // Jordan, a member of N1
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
+  await expect(walkBtn(page, 'S1|Z1', 'cleared')).toBeVisible();
+  await expect(page.locator('#handOffNow')).toBeHidden();
+});
+
+test('Hand off now is gone by day (10 AM)', async ({ page }) => {
+  const w = nightWorld(); w.clock = at('10:00');
+  await openStorm(page, w, { token: 'tok-matt', clockAt: at('10:00') });
+  await expect(page.locator('#shiftnow')).toHaveText('Day shift');
+  await expect(ctl(page, 'end')).toBeVisible();
+  await expect(page.locator('#handOffNow')).toBeHidden();
+});
+
+test("Hand off now asks first, in Matt's words; Yes sends handOff and the night shows as handed off", async ({ page }) => {
+  const w = nightWorld();
+  const calls = await openStorm(page, w, { token: 'tok-matt', clockAt: HO_NIGHT });
+  await page.click('#handOffNow');
+  await expect(page.locator('#dlg')).toBeVisible();
+  await expect(page.locator('#dlgIn h2')).toHaveText('Hand off to day now?');
+  await expect(page.locator('#dlgIn p')).toHaveText("The night's sheets are saved and the day crew sees what's left.");
+  await expect(page.locator('#ho_yes')).toHaveText('Yes, hand off');
+  await expect(page.locator('#dlgClose')).toHaveText('Cancel');
+  await page.click('#dlgClose');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(handOffCalls(calls)).toHaveLength(0); // Cancel sends nothing
+  await page.click('#handOffNow');
+  await page.click('#ho_yes');
+  await expect.poll(() => handOffCalls(calls).length).toBe(1);
+  // The phone sends the action alone: the server stamps who, when, which night and the marks.
+  expect(Object.keys(handOffCalls(calls)[0].body).sort()).toEqual(['action', 'token']);
+  // On paper: the night of 10/2; the newest Log seq is 5; no Visits or Trucks rows (0); the night Post crews N1 and N2.
+  expect(w.storms.at(-1)).toMatchObject({ kind: 'handoff', storm_id: 'ST-1', shift_id: SHIFT, at: at('06:30'), by_name: 'Matthew',
+    log_seq: 5, visit_seq: 0, truck_seq: 0, night_routes: ['R1', 'R2'] });
+  // Handed off: the button gives way to the handoff's line, and Matt's sheets line waits for its files.
+  await expect(page.locator('#handoffdone')).toHaveText('Handoff from Night of 10/2 · 6:30 AM · by Matthew');
+  await expect(page.locator('#handOffNow')).toHaveCount(0);
+  await expect(page.locator('#sheetsstatus')).toHaveText('Handoff sheets: making…');
+  await expect(card(page)).toBeHidden(); // still night: the card waits for the day shift
+});
+
+test('a refused Hand off now shows its reason: nothing tapped tonight', async ({ page }) => {
+  const w = nightWorld(); w.log = [];
+  const calls = await openStorm(page, w, { token: 'tok-matt', clockAt: HO_NIGHT });
+  await page.click('#handOffNow');
+  await page.click('#ho_yes');
+  await expect(page.locator('#handofferr')).toHaveText('Not saved: Nothing to hand off yet');
+  expect(handOffCalls(calls)).toHaveLength(1);
+  expect(w.storms).toHaveLength(1); // nothing was written
+  await expect(page.locator('#handOffNow')).toBeVisible(); // it can be tapped again once the crew have tapped
+});
+
+test('two phones: the second Hand off now is refused with the first one\'s time, and the phone catches up', async ({ page }) => {
+  const w = nightWorld();
+  await openStorm(page, w, { token: 'tok-alex', clockAt: HO_NIGHT });
+  await expect(page.locator('#handOffNow')).toBeVisible();
+  // Matt's phone handed off at 6:20; Alex's has not heard yet.
+  w.storms.push({ ...HANDOFF_ROW, at: at('06:20'), by_name: 'Matthew' });
+  await page.click('#handOffNow');
+  await page.click('#ho_yes');
+  await expect(page.locator('#handofferr')).toHaveText('Not saved: Already handed off at 6:20 AM');
+  expect(w.storms.filter((r) => r.kind === 'handoff')).toHaveLength(1);
+  // The refusal makes the phone ask again: the handoff arrives, and the button gives way to its line.
+  await expect(page.locator('#handoffdone')).toHaveText('Handoff from Night of 10/2 · 6:20 AM · by Matthew');
+  await expect(page.locator('#handOffNow')).toHaveCount(0);
+});
+
+test("the next night gets Hand off now again: last night's handoff is not tonight's", async ({ page }) => {
+  // The night of 10/2 was handed off at 8:00 on 10/3. Night shift on at 6 PM on 10/3: at 10 PM it is the night
+  // of 10/3, which has no handoff yet, so the button is back and no "handed off" line shows.
+  const w = handoffWorld(); w.clock = at('22:00');
+  w.storms.push({ id: 'ST-3', seq: 3, kind: 'night_on', storm_id: 'ST-1', at: at('18:00'), by_name: 'Matthew' });
+  await openStorm(page, w, { token: 'tok-matt', clockAt: '2026-10-03T22:00:00-08:00' });
+  await expect(page.locator('#shiftnow')).toHaveText('Night shift');
+  await expect(page.locator('#handOffNow')).toBeVisible();
+  await expect(page.locator('#handoffdone')).toBeHidden();
+});
+
+// The handoff's Sheets rows (snow-app-script Task 3): made_for 'handoff', for_seq = the handoff's seq (2), end_seq null.
+const hoSheet = (n, kind, route, shift, name, status) => ({ id: 'SH-' + n, seq: n, storm_id: 'ST-1', made_for: 'handoff', for_seq: 2, kind,
+  route_id: route, shift_id: shift, end_seq: null, file_id: status === 'saved' ? 'f' + n : '', url: '', name, made_at: at('08:01'), status,
+  error: status === 'failed' ? 'Drive said no' : '', updated: false, by_name: 'Sidewalk' });
+
+test("Matt's sheets line after a handoff: making, then the night's saved count; a failed one offers Retry", async ({ page }) => {
+  const w = handoffWorld();
+  w.sheets = [{ ...hoSheet(1, 'route', 'R1', SHIFT, 'N1 Night of 10-2.pdf', 'failed'), storm_id: 'ST-0' }]; // another storm's: never counted
+  const calls = await openStorm(page, w, { token: 'tok-matt', clockAt: at('08:05') });
+  const status = page.locator('#sheetsstatus');
+  await expect(status).toHaveText('Handoff sheets: making…'); // 5 minutes after the handoff: no Retry yet
+  await page.clock.fastForward(6 * 60 * 1000); // 8:11, 11 minutes after it
+  await pollNow(page);
+  await expect(status).toHaveText('Handoff sheets: making… · Retry');
+  // The job's set: the night's two route sheets and the two day sheets, all saved. The count is the night's (2).
+  w.sheets.push(hoSheet(2, 'route', 'R1', SHIFT, 'N1 Night of 10-2.pdf', 'saved'), hoSheet(3, 'route', 'R2', SHIFT, 'N2 Night of 10-2.pdf', 'saved'),
+    hoSheet(4, 'day', 'R3', DAY3, 'D1 Day handoff 10-3.pdf', 'saved'), hoSheet(5, 'day', 'R2', DAY3, 'N2 Day handoff 10-3.pdf', 'saved'));
+  await pollNow(page);
+  await expect(status).toHaveText('Night sheets saved at handoff 8:00 AM (2)');
+  await expect(page.locator('#retrySheets')).toHaveCount(0);
+  // N2's day sheet made again, and failed: the newest row per sheet stands, so 1 not saved, with Retry.
+  w.sheets.push(hoSheet(6, 'day', 'R2', DAY3, 'N2 Day handoff 10-3.pdf', 'failed'));
+  await pollNow(page);
+  await expect(status).toHaveText('Handoff sheets: 1 not saved · Retry');
+  await page.click('#retrySheets');
+  await expect.poll(() => calls.filter((c) => c.body.action === 'retrySheets').length).toBe(1);
+  expect(calls.filter((c) => c.body.action === 'retrySheets')[0].body).toMatchObject({ storm_id: 'ST-1' });
+});
+
+test('after Close storm, a night the handoff saved counts as saved: no false "of" and no Retry', async ({ page }) => {
+  // Closed at 10:00 on 10/3; read 20 minutes later. The sheets this phone expects (CrewRouteSheet.sheetsFor), by hand:
+  //   night of 10/2: N1 (its taps), N2 (Alex posted); day of 10/3: D1 (Jordan's 9:41 tap), N2 (Alex on the day Post).
+  //   D1 has no night sheet (no tap, nobody on it in the night Post); N1 no day sheet (no tap, empty in the day Post). 4.
+  // The End made only the two day sheets: both nights were saved at the handoff and did not change after it.
+  // The handoff's first try at N2's night failed (seq 2); it is retried below.
+  const w = handoffWorld();
+  w.storms.push({ id: 'ST-3', seq: 3, kind: 'end', storm_id: 'ST-1', at: at('10:00'), by_name: 'Matthew' });
+  w.log.push(dayTap(6, 'S5', 'whole', 'cleared', 'Jordan Demo', 'C03', '09:41'));
+  const endSheet = (n, route, name) => ({ ...hoSheet(n, 'route', route, DAY3, name, 'saved'), made_for: 'end', for_seq: 3, end_seq: 3 });
+  w.sheets = [hoSheet(1, 'route', 'R1', SHIFT, 'N1 Night of 10-2.pdf', 'saved'), hoSheet(2, 'route', 'R2', SHIFT, 'N2 Night of 10-2.pdf', 'failed'),
+    hoSheet(3, 'day', 'R3', DAY3, 'D1 Day handoff 10-3.pdf', 'saved'), hoSheet(4, 'day', 'R2', DAY3, 'N2 Day handoff 10-3.pdf', 'saved'),
+    endSheet(5, 'R3', 'D1 Day of 10-3.pdf'), endSheet(6, 'R2', 'N2 Day of 10-3.pdf')];
+  await openStorm(page, w, { token: 'tok-matt', clockAt: at('10:20') });
+  await expect(page.locator('#stormhead')).toHaveText('No storm open');
+  // N2's night stands on the handoff's failed row: that night has no saved record.
+  await expect(page.locator('#sheetsstatus')).toHaveText('Sheets: 1 not saved · Retry');
+  // Its Retry saves it: every expected sheet is now saved, the days by the End's rows and the nights by the handoff's.
+  w.sheets.push(hoSheet(7, 'route', 'R2', SHIFT, 'N2 Night of 10-2.pdf', 'saved'));
+  await pollNow(page);
+  await expect(page.locator('#sheetsstatus')).toHaveText('Sheets: 4 saved');
+  await expect(page.locator('#retrySheets')).toHaveCount(0);
+});
+
+test('Print sheets lists the day handoff sheets after the route sheets, each named as its PDF', async ({ page }) => {
+  // On paper (Matt, 9:30, storm open): route sheets N1 and N2 for the night of 10/2 (the day Post's shift is past
+  // the storm's latest logged shift, so it adds none yet), then one day handoff sheet per crewed day route, by
+  // name: D1, N2. Four sheets.
+  await stubPrint(page);
+  await openStorm(page, handoffWorld(), { token: 'tok-matt', clockAt: HO_DAY });
+  await expect(card(page)).toBeVisible();
+  await page.click('#printSheets');
+  await expect(page.locator('#printview')).toBeVisible();
+  await expect(page.locator('#printbar .muted')).toHaveText('4 sheets');
+  const sheets = page.locator('#printsheets .sheet');
+  await expect(sheets).toHaveCount(4);
+  await expect(sheets.nth(0).locator('h1')).toHaveText('Route N1Night of 10/2');
+  await expect(sheets.nth(1).locator('h1')).toHaveText('Route N2Night of 10/2');
+  await expect(page.locator('#printsheets .printname')).toHaveText(['D1 Day handoff 10-3.pdf', 'N2 Day handoff 10-3.pdf']);
+  await expect(sheets.nth(2).locator('h1')).toHaveText('Route D1Day of 10/3');
+  await expect(sheets.nth(2)).toContainText('Handoff from Night of 10/2 · 8:00 AM');
+  await expect(sheets.nth(2)).toContainText('Left by night (3)');
+  await expect(sheets.nth(2).locator('.site').filter({ hasText: 'LEFT-RANK-2' })).toContainText('2 of 5 walks · Problem: ice at door');
+  await expect(sheets.nth(3).locator('h1')).toHaveText('Route N2Day of 10/3');
+  // The day sheet's own style came with it, kept inside the print view.
+  expect(await sheets.nth(2).locator('h2.part').first().evaluate((e) => getComputedStyle(e).borderBottomStyle)).toBe('solid');
+  expect(await page.evaluate(() => getComputedStyle(document.querySelector('header h1')).fontFamily)).not.toMatch(/Arial/);
+  // The file name is for the screen; on paper the sheet's own heading says what it is.
+  await page.emulateMedia({ media: 'print' });
+  await expect(page.locator('#printsheets .printname').first()).toBeHidden();
+  await expect(sheets.nth(2)).toBeVisible();
+});
+
+test('without lib/handoff.js the Storm tab still works: no card, no throw, and Print makes the route sheets', async ({ page, browser }) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  await page.route((u) => u.href.endsWith('/lib/handoff.js'), (r) => r.abort());
+  await stubPrint(page);
+  await openStorm(page, handoffWorld(), { token: 'tok-matt', clockAt: HO_DAY });
+  expect(await page.evaluate(() => typeof CrewHandoff)).toBe('undefined'); // the block really held
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
+  await expect(page.locator('[data-liveroute="R1"]')).toBeVisible();
+  await expect(card(page)).toHaveCount(0);
+  await page.click('#printSheets');
+  await expect(page.locator('#printsheets .sheet')).toHaveCount(2);
+  await expect(page.locator('#printsheets .printname')).toHaveCount(0);
+  // A crew phone missing the file too.
+  const crew = await browser.newContext({ timezoneId: 'America/Anchorage', viewport: { width: 390, height: 844 } }); // as playwright.config.js
+  try {
+    const p2 = await crew.newPage();
+    p2.on('pageerror', (e) => errors.push(String(e)));
+    await p2.route((u) => u.href.endsWith('/lib/handoff.js'), (r) => r.abort());
+    await openStorm(p2, handoffWorld(), { clockAt: HO_DAY });
+    await expect(p2.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
+    await expect(walkBtn(p2, 'S5|whole', 'cleared')).toBeVisible();
+    await expect(p2.locator('#handoff')).toHaveCount(0);
+  } finally { await crew.close(); }
+  expect(errors).toEqual([]);
 });

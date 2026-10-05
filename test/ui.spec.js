@@ -1183,6 +1183,86 @@ test('importing the same Bootprint job twice adds nothing the second time', asyn
   await expect(page.locator('#bp_add')).toBeDisabled();
 });
 
+// Matt's imports, 10/4/26: the job list rendered off screen, ~1 zone per 2-3 s
+// saved with no word on screen, and Done mid-way stopped it ("Added 2 of 5").
+test('the Bootprint job list is brought onto the screen when the file is read', async ({ page }) => {
+  await adminMap(page, mapWorld());
+  await page.click('#mapedit');
+  await page.evaluate(() => window.scrollTo(0, 0)); // where Matt was: the map buttons at the top
+  await importFile(page, bpExport());
+  await expect(page.locator('#bp_jobs [data-bpjob]').first()).toBeVisible();
+  // toBeVisible passes off screen; the list's top must be inside the window.
+  await expect.poll(() => page.locator('#bp_jobs').evaluate((el) => {
+    const r = el.getBoundingClientRect(); return r.top >= 0 && r.top < window.innerHeight;
+  })).toBe(true);
+});
+
+async function importSlowly(page) {
+  const calls = await adminMap(page, mapWorld());
+  await slowZoneSaves(page); // 1.2 s per zone; bpExport's near job has 2
+  await page.click('#mapedit');
+  await importFile(page, bpExport());
+  await page.locator('#bp_jobs [data-bpjob]').first().click();
+  await page.click('#bp_add');
+  await expect(page.locator('#bp_add')).toHaveText('Adding 1 of 2…');
+  return calls;
+}
+const zoneSaves = (calls) => calls.filter((c) => c.body.action === 'saveZone').length;
+
+test('an import says "Adding n of N…" and locks its panel until it is done', async ({ page }) => {
+  const calls = await importSlowly(page);
+  await expect(page.locator('#bp_add')).toBeDisabled();
+  await expect(page.locator('#bp_cancel')).toBeDisabled();
+  await expect(page.locator('#bp_jobs [data-bpjob]').first()).toBeDisabled();
+  await expect(page.locator('#bp_add')).toHaveText('Adding 2 of 2…', { timeout: 3000 });
+  await expect(page.locator('#toast')).toContainText('Added 2 zones from Bootprint');
+  expect(zoneSaves(calls)).toBe(2);
+  await expect(page.locator('#bpimport')).toBeHidden();
+});
+
+test('Done, New zone and a tab mid-import are refused with a word, and every zone still saves', async ({ page }) => {
+  const calls = await importSlowly(page);
+  for (const sel of ['#ed_done', '#ed_new', 'nav [data-tab="routes"]']) {
+    await page.evaluate(() => { document.getElementById('toast').style.display = 'none'; }); // the next toast must be a new one
+    await page.click(sel);
+    await expect(page.locator('#toast')).toBeVisible();
+    await expect(page.locator('#toast')).not.toContainText('Added');
+  }
+  await expect(page.locator('#zoneform')).toBeHidden();   // New zone did not start a drawing
+  await expect(page.locator('#bpimport')).toBeVisible();  // Done did not close the editor
+  await expect(page.locator('#toast')).toContainText('Added 2 zones from Bootprint', { timeout: 5000 });
+  expect(zoneSaves(calls)).toBe(2);
+  await expect(page.locator('#ed_new')).toBeVisible();    // still in the editor, on the map
+});
+
+test('the phone\'s Back and ‹ Back mid-import leave the map open, and the import finishes', async ({ page }) => {
+  const calls = await importSlowly(page);
+  for (const press of [() => phoneBack(page), () => page.click('#mapback')]) {
+    await page.evaluate(() => { document.getElementById('toast').style.display = 'none'; }); // the next toast must be a new one
+    await press();
+    await expect(page.locator('#toast')).toBeVisible();
+    await expect(page.locator('#toast')).not.toContainText('Added'); // Matt was told why, before the end
+    await expect(page.locator('#mapbox')).toBeVisible();
+  }
+  await expect(page.locator('#toast')).toContainText('Added 2 zones from Bootprint', { timeout: 5000 });
+  expect(zoneSaves(calls)).toBe(2);
+  await expect.poll(async () => (await zoneSource(page)).length).toBe(5);
+  // Once done, Back works as before: it closes the map.
+  await phoneBack(page);
+  await expect(page.locator('#mapbox')).toHaveCount(0);
+});
+
+test('the file pickers do not open mid-import', async ({ page }) => {
+  await importSlowly(page);
+  let opened = 0;
+  page.on('filechooser', () => { opened++; });
+  await page.click('label.filebtn:has(#ed_bpfile)');
+  await page.click('label.filebtn:has(#ed_reffile)');
+  await page.waitForTimeout(400);
+  expect(opened).toBe(0);
+  await expect(page.locator('#toast')).toBeVisible();
+});
+
 test('a file that is not a Bootprint export is refused with a reason', async ({ page }) => {
   await adminMap(page, mapWorld());
   await page.click('#mapedit');

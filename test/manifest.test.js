@@ -46,7 +46,7 @@ test('the shell caches the shift log files', () => {
   assert.ok(loaded.length > 10, 'found the page\'s script tags');
   for (const f of loaded) assert.ok(shell.includes(f), f + ' is loaded by index.html but not in the shell');
   // A new shell means a new cache name, or installed phones keep the old one.
-  assert.match(sw, /var CACHE_VERSION = 'titan-snow-shell-21';/);
+  assert.match(sw, /var CACHE_VERSION = 'titan-snow-shell-22';/);
 });
 
 test('the offline shell carries the manifest and icons', () => {

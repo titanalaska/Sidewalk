@@ -107,3 +107,17 @@ test('Copy for BT uses the latest pass only (Clean again, 10/4/26)', () => {
   assert.equal(n.text.split('\n')[0], 'Cleared: Main entry. Not done: Back stairs, Heated walk.');
   assert.deepEqual([n.timeIn, n.timeOut], ['12:40 AM', '12:40 AM']);
 });
+
+test('two passes in one shift: the site-card lines say they cover the whole shift (Matt 10/4/26)', () => {
+  // Pass 1 (seq 1) and pass 2 (again seq 4, tap seq 6) both on night-2026-12-04. Alex's one card: 3", blower 30.
+  // Cards are per person per shift, so the note says so instead of pinning them on pass 2.
+  const o = base();
+  o.log = [row(1, 'Z1', 'cleared'), row(4, '*', 'again'), row(6, 'Z1', 'cleared')];
+  o.visits = [card(1, 'C01', { by_name: 'Alex Test', depth_in: '3', equipment: { blower: '30', snowrator: '', bobcat: '', sweepster: '' } })];
+  const lines = N.btNote(o, 'night-2026-12-04').text.split('\n');
+  assert.ok(lines.includes('Depth: 3" (this shift, all passes)'), lines.join(' | '));
+  assert.ok(lines.some((l) => l.startsWith('Equipment: ') && l.endsWith(' (this shift, all passes)')), lines.join(' | '));
+  // One pass: the lines read as before.
+  o.log = [row(1, 'Z1', 'cleared')];
+  assert.ok(N.btNote(o, 'night-2026-12-04').text.split('\n').includes('Depth: 3"'));
+});

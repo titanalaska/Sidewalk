@@ -1671,6 +1671,27 @@ test('the posted lead gets Clean again; a refusal shows its reason', async ({ pa
   await expect(page.locator('[data-shiftsite="S1"]')).toContainText('Nothing to clean again yet');
 });
 
+// Matt 10/4/26: an open Problem is carried into the next pass, marked with its pass,
+// until someone taps that walk again. Clean again never hides it.
+test('an open Problem stays in the Problems box after Clean again, marked (pass 1)', async ({ page }) => {
+  const w = stormWorld();
+  w.log = [logRow(1, 'S1', 'Z1', 'problem', 'Alex Test', { note: 'ice, needs chipper' }), logRow(2, 'S1', 'Z2', 'checked', 'Alex Test')];
+  await openStorm(page, w, { token: 'tok-matt' });
+  await openRoute(page, 'R1');
+  await page.click('[data-again="S1"]');
+  await expect(page.locator('#dlgIn')).toContainText("Copy for BT first if pass 1 isn't posted yet.");
+  await page.click('#ag_yes');
+  await expect(page.locator('[data-passline="S1"]')).toBeVisible();
+  await page.click('#liveBack');
+  await expect(page.locator('#problems')).toContainText('ice, needs chipper');
+  await expect(page.locator('#problems')).toContainText('(pass 1)');
+  await openRoute(page, 'R1');
+  await page.click('[data-walk="S1|Z1"][data-state="cleared"]');
+  await expect(pressed(page, 'S1|Z1')).toHaveCount(1);
+  await page.click('#liveBack');
+  await expect(page.locator('#problems')).toHaveCount(0);
+});
+
 test('crew see their own route\'s walks first and other routes behind a button', async ({ page }) => {
   await openStorm(page, stormWorld());
   await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');

@@ -14,8 +14,17 @@ test('no data files are tracked: the only JSON is package config', () => {
   assert.deepStrictEqual(json, []);
 });
 
+// Session notes are Markdown named HANDOFF… (HANDOFF.md, handoff-notes.md). The
+// shift handoff feature (lib/handoff.js, its spec and plan) is code and docs, not notes.
+const isNotes = (f) => /(^|\/)HANDOFF[^/]*\.md$/i.test(f);
+
 test('no session handoff notes are tracked', () => {
-  assert.deepStrictEqual(tracked.filter((f) => /HANDOFF/i.test(f)), []);
+  assert.deepStrictEqual(tracked.filter(isNotes), []);
+});
+
+test('the notes guard still knows a notes file from the handoff feature', () => {
+  assert.deepStrictEqual(['HANDOFF.md', 'docs/handoff-notes.md', 'lib/handoff.js', 'docs/superpowers/specs/2026-10-05-handoff-sheets-design.md'].filter(isNotes),
+    ['HANDOFF.md', 'docs/handoff-notes.md']);
 });
 
 test('no route-sheet tooling is tracked (it reads the customer PDFs)', () => {

@@ -541,6 +541,39 @@ const zoneSource = (page) => page.evaluate(() => new Promise((res) => {
   go();
 }));
 
+// Matt 10/4/26: Bootprint's colours, two new types. The legend reads in this
+// order everywhere, and Matt's editor offers the same five.
+test('the legend and the editor list the five zone types in order', async ({ page }) => {
+  await adminMap(page, mapWorld());
+  expect(await page.locator('#maplegend span').allTextContents()).toEqual(
+    ['Sidewalk', 'Hand work', 'Heated: check only, no melt', 'Snow storage', 'Do not touch']);
+  await page.click('#mapedit');
+  await page.click('#ed_new');
+  expect(await page.locator('[data-ztype]').evaluateAll((els) => els.map((e) => e.dataset.ztype + ':' + e.textContent))).toEqual(
+    ['sidewalk:Sidewalk', 'hand:Hand', 'heated:Heated', 'storage:Snow storage', 'no_touch:Do not touch']);
+});
+
+// 10/4/26: the photo switch asked the map about the city photo layer before the
+// map had built it, and MapLibre throws "non-existing layer" -- the map then
+// failed to open (six times in one session). Make the map behave as it does
+// mid-build, every time: a site map must still open, the switch reading the
+// city photo.
+test('a site map opens even while the map has not built its photo layer yet', async ({ page }) => {
+  // MapLibre loads on demand and the map opens the moment it arrives, so patch
+  // it as it is assigned, not on a timer.
+  await page.addInitScript(() => {
+    let gl;
+    Object.defineProperty(window, 'maplibregl', { configurable: true, get: () => gl, set: (v) => {
+      gl = v;
+      if (v && v.Map) v.Map.prototype.getLayoutProperty = function (id) { throw new Error('Cannot get style of non-existing layer "' + id + '".'); };
+    } });
+  });
+  await openMap(page, 'tok-jordan', mapWorld());
+  await zoneSource(page);
+  await expect(page.locator('#photoswitch')).toHaveText('Photo: City 2024');
+  await expect(page.locator('#mapwarn')).toBeHidden();
+});
+
 test('the crew map draws every zone with its type and a legend', async ({ page }) => {
   await openMap(page, 'tok-jordan', mapWorld());
   expect(await zoneSource(page)).toEqual([{ id: 'Z1', type: 'sidewalk' }, { id: 'Z2', type: 'heated' }, { id: 'Z3', type: 'no_touch' }]);
@@ -1512,6 +1545,19 @@ const phoneState = (page) => page.evaluate(() => SnowShiftUI.state());
 const pollNow = (page) => page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
 // Matt and the leads land on the live view; tapping a route opens it as the crew see it.
 const openRoute = async (page, id) => { await page.locator('[data-openroute="' + id + '"]').click(); await expect(page.locator('#liveBack')).toBeVisible(); };
+
+// Matt 10/4/26: hand work (lot rows, curbs) is walked like a sidewalk; a snow
+// pile only shows where snow goes and is never walked.
+test('hand work is walked like a sidewalk; a snow pile is never walked', async ({ page }) => {
+  const w = stormWorld();
+  w.zones.push({ id: 'Z4', site_id: 'S1', type: 'hand', name: 'Lot row', rev: 1 },
+    { id: 'Z5', site_id: 'S1', type: 'storage', name: 'Snow pile 1', rev: 1 });
+  await openStorm(page, w);
+  // By name: Heated walk, Lot row, Main entry. No pile, no ski trail.
+  expect(await page.locator('[data-walkrow]').evaluateAll((els) => els.map((e) => e.dataset.walkrow))).toEqual(['S1|Z2', 'S1|Z4', 'S1|Z1']);
+  expect(await page.locator('[data-walkrow="S1|Z4"] [data-walk]').evaluateAll((els) => els.map((e) => e.dataset.state))).toEqual(['cleared', 'treated', 'problem']);
+  await expect(page.locator('[data-walk^="S1|Z5"]')).toHaveCount(0);
+});
 
 test('crew see their own route\'s walks first and other routes behind a button', async ({ page }) => {
   await openStorm(page, stormWorld());
@@ -2503,9 +2549,10 @@ test('the map marks done and problem walks', async ({ page }) => {
   await expect(mark('Z2')).toHaveText('✓');
   await expect(mark('Z2')).toHaveClass(/\bdone\b/);
   await expect(mark('Z3')).toHaveCount(0);
-  // Matt's type colours are unchanged, and a mark never sits on the priority star.
+  // Bootprint's colours (Matt, 10/4/26), and a mark never sits on the priority star.
   expect(await page.evaluate(() => window.SnowMapView.getPaintProperty('zones-fill', 'fill-color')))
-    .toEqual(['match', ['get', 'type'], 'sidewalk', '#f28c28', 'heated', '#d62828', 'no_touch', '#1f6fd1', '#888888']);
+    .toEqual(['match', ['get', 'type'], 'sidewalk', '#1c6fb0', 'hand', '#d98c00', 'heated', '#d62828',
+      'storage', '#7d5ba6', 'no_touch', '#e0218a', '#888888']);
   const star = await page.locator('.zone-star').boundingBox(), bang = await mark('Z1').boundingBox();
   expect(star.y + star.height <= bang.y + 1 || bang.y + bang.height <= star.y + 1 || star.x + star.width <= bang.x + 1 || bang.x + bang.width <= star.x + 1).toBe(true);
   // A new row while the map is open updates the marks.

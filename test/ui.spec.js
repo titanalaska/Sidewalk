@@ -1556,9 +1556,58 @@ test('hand work is walked like a sidewalk; a snow pile is never walked', async (
   await expect(page.locator('[data-walk^="S1|Z5"]')).toHaveCount(0);
 });
 
+// Part A (Matt, 10/4/26): tonight's posted Board decides what a phone offers;
+// the server's live Board stays the authority.
+const boardPost = (r1, r2) => ({ ...POST, shift: 'night-2026-10-02', routes: [
+  { id: 'R2', name: 'N2', sites: [{ id: 'S2', name: 'TUDOR-TRANSIT' }], lead: null, members: [], ...r2 },
+  { id: 'R1', name: 'N1', sites: [{ id: 'S1', name: 'PAC' }], lead: null, members: [], ...r1 }] });
+
+test('off the posted Board: the Storm tab is read-only and says why', async ({ page }) => {
+  const w = stormWorld();
+  w.posts = [boardPost({ lead: 'C01' }, {})]; // Jordan is not on it
+  w.log = [logRow(2, 'S1', 'Z1', 'cleared', 'Alex Test')];
+  await openStorm(page, w);
+  await expect(page.locator('main')).toContainText("You're not on tonight's Board. Ask Matt to add you.");
+  await page.click('#otherRoutes');
+  await expect(page.locator('main')).toContainText('PAC');
+  await expect(page.locator('[data-walk]')).toHaveCount(0);
+  await expect(page.locator('[data-undo]')).toHaveCount(0);
+  await expect(page.locator('[data-card]')).toHaveCount(0);
+});
+
+test('no post yet: the crew still get the walk buttons, and the server decides', async ({ page }) => {
+  const w = stormWorld();
+  w.posts = [];
+  await openStorm(page, w);
+  await page.click('#otherRoutes');
+  await expect(page.locator('[data-walk^="S1|"]').first()).toBeVisible();
+});
+
+test('a Board lead who is crew on the roster gets the storm controls, in Matt\'s words', async ({ page }) => {
+  const w = stormWorld();
+  w.posts = [boardPost({ lead: 'C03' }, {})]; // Jordan (is_lead false) leads N1 tonight
+  await openStorm(page, w);
+  await expect(page.locator('#stormctl')).toBeVisible();
+  await expect(page.locator('[data-storm="stopped"]')).toHaveText('Snow stopped (melt + rock OK)');
+  await expect(page.locator('[data-storm="end"]')).toHaveText('Close storm (cleanup done)');
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
+  await page.click('[data-storm="end"]');
+  await expect(page.locator('#dlgIn h2')).toHaveText('Close the storm?');
+  await expect(page.locator('#sc_yes')).toHaveText('Yes, close storm');
+});
+
+test('a roster lead who is not on the posted Board gets no storm controls', async ({ page }) => {
+  const w = stormWorld();
+  w.posts = [boardPost({ members: ['C03'] }, {})]; // Alex (is_lead true) is on no route tonight
+  await openStorm(page, w, { token: 'tok-alex' });
+  await expect(page.locator('#stormhead')).toBeVisible();
+  await expect(page.locator('#stormctl')).toHaveCount(0);
+  await expect(page.locator('main')).toContainText("You're not on tonight's Board. Ask Matt to add you.");
+});
+
 test('crew see their own route\'s walks first and other routes behind a button', async ({ page }) => {
   await openStorm(page, stormWorld());
-  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
   // Own route N1 only: PAC, with Heated walk before Main entry (by name).
   await expect(page.locator('.shift-site')).toHaveCount(1);
   await expect(page.locator('.shift-site')).toContainText('PAC');
@@ -1635,7 +1684,7 @@ test('with no storm open the tap is refused and says so', async ({ page }) => {
   // Matt ends the storm while Jordan's screen is open: the phone has not heard yet.
   const w = stormWorld();
   const calls = await openStorm(page, w);
-  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
   w.storms.push({ id: 'ST-2', seq: 2, kind: 'end', storm_id: 'ST-1', at: '2026-10-03T07:40:00.000-08:00', by_name: 'Matthew' });
   await walkBtn(page, 'S1|Z1', 'cleared').click();
   await expect(walkRow(page, 'S1|Z1')).toContainText('Not saved: No storm is open');
@@ -1673,7 +1722,7 @@ test('a poll and a tap carrying the same row show it once', async ({ page }) => 
   // rows after the tap [L-1]; after poll 2 still [L-1]; after poll 3 [L-1, L-2].
   const w = stormWorld();
   const calls = await openStorm(page, w);
-  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped'); // first poll answered
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped'); // first poll answered
   await walkBtn(page, 'S1|Z1', 'cleared').click();
   await expect(walkRow(page, 'S1|Z1')).toContainText('Cleared · Jordan Demo');
   await pollNow(page);
@@ -1736,7 +1785,7 @@ test('rows kept out of seq order in the Sheet do not make every poll reset', asy
 
 test('polling runs only on the Storm tab, and only while the page is visible', async ({ page }) => {
   const calls = await openStorm(page, stormWorld());
-  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
   expect(shiftCalls(calls)).toHaveLength(1);
   // Another tab: the timer is gone. Three ticks' worth of time asks nothing.
   await page.click('nav [data-tab="tonight"]');
@@ -1767,7 +1816,7 @@ test('polling runs only on the Storm tab, and only while the page is visible', a
 test('polling stops on an expired session and shows sign-in', async ({ page }) => {
   const expired = { on: false };
   const calls = await openStorm(page, stormWorld(), { fake: { expired } });
-  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
   expired.on = true;
   await page.clock.runFor(20000); // the 20 s timer fires one poll; the server says the session is gone
   await expect(page.locator('#signin')).toBeVisible();
@@ -1825,7 +1874,7 @@ test('with no storm row at all the banner says no storm is open', async ({ page 
 test('Matt lands on the live view, and opens any route to tap its walks', async ({ page }) => {
   const w = stormWorld();
   const calls = await openStorm(page, w, { token: 'tok-matt' });
-  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
   // The live view shows no walk buttons: a route opens on tap (Task 6).
   await expect(page.locator('[data-liveroute]')).toHaveCount(2);
   await expect(page.locator('[data-walk]')).toHaveCount(0);
@@ -2040,7 +2089,7 @@ test('reopening the card shows your own last save, not someone else\'s', async (
     visitRow(4, 'S2', 'C03', 'Jordan Demo', { depth_in: 5, materials_used: 'other site' }),
     visitRow(5, 'S1', 'C01', 'Alex Test', { depth_in: 11, materials_used: 'alex again' })];
   const calls = await openStorm(page, w);
-  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
   await openCard(page, 'S1');
   await expect(page.locator('#vc_depth')).toHaveValue('2');
   await expect(page.locator('#vc_mat')).toHaveValue('salt');
@@ -2066,7 +2115,7 @@ test('Matt\'s card starts blank when only crew have saved one', async ({ page })
   const w = stormWorld();
   w.visits = [visitRow(1, 'S1', 'C03', 'Jordan Demo', { depth_in: 2, materials_used: 'salt', equipment: { blower: 20, snowrator: '', bobcat: '', sweepster: '' } })];
   const calls = await openStorm(page, w, { token: 'tok-matt' });
-  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
   await openRoute(page, 'R1'); // Matt lands on the live view; the card is on the route's page
   await openCard(page, 'S1');
   await expect(page.locator('#vc_depth')).toHaveValue('');
@@ -2084,7 +2133,7 @@ test('Matt\'s card starts blank when only crew have saved one', async ({ page })
 test('a card refused for no open storm says so and stays open; a double tap on Save sends one', async ({ page }) => {
   const w = stormWorld();
   const calls = await openStorm(page, w, { delay: { saveVisit: 600 } });
-  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
   await openCard(page, 'S1');
   await page.fill('#vc_depth', '2');
   await page.evaluate(() => { const b = document.querySelector('#vc_save'); b.click(); b.click(); });
@@ -2171,11 +2220,15 @@ test('a current post is shown even when the Board has changed since', async ({ p
   await openStorm(page, w, { token: 'tok-matt' });
   await expect(page.locator('[data-liveroute="R1"] .live-who')).toHaveText('Alex Test (lead), Jordan Demo');
 });
-test('a lead with no current post sees "Not posted", never the Board', async ({ page }) => {
+// Part A (Matt, 10/4/26, Q5): the live view and storm controls come from LEADING a route on
+// tonight's posted Board, not the roster flag. With no post yet, a roster lead gets the crew
+// view: the walk buttons (the server's live Board decides), no live view, no controls.
+test('a roster lead with no current post gets the crew view, never the Board', async ({ page }) => {
   const w = liveWorld(); w.posts = []; w.moves = boardMoves();
   await openStorm(page, w, { token: 'tok-alex' });
-  await expect(page.locator('[data-liveroute="R1"] .live-who')).toBeVisible();
-  await expect(page.locator('[data-liveroute="R1"] .live-who')).toHaveText('Not posted');
+  await expect(page.locator('#stormhead')).toBeVisible();
+  await expect(page.locator('[data-liveroute]')).toHaveCount(0);
+  await expect(page.locator('#stormctl')).toHaveCount(0);
 });
 
 test('a route shows how many sites are done', async ({ page }) => {
@@ -2228,7 +2281,7 @@ test('crew see no storm controls and no live view', async ({ page }) => {
   const w = stormWorld();
   w.log = [logRow(1, 'S1', 'Z1', 'problem', 'Alex Test', { note: 'ice under the mat', at: at('06:30') })];
   await openStorm(page, w); // Jordan
-  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
   await expect(walkBtn(page, 'S1|Z1', 'cleared')).toBeVisible(); // the crew view is there
   await expect(page.locator('#stormctl')).toBeHidden();
   await expect(page.locator('#problems')).toBeHidden();
@@ -2262,7 +2315,7 @@ test('a lead can start a storm; End asks first', async ({ page }) => {
   expect(stormCalls(calls)).toHaveLength(0);
   await ctl(page, 'start').click();
   await page.click('#sc_yes');
-  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
   expect(stormCalls(calls)).toHaveLength(1);
   expect(stormCalls(calls)[0].body).toMatchObject({ action: 'stormAction', kind: 'start' });
   for (const k of ['by_name', 'by_key', 'by_profile', 'at', 'storm_id', 'seq']) expect(stormCalls(calls)[0].body).not.toHaveProperty(k);
@@ -2285,7 +2338,7 @@ test('a lead can start a storm; End asks first', async ({ page }) => {
   await expect(ctl(page, 'end')).toHaveCount(0);
   // Reopen and the switch do not ask.
   await ctl(page, 'reopen').click();
-  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
   await expect(page.locator('#dlg')).toBeHidden();
   await ctl(page, 'snowing').click();
   await expect(page.locator('#stormhead')).toHaveText('Storm open · Snowing');
@@ -2305,7 +2358,7 @@ test('a refused storm control says why and the phone catches up', async ({ page 
   await page.click('#sc_yes');
   await expect(page.locator('#stormerr')).toHaveText('Not saved: End the storm first');
   expect(w.storms).toHaveLength(1); // nothing was written
-  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped'); // caught up
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped'); // caught up
   expect(stormCalls(calls)).toHaveLength(1);
 });
 
@@ -2333,7 +2386,7 @@ test('night shift on is sent and shown', async ({ page }) => {
   expect(stormCalls(calls)[0].body).toMatchObject({ action: 'stormAction', kind: 'night_on' });
   expect(w.storms.at(-1)).toMatchObject({ kind: 'night_on', by_name: 'Matthew', at: at('19:00') });
   await expect(ctl(page, 'night_on')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped'); // the weather is untouched
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped'); // the weather is untouched
 });
 
 test('treated while snowing shows the yellow warning and still saves', async ({ page }) => {
@@ -2466,7 +2519,7 @@ const withView = (w, id, center) => { w.sites = w.sites.map((s) => (s.id === id 
 test('the forecast shows as a hint', async ({ page }) => {
   const seen = await nws(page);
   const calls = await openStorm(page, withView(stormWorld(), 'S1', NWS_POINT));
-  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
   await expect(page.locator('#stormhint')).toHaveText('Snow until 10 AM');
   await expect(page.locator('#stormhead + #stormhint')).toHaveCount(1); // right under the header, once
   expect(seen).toEqual([NWS_POINTS, NWS_HOURLY]);                       // the rounded point, never the saved one
@@ -2500,7 +2553,7 @@ test("the hint comes from the first site with a point (Matt's live view)", async
 test('a crew member with no mapped site on their route gets no hint and no request', async ({ page }) => {
   const seen = await nws(page);
   await openStorm(page, withView(stormWorld(), 'S2', NWS_POINT)); // Jordan's route is N1 (S1): no point
-  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
   await expect(page.locator('#stormhint')).toHaveCount(0);
   expect(seen).toEqual([]);
 });
@@ -2508,7 +2561,7 @@ test('a crew member with no mapped site on their route gets no hint and no reque
 test('a forecast failure shows no hint and taps still work', async ({ page }) => {
   const seen = await nws(page, { fail: true });
   const calls = await openStorm(page, withView(stormWorld(), 'S1', NWS_POINT));
-  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
   await expect.poll(() => seen.length).toBeGreaterThanOrEqual(1); // it did try
   await expect(page.locator('#stormhint')).toHaveCount(0);
   await expect(page.locator('main')).not.toContainText('Snow until');
@@ -2637,7 +2690,7 @@ test('a tap the server never answers says not saved after 45 s, with Retry', asy
   // Apps Script waits up to 25 s for its lock, so 45 s with no answer means it is not coming.
   const net = { hang: true };
   const calls = await openStorm(page, stormWorld(), { hangIf: (b) => net.hang && b.action === 'tapZone' });
-  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
   await walkBtn(page, 'S1|Z1', 'cleared').click();
   await expect(walkRow(page, 'S1|Z1')).toHaveAttribute('aria-busy', 'true');
   await page.clock.runFor(44000);
@@ -2664,7 +2717,7 @@ test('a poll the server never answers does not stop the polls after it', async (
   const net = { hang: false };
   const w = stormWorld();
   const calls = await openStorm(page, w, { hangIf: (b) => net.hang && b.action === 'getShiftLog' });
-  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
   expect(shiftCalls(calls)).toHaveLength(1);
   net.hang = true;
   await page.clock.runFor(20000);
@@ -2723,7 +2776,7 @@ test('a slow card save, cancelled, never closes or writes into the next card', a
   // typing and no word from A in it (a toast about A is fine only if it names PAC). Then B saves.
   const w = stormWorld();
   const calls = await openStorm(page, w, { delay: { saveVisit: 2000 } });
-  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
   await openCard(page, 'S1');
   await page.fill('#vc_depth', '2');
   await page.click('#vc_save');
@@ -2758,7 +2811,7 @@ test('a cancelled card whose save fails says so by name, not inside the next car
   // refusal; the toast names PAC.
   const w = stormWorld();
   await openStorm(page, w, { delay: { saveVisit: 2000 } });
-  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
   await openCard(page, 'S1');
   w.storms.push({ id: 'ST-2', seq: 2, kind: 'end', storm_id: 'ST-1', at: '2026-10-03T07:40:00.000-08:00', by_name: 'Matthew' });
   await page.click('#vc_save');
@@ -3052,10 +3105,10 @@ test('a refused truck says why and keeps what was typed; a blank one is not sent
 });
 
 test('crew see the truck but cannot change it', async ({ page }) => {
-  // Jordan (crew) is on N1 (Trucks row: T-9), and the post even names him N1's lead: still no box,
-  // because only a lead account gets one. N2 has no Trucks row but the post carries T-4.
+  // Jordan rides N1 as a MEMBER (Trucks row: T-9): no box, since only the route's lead on
+  // tonight's Board sets its truck (Part A, 10/4/26). N2 has no Trucks row but the post carries T-4.
   const w = stormWorld();
-  w.posts = [postOf({ R1: { lead: 'C03', members: [] }, R2: { truck: 'T-4' } })];
+  w.posts = [postOf({ R1: { lead: null, members: ['C03'] }, R2: { truck: 'T-4' } })];
   w.trucks = [truckRow(1, 'R1', 'T-9')];
   await openStorm(page, w); // Jordan, crew
   await expect(page.locator('[data-truckrow="R1"]')).toHaveText('Truck: T-9');
@@ -3206,7 +3259,7 @@ test('the sheets status shows saved, failed with Retry, and making', async ({ pa
   // Open again: no line while the storm is open.
   w.storms.push({ id: 'ST-5', seq: 5, kind: 'reopen', storm_id: 'ST-1', at: at('11:00'), by_name: 'Matthew' });
   await pollNow(page);
-  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
   await expect(status).toHaveCount(0);
 });
 
@@ -3326,7 +3379,7 @@ test("Print of an earlier shift shows that shift's posted crew, not the Board", 
     logRow(2, 'S1', 'Z1', 'cleared', 'Alex Test', { at: at('06:30') })];
   await stubPrint(page);
   await openStorm(page, w, { token: 'tok-matt' });
-  await expect(page.locator('#stormhead')).toHaveText('Storm open · Stopped');
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
   await page.click('#printSheets');
   await expect(page.locator('#printview')).toBeVisible();
   const sheets = page.locator('#printsheets .sheet');

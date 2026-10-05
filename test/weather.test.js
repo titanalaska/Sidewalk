@@ -193,3 +193,80 @@ test('fetchHint: a non-number point is refused before any request', async () => 
   assert.equal(await SnowWeather.fetchHint('61.34', null, NOW), null);
   assert.deepEqual(seen, []);
 });
+
+// ---------------- fetchSnowfall ----------------
+
+const GRID = 'https://api.weather.gov/gridpoints/ZZZ/1,1';
+const POINTS = 'https://api.weather.gov/points/61.34,-149.51';
+const gridRoutes = (values) => ({
+  [POINTS]: { body: { properties: { forecastGridData: GRID } } },
+  [GRID]: { body: { properties: { snowfallAmount: { uom: 'wmoUnit:mm', values } } } },
+});
+const T0 = Date.UTC(2026, 9, 3, 12, 0, 0); // 2026-10-03 12:00 UTC
+
+test('fetchSnowfall asks the points then the grid data and reads the periods', async () => {
+  const seen = stubFetch(gridRoutes([
+    { validTime: '2026-10-03T12:00:00+00:00/PT6H', value: 12 },
+    // P1DT6H is 24 h + 6 h = 30 h.
+    { validTime: '2026-10-03T18:00:00+00:00/P1DT6H', value: 25.4 },
+    // PT1H30M is 90 minutes; a null value counts as 0.
+    { validTime: '2026-10-05T00:00:00+00:00/PT1H30M', value: null },
+    // P1D is 24 h.
+    { validTime: '2026-10-06T00:00:00+00:00/P1D', value: 3 },
+  ]));
+  const out = await SnowWeather.fetchSnowfall(61.34, -149.51);
+  assert.deepEqual(seen, [POINTS, GRID]);
+  const H = 3600000;
+  assert.deepEqual(out, [
+    { start: T0, end: T0 + 6 * H, mm: 12 },
+    { start: T0 + 6 * H, end: T0 + 36 * H, mm: 25.4 },            // 18:00 + 30 h
+    { start: T0 + 36 * H, end: T0 + 37.5 * H, mm: 0 },            // 2026-10-05 00:00 is 36 h after 10-03 12:00; + 90 min
+    { start: T0 + 60 * H, end: T0 + 84 * H, mm: 3 },              // 2026-10-06 00:00 is 60 h after; + 24 h
+  ]);
+});
+
+test('fetchSnowfall: a period it cannot read is skipped, the rest kept', async () => {
+  stubFetch(gridRoutes([
+    { validTime: 'nonsense', value: 1 },
+    { validTime: '2026-10-03T12:00:00+00:00/garbage', value: 1 },
+    { validTime: '2026-10-03T12:00:00+00:00/PT0H', value: 1 },
+    { validTime: 'not a time/PT1H', value: 1 },
+    { validTime: '2026-10-03T12:00:00+00:00/PT1H', value: 7 },
+    null,
+  ]));
+  const out = await SnowWeather.fetchSnowfall(61.34, -149.51);
+  assert.deepEqual(out, [{ start: T0, end: T0 + 3600000, mm: 7 }]);
+});
+
+test('fetchSnowfall follows only api.weather.gov', async () => {
+  const r = gridRoutes([{ validTime: '2026-10-03T12:00:00+00:00/PT1H', value: 7 }]);
+  r[POINTS] = { body: { properties: { forecastGridData: 'https://example.com/grid' } } };
+  const seen = stubFetch(r);
+  assert.equal(await SnowWeather.fetchSnowfall(61.34, -149.51), null);
+  assert.deepEqual(seen, [POINTS]);
+});
+
+test('fetchSnowfall: every failure is null', async () => {
+  const good = [{ validTime: '2026-10-03T12:00:00+00:00/PT1H', value: 7 }];
+  const cases = {
+    'network down': () => ({ [POINTS]: new Error('offline') }),
+    'points 500': () => ({ [POINTS]: { ok: false, status: 500 } }),
+    'points bad JSON': () => ({ [POINTS]: { badJson: true } }),
+    'no forecastGridData': () => ({ [POINTS]: { body: { properties: {} } } }),
+    'grid down': () => { const r = gridRoutes(good); r[GRID] = new Error('offline'); return r; },
+    'grid 503': () => { const r = gridRoutes(good); r[GRID] = { ok: false, status: 503 }; return r; },
+    'grid bad JSON': () => { const r = gridRoutes(good); r[GRID] = { badJson: true }; return r; },
+    'no snowfallAmount': () => { const r = gridRoutes(good); r[GRID] = { body: { properties: {} } }; return r; },
+    'values not a list': () => { const r = gridRoutes(good); r[GRID] = { body: { properties: { snowfallAmount: { values: 'x' } } } }; return r; },
+  };
+  for (const name of Object.keys(cases)) {
+    stubFetch(cases[name]());
+    assert.equal(await SnowWeather.fetchSnowfall(61.34, -149.51), null, name);
+  }
+});
+
+test('fetchSnowfall: a non-number point is refused before any request', async () => {
+  const seen = stubFetch(gridRoutes([]));
+  assert.equal(await SnowWeather.fetchSnowfall('61.34', null), null);
+  assert.deepEqual(seen, []);
+});

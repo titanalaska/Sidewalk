@@ -95,3 +95,15 @@ test('hand work is listed like a walk; a snow pile never is (10/4/26)', () => {
   assert.equal(n.text.split('\n')[0], 'Cleared: Lot row. Not done: Back stairs, Heated walk, Main entry.');
   assert.ok(!/Snow pile/.test(n.text));
 });
+
+test('Copy for BT uses the latest pass only (Clean again, 10/4/26)', () => {
+  // Pass 1: Main entry (Z1) cleared seq 1 at 11:00 PM, Back stairs (Z3) cleared seq 2 at 11:10 PM.
+  // Seq 4: Clean again. Pass 2: Main entry cleared seq 6 at 12:40 AM. The note is pass 2's:
+  // Main entry cleared; Back stairs and Heated walk not done; In and Out both 12:40 AM.
+  const o = base();
+  o.log = [row(1, 'Z1', 'cleared', { at: '2026-12-04T23:00:00.000-09:00' }), row(2, 'Z3', 'cleared', { at: '2026-12-04T23:10:00.000-09:00' }),
+    row(4, '*', 'again', { at: '2026-12-05T00:20:00.000-09:00' }), row(6, 'Z1', 'cleared', { at: '2026-12-05T00:40:00.000-09:00' })];
+  const n = N.btNote(o, 'night-2026-12-04');
+  assert.equal(n.text.split('\n')[0], 'Cleared: Main entry. Not done: Back stairs, Heated walk.');
+  assert.deepEqual([n.timeIn, n.timeOut], ['12:40 AM', '12:40 AM']);
+});

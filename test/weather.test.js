@@ -284,3 +284,36 @@ test('fetchSnowfall: a non-number point is refused before any request', async ()
   assert.equal(await SnowWeather.fetchSnowfall('61.34', null), null);
   assert.deepEqual(seen, []);
 });
+
+// Sites a few blocks apart round to different points but sit in one NWS grid
+// square (2.5 km), so their points answer with the same grid URL. The grid is the
+// big download; while one is on its way, a second request for it waits on that one
+// instead of fetching it again (the B2 review's fetch burst, 10/5/26).
+test('fetchSnowfall: two points on one grid fetch the grid once while it is on its way', async () => {
+  const good = [{ validTime: '2026-10-03T12:00:00+00:00/PT1H', value: 7 }];
+  const P2 = 'https://api.weather.gov/points/61.35,-149.52';
+  const r = gridRoutes(good);
+  r[P2] = { body: { properties: { forecastGridData: GRID } } };
+  const seen = stubFetch(r);
+  const [a, b] = await Promise.all([SnowWeather.fetchSnowfall(61.34, -149.51), SnowWeather.fetchSnowfall(61.35, -149.52)]);
+  const want = [{ start: T0, end: T0 + 3600000, mm: 7 }];
+  assert.deepEqual(a, want);
+  assert.deepEqual(b, want);
+  assert.deepEqual(seen.filter((u) => u === GRID), [GRID]);
+  // Once it has landed it is not kept: the next refresh asks the NWS again.
+  await SnowWeather.fetchSnowfall(61.34, -149.51);
+  assert.deepEqual(seen.filter((u) => u === GRID), [GRID, GRID]);
+});
+
+test('fetchSnowfall: a shared grid request that fails is null for both, and the next one tries again', async () => {
+  const P2 = 'https://api.weather.gov/points/61.35,-149.52';
+  const r = gridRoutes([]);
+  r[GRID] = new Error('offline');
+  r[P2] = { body: { properties: { forecastGridData: GRID } } };
+  stubFetch(r);
+  const both = await Promise.all([SnowWeather.fetchSnowfall(61.34, -149.51), SnowWeather.fetchSnowfall(61.35, -149.52)]);
+  assert.deepEqual(both, [null, null]);
+  const good = [{ validTime: '2026-10-03T12:00:00+00:00/PT1H', value: 7 }];
+  stubFetch(gridRoutes(good));
+  assert.deepEqual(await SnowWeather.fetchSnowfall(61.34, -149.51), [{ start: T0, end: T0 + 3600000, mm: 7 }]);
+});

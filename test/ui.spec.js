@@ -1922,6 +1922,53 @@ test('the posted lead gets Clean again; a refusal shows its reason', async ({ pa
   await expect(page.locator('[data-shiftsite="S1"]')).toContainText('Nothing to clean again yet');
 });
 
+// B1 review minor (10/6/26): a refused Clean again stayed under the site for good, even after
+// the site had work in its pass. It goes once a newer row AT THAT SITE comes in, and not before:
+// a poll that brings only another site's row leaves it.
+test('a refused Clean again stays until a newer row at that site comes in', async ({ page }) => {
+  const w = stormWorld(); // nothing done yet at PAC
+  await openStorm(page, w, { token: 'tok-alex' });
+  await openRoute(page, 'R1');
+  await page.click('[data-again="S1"]');
+  await page.click('#ag_yes');
+  const site = page.locator('[data-shiftsite="S1"]');
+  await expect(site).toContainText('Nothing to clean again yet');
+  // Someone on N2 clears the other site: the phone has the row, the refusal stays.
+  w.log.push(logRow(1, 'S2', 'whole', 'cleared', 'Jordan Demo', { by_key: 'C03' }));
+  await pollNow(page);
+  await expect.poll(async () => (await phoneState(page)).log.length).toBe(1);
+  await expect(site).toContainText('Nothing to clean again yet');
+  // Jordan clears PAC's main entry on his own phone: the refusal is out of date and goes.
+  w.log.push(logRow(2, 'S1', 'Z1', 'cleared', 'Jordan Demo', { by_key: 'C03' }));
+  await pollNow(page);
+  await expect(pressed(page, 'S1|Z1')).toHaveCount(1);
+  await expect(site).not.toContainText('Nothing to clean again yet');
+  await expect(site.locator('[role="alert"]')).toHaveCount(0);
+});
+
+// A Clean again or New snow that never reached the server gets Retry, as a walk does
+// (B2 review: it said "not saved" on the site line with no way to send it again).
+test('no signal: a Clean again says not saved, and Retry sends it', async ({ page }) => {
+  const net = { down: true }, w2 = cleanedWorld();
+  const calls = await openStorm(page, w2, { token: 'tok-alex', abortIf: (b) => net.down && b.action === 'cleanAgain' });
+  await openRoute(page, 'R1');
+  await page.click('[data-again="S1"]');
+  await page.click('#ag_yes');
+  const site = page.locator('[data-shiftsite="S1"]');
+  await expect(site).toContainText('Not saved: no signal');
+  // Unlike a refusal, a Clean again that never left the phone is still wanted after
+  // someone else taps the site: it keeps its Retry.
+  w2.log.push(logRow(3, 'S1', 'Z1', 'cleared', 'Jordan Demo', { by_key: 'C03' }));
+  await pollNow(page);
+  await expect.poll(async () => (await phoneState(page)).log.length).toBe(3);
+  await expect(site).toContainText('Not saved: no signal');
+  net.down = false;
+  await page.click('[data-retry="S1|*"]');
+  await expect(page.locator('[data-passline="S1"]')).toContainText('Pass 2 · Clean again');
+  await expect(site).not.toContainText('Not saved');
+  expect(calls.filter((c) => c.body.action === 'cleanAgain').map((c) => c.body.site_id)).toEqual(['S1', 'S1']);
+});
+
 // Matt 10/4/26: an open Problem is carried into the next pass, marked with its pass,
 // until someone taps that walk again. Clean again never hides it.
 test('an open Problem stays in the Problems box after Clean again, marked (pass 1)', async ({ page }) => {
@@ -2094,6 +2141,19 @@ test('no signal: the walk says not saved and Retry sends it', async ({ page }) =
   // The first try and the retry are the same tap.
   expect(tapCalls(calls)).toHaveLength(2);
   expect(tapCalls(calls)[1].body).toMatchObject({ site_id: 'S1', zone_id: 'Z1', state: 'treated', note: '' });
+});
+
+// Part A review minor (10/6/26): a tap refused because the person is not on tonight's Board was
+// offered Retry, which can only be refused again. The reason shows; Retry does not.
+test("a tap refused as not allowed shows why, with no Retry", async ({ page }) => {
+  const fake = fakeSnow(stormWorld());
+  const NOT_ON = "You're not on tonight's Board. Ask Matt to add you.";
+  await open(page, { token: 'tok-jordan', clockAt: STORM_CLOCK,
+    snow: (b) => b.action === 'tapZone' ? { ok: false, code: 'forbidden', reason: NOT_ON, version: 'handoff-1' } : fake(b) });
+  await page.click('nav [data-tab="storm"]');
+  await walkBtn(page, 'S1|Z1', 'cleared').click();
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Not saved: ' + NOT_ON);
+  await expect(page.locator('[data-retry]')).toHaveCount(0);
 });
 
 test('with no storm open the tap is refused and says so', async ({ page }) => {

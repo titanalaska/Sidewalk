@@ -4499,14 +4499,17 @@ test("Matt's sheets line after a handoff: making, then the night's saved count; 
   await page.clock.fastForward(6 * 60 * 1000); // 8:11, 11 minutes after it
   await pollNow(page);
   await expect(status).toHaveText('Handoff sheets: making… · Retry');
-  // The job's set: the night's two route sheets and the two day sheets, all saved. The count is the night's (2).
+  // The job's set: the night's two route sheets and its day sheet, all saved. The count is the night's (2).
+  // The day sheet is the left-by-night one (route ''): at 8:00 the day had no plan (the day Post went up at 8:30,
+  // and nobody was moved on the Board), so that is the one day sheet the server's set holds (final review M3: the
+  // line now counts only sheets still in the set, and this test used to hold two day sheets the set never had).
   w.sheets.push(hoSheet(2, 'route', 'R1', SHIFT, 'N1 Night of 10-2.pdf', 'saved'), hoSheet(3, 'route', 'R2', SHIFT, 'N2 Night of 10-2.pdf', 'saved'),
-    hoSheet(4, 'day', 'R3', DAY3, 'D1 Day handoff 10-3.pdf', 'saved'), hoSheet(5, 'day', 'R2', DAY3, 'N2 Day handoff 10-3.pdf', 'saved'));
+    hoSheet(4, 'day', '', DAY3, 'Day handoff 10-3 (left by night).pdf', 'saved'));
   await pollNow(page);
   await expect(status).toHaveText('Night sheets saved at handoff 8:00 AM (2)');
   await expect(page.locator('#retrySheets')).toHaveCount(0);
-  // N2's day sheet made again, and failed: the newest row per sheet stands, so 1 not saved, with Retry.
-  w.sheets.push(hoSheet(6, 'day', 'R2', DAY3, 'N2 Day handoff 10-3.pdf', 'failed'));
+  // The day sheet made again, and failed: the newest row per sheet stands, so 1 not saved, with Retry.
+  w.sheets.push(hoSheet(6, 'day', '', DAY3, 'Day handoff 10-3 (left by night).pdf', 'failed'));
   await pollNow(page);
   await expect(status).toHaveText('Handoff sheets: 1 not saved · Retry');
   await page.click('#retrySheets');
@@ -4536,6 +4539,45 @@ test("Matt's line counts the handoff's night set: 1 of 2 saved is not \"saved\""
   await pollNow(page);
   await expect(status).toHaveText('Night sheets saved at handoff 8:00 AM (2)');
   await expect(page.locator('#retrySheets')).toHaveCount(0);
+});
+
+// Final review M3 (10/5/26): the server owes only the sheets still in a handoff's set (snow-app-script owedIn_), so a
+// failed row for a sheet that has left the set is owed by nobody, and its Retry could only hear "That storm is open".
+// Matt's line counts a failed row only while its sheet is in the set: the night sheets (CrewHandoff.nightSheets) and
+// the day sheets of the handoff moment (one per crewed day route, else the left-by-night one).
+test("Matt's handoff line leaves out a failed sheet the set no longer holds: no Retry the server would refuse", async ({ page, browser }) => {
+  // (a) N2 archived after its night sheet failed. The set at the moment, by hand: sheetsFor on LIVE routes only, so
+  //     N1 (its taps), and not N2 -> night set {N1}. Day: no plan at 8:00 (the day Post is 8:30's) -> {left by night}.
+  //     Rows: N1 saved (in), N2 failed (out), left-by-night saved (in) -> nothing failed, 1 of 1 night: "(1)".
+  const a = handoffWorld();
+  a.routes = a.routes.map((r) => (r.id === 'R2' ? { ...r, archived: true } : r));
+  a.sheets = [hoSheet(1, 'route', 'R1', SHIFT, 'N1 Night of 10-2.pdf', 'saved'), hoSheet(2, 'route', 'R2', SHIFT, 'N2 Night of 10-2.pdf', 'failed'),
+    hoSheet(3, 'day', '', DAY3, 'Day handoff 10-3 (left by night).pdf', 'saved')];
+  await openStorm(page, a, { token: 'tok-matt', clockAt: at('08:05') });
+  await expect(page.locator('#sheetsstatus')).toHaveText('Night sheets saved at handoff 8:00 AM (1)');
+  await expect(page.locator('#retrySheets')).toHaveCount(0);
+
+  // (b) A left-by-night row from a run that could not work out the day part (it failed, seq 3), and the day sheet a
+  //     later run made once it could (seq 4). At 7:30 Matt put Alex on D1 as lead, after the 5:30 PM night Post: the
+  //     Board is the day's plan at 8:00, so the set's day sheet is D1's, not the left-by-night one.
+  //     Rows: N1, N2 saved (the night set {N1, N2}), left by night failed (out), D1 saved (in) -> "(2)", no Retry.
+  const ctx = await browser.newContext({ timezoneId: 'America/Anchorage', viewport: { width: 390, height: 844 } }); // as playwright.config.js
+  try {
+    const p2 = await ctx.newPage();
+    const b = handoffWorld();
+    b.moves = [{ id: 'M1', rev: 1, at: at('07:30'), worker: 'C01', to_route: 'R3', role: 'lead' }];
+    b.sheets = [hoSheet(1, 'route', 'R1', SHIFT, 'N1 Night of 10-2.pdf', 'saved'), hoSheet(2, 'route', 'R2', SHIFT, 'N2 Night of 10-2.pdf', 'saved'),
+      { ...hoSheet(3, 'day', '', DAY3, 'Day handoff 10-3 (left by night).pdf', 'failed'), error: 'no day part' },
+      hoSheet(4, 'day', 'R3', DAY3, 'D1 Day handoff 10-3.pdf', 'saved')];
+    await openStorm(p2, b, { token: 'tok-matt', clockAt: at('08:05') });
+    const status = p2.locator('#sheetsstatus');
+    await expect(status).toHaveText('Night sheets saved at handoff 8:00 AM (2)');
+    await expect(p2.locator('#retrySheets')).toHaveCount(0);
+    // A failed sheet that IS in the set still says so, with Retry: D1's day sheet made again, and failed.
+    b.sheets.push(hoSheet(5, 'day', 'R3', DAY3, 'D1 Day handoff 10-3.pdf', 'failed'));
+    await pollNow(p2);
+    await expect(status).toHaveText('Handoff sheets: 1 not saved · Retry');
+  } finally { await ctx.close(); }
 });
 
 test('after Close storm, a night the handoff saved counts as saved: no false "of" and no Retry', async ({ page }) => {

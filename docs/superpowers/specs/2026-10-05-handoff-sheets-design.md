@@ -125,3 +125,20 @@ phone by hand).
 ## Not in this sub-project
 
 - Changing the 9 AM cutover; assigning leftovers to a crew; texting the sheet.
+
+## Changed during the build (10/5/26, rulings recorded in the build ledger)
+
+- **Night routes are frozen into the handoff row** (`night_routes`): routes with a lead or member on the
+  night Post; only with no night Post, `sheetsFor`'s routes. Every phone and the PDF read this one list
+  (crew phones hold only the latest Post). A stray night tap on a day route adds no leftovers.
+- **Day routes with no day Post** come from the Board only if a Move is newer than the night Post (no
+  night Post: a Move in the 12 h before the handoff). Otherwise the handoff makes only the
+  `(left by night)` sheet: at 8 AM the Board usually still holds the night's crews.
+- **The card shows** from the handoff through the following day shift (the 8–9 AM truck swap included),
+  never on a later day after a quiet night. A crew phone with no day Post shows no "Your route", only
+  "Left by night". A leftover finished by an undo shows `Done` without a later `Started by`.
+- **The 8 AM run is also booked** by Night shift on, Snowing, Stopped and Hand off now whenever none is
+  due (a storm open at deploy, or a failed booking), never replacing a booked or late-firing run.
+- **Close storm also remakes a held night** when that night was re-posted after the handoff.
+- **No two live files in a storm folder share a name**: a clash gets ` (2)`, ` (3)`, …
+- **Matt's open-storm line** says `Handoff sheets: <k> of <M> saved` when the night set is short.

@@ -4708,3 +4708,79 @@ test('a day handoff sheet whose page cannot be read is left out and said, not pr
   await expect(page.locator('#printsheets .sheet').nth(2).locator('h1')).toHaveText('Route N2Day of 10/3');
   await expect(page.locator('#toast')).toHaveText("1 day handoff sheet couldn't be built on this phone.");
 });
+
+// ---------- Snow map (Matt, 10/6/26) ----------
+// stormWorld with S1 given a saved view at NWS_POINT (so the NWS is asked about 61.34,-149.51) and
+// S2 left with no view and no outline (not mapped). Clock 7:30 AM Alaska on 10/3 (15:30Z).
+// The gridpoint has one 6-hour period from 7:00 AM (15:00Z), 50.8 mm: 5.5 of its 6 hours fall in
+// the next 12 h, so 50.8 * 5.5 / 6 = 46.57 mm = 1.83" -> ~1.8", the 1-3" step.
+const GRID_6H = [{ validTime: '2026-10-03T15:00:00+00:00/PT6H', value: 50.8 }];
+const noTiles = (page) => page.route((u) => /arcgisonline\.com|ancgis\.com/.test(u.href), (route) => route.abort());
+const snowWorld = () => withView(stormWorld(), 'S1', NWS_POINT);
+
+test('snow map: Matt opens it from the live view; one dot per mapped site, coloured and labelled by the forecast; the rest counted; the NWS asked once', async ({ page }) => {
+  await noTiles(page);
+  const seen = await nws(page, { grid: GRID_6H });
+  await openStorm(page, snowWorld(), { token: 'tok-matt' });
+  await expect(page.locator('#snowmapcard')).toBeVisible();
+  await expect(page.locator('#snowmaptoggle')).toHaveText('Snow map');   // closed on a phone
+  await expect(page.locator('#snowmapslot')).toHaveCount(0);
+  await page.click('#snowmaptoggle');
+  await expect(page.locator('#snowmapbox')).toBeVisible();
+  await expect(page.locator('.snowdot')).toHaveCount(1);
+  await expect(page.locator('#snowmapmissing')).toHaveText('1 site not mapped yet');
+  const dot = page.locator('.snowdot[data-site="S1"]');
+  await expect(dot).toHaveClass(/\bmid\b/);
+  await expect(dot.locator('.snowdot-label')).toHaveText('~1.8"');
+  await dot.click();
+  await expect(page.locator('#snowmapinfo')).toHaveText('PAC · Forecast ~1.8" next 12 h · No reading yet · Not started');
+  expect(gridHits(seen)).toBe(1);
+  await pollNow(page);
+  await expect(page.locator('.snowdot')).toHaveCount(1);
+  expect(gridHits(seen)).toBe(1);   // inside the 30-minute gate: not asked again
+  await page.click('#snowmaptoggle');
+  await expect(page.locator('#snowmapslot')).toHaveCount(0);
+  await expect(page.locator('#snowmaptoggle')).toHaveText('Snow map');
+});
+
+test('snow map: open by default on a wide screen; a measured depth rings the dot and the label follows the crews, poll by poll', async ({ page }) => {
+  await noTiles(page);
+  await nws(page, { grid: GRID_6H });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const w = snowWorld();
+  w.log = [logRow(1, 'S1', '*', 'depth', 'Alex Test', { depth_in: 3 })];
+  await openStorm(page, w, { token: 'tok-matt' });
+  await expect(page.locator('#snowmaptoggle')).toHaveText('Hide map');
+  const dot = page.locator('.snowdot[data-site="S1"]');
+  await expect(dot).toHaveClass(/\bmeasured\b/);
+  await expect(dot.locator('.snowdot-label')).toHaveText('3.0" 6:30 AM Alex Test');
+  await dot.click();
+  await expect(page.locator('#snowmapinfo')).toContainText('Measured 3.0" at 6:30 AM by Alex Test');
+  // A site card with a newer depth lands on the next poll.
+  w.visits = [{ id: 'V-1', seq: 1, storm_id: 'ST-1', shift_id: 'night-2026-10-02', site_id: 'S1', by_key: 'C03', by_name: 'Jordan Demo',
+    at: '2026-10-03T07:00:00.000-08:00', depth_in: 4, materials_used: '', equipment: {} }];
+  await pollNow(page);
+  await expect(dot.locator('.snowdot-label')).toHaveText('4.0" 7:00 AM Jordan Demo');
+  await expect(dot).toHaveClass(/\bmid\b/);   // the colour is still the forecast
+});
+
+test('snow map: a failing NWS leaves a grey dot with a question mark, and no error on the screen', async ({ page }) => {
+  await noTiles(page);
+  await nws(page, { fail: true });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openStorm(page, snowWorld(), { token: 'tok-matt' });
+  const dot = page.locator('.snowdot[data-site="S1"]');
+  await expect(dot).toHaveClass(/\bnofc\b/);
+  await expect(dot.locator('.snowdot-label')).toHaveText('?');
+  await dot.click();
+  await expect(page.locator('#snowmapinfo')).toContainText('No forecast');
+  await expect(page.locator('#stormerr')).toHaveCount(0);
+});
+
+test('snow map: crew get no map card', async ({ page }) => {
+  await noTiles(page);
+  await nws(page, { grid: GRID_6H });
+  await openStorm(page, snowWorld());
+  await expect(page.locator('h2.shift-route')).toHaveCount(1);
+  await expect(page.locator('#snowmapcard')).toHaveCount(0);
+});

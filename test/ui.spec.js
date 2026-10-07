@@ -5141,3 +5141,25 @@ test('snow map: crew get no map card', async ({ page }) => {
   await expect(page.locator('h2.shift-route')).toHaveCount(1);
   await expect(page.locator('#snowmapcard')).toHaveCount(0);
 });
+
+// ---------- The bars fit a phone (Matt, 10/6/26 evening) ----------
+// On Matt's phone, with its larger text, the six admin tabs overflowed the bottom bar and Roster sat
+// off the right edge; the top bar squeezed his name to "M…" while "Snow Crew" kept its full width.
+// 320 px is the narrowest phone in use; every tab must sit inside it, and the name must outrank the title.
+test('bars: all six admin tabs sit inside a 320 px screen, and the name badge keeps room over the title', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
+  await expect(page.locator('#tabs button')).toHaveCount(6);
+  const tabs = await page.locator('#tabs button').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return { t: e.textContent, l: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width) }; }));
+  for (const t of tabs) { expect(t.l, t.t).toBeGreaterThanOrEqual(0); expect(t.r, t.t).toBeLessThanOrEqual(320); expect(t.w, t.t).toBeGreaterThan(30); }
+  expect(tabs.map((t) => t.t)).toEqual(['Storm', 'Routes', 'Sites', 'Board', 'Log', 'Roster']);
+  await page.click('#tabs [data-tab="roster"]');
+  await expect(page.locator('#addWorker')).toBeVisible();
+  // The top bar: the name badge is at least as wide as the words it holds minus the title's share; concretely, wider than a lone initial.
+  const who = await page.locator('#who').evaluate((e) => ({ w: Math.round(e.getBoundingClientRect().width), text: e.textContent, scroll: e.scrollWidth, client: e.clientWidth }));
+  expect(who.text).toBe('Matthew · admin');
+  expect(who.w).toBeGreaterThanOrEqual(90);
+  // Nothing in the header leaves the screen.
+  const hdr = await page.locator('header > *').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().right)));
+  for (const r of hdr) expect(r).toBeLessThanOrEqual(320);
+});

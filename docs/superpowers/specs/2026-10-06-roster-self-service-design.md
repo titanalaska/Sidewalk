@@ -149,3 +149,29 @@ form shows it and does not let it be typed: a card can never claim to be someone
 | A5 | Crew never see pending cards; Matt's Board never lists them | they are not crew yet | none expected |
 | A6 | A declined card is Archived | archive already exists; no new state | add a Decline that archives with a note |
 | A7 | Your card lives on the Tonight tab | the first screen crew see | move the button |
+
+## roster-2 (Matt, 10/6/26 bedtime review; built 10/7/26 while he slept)
+
+Three field changes he asked for, plus one bug the build found. Backend VERSION `roster-2`, phone
+`EXPECTED_BACKEND roster-2`, shell 33. No new Sheet tab, no `setup()`, no new permission.
+
+| Change | Self form (theirs) | Matt's editor (his) | Crew phones |
+|---|---|---|---|
+| `cold_rated` moves INTO the self fields | "Can you work a full shift out in deep cold?" yes / no / not set | unchanged: Cold-rated, his to correct | never (not in `PUBLIC_CREW_FIELDS`) |
+| `smokes` leaves the self fields | gone from the form and the pending card; a value an old phone still sends is ignored, never stored | unchanged: Smokes, his alone | never |
+| `emergency_name` (60 characters at most) and `emergency_phone` (30) are NEW self fields | "Emergency contact: name / phone", with "Only Matt sees your emergency contact." Blank is sent as `''` | shown on the worker card as one row ("name · phone", or "not set"); two inputs under Phone; the same limits hold on his save | never |
+
+**Bug fixed on the way:** roster-1's `bootstrap` never sent a crew member or lead their own card
+(`boot.card`). The phone reads it, and the Playwright fake sent it, so every test passed while a real
+phone opened Your card BLANK; a save from that blank form would have cleared the phone number and
+every yes/no on file. roster-2 sends `card: selfCard(own record)` to crew and leads (never to Matt);
+the backend test and three mutations now hold it there.
+
+### Assumptions for Matt (10/7/26)
+
+| # | Call made | Why | If wrong |
+|---|---|---|---|
+| A8 | The cold-rated question reads "Can you work a full shift out in deep cold?" | it has to be answerable by someone who has never heard "cold-rated"; his correction stays his | one string in `lib/rosterui.js` TRIS |
+| A9 | The emergency contact is visible to Matt only; leads never see it, not even on a crew list | it is personal data; the Board does not need it | add the two keys to `PUBLIC_CREW_FIELDS` (and its test) |
+| A10 | A blank emergency field is saved as `''`, not refused | a person without a contact to give can still save their card | require it on the self form (one check in `validateSelf`) |
+| A11 | The emergency contact stays off the posted crew copy, the handoff sheets and Copy for BT | nothing in those reads the roster's private fields today | none expected |

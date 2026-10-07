@@ -25,7 +25,8 @@ function fakeSnow(state, opts = {}) {
     // saveMyCard_, test/api.test.js). Nina is approved in Inventory and not on the roster: her save
     // makes a pending card (an id past the highest, never the count); until Matt's Add to crew every
     // other action answers pending_card with the self view. Crew and leads edit their own live record.
-    const SELF = ['phone', 'photo_thumb', 'can_drive', 'valid_id', 'on_call', 'smokes', 'can_operate', 'seasons', 'gear'];
+    // roster-2 (10/7/26): cold_rated and the emergency contact are theirs; smokes is Matt's alone.
+    const SELF = ['phone', 'photo_thumb', 'can_drive', 'valid_id', 'on_call', 'cold_rated', 'can_operate', 'seasons', 'gear', 'emergency_name', 'emergency_phone'];
     const selfView = (c) => ({ id: c.id, name: c.name, pending: c.pending === true, ...Object.fromEntries(SELF.map((k) => [k, c[k] === undefined ? null : c[k]])) });
     const applySelf = (stored, card) => ({ ...stored, ...Object.fromEntries(SELF.filter((k) => card && card[k] !== undefined).map((k) => [k, card[k]])) });
     const refuseCard = (card) => {
@@ -4815,7 +4816,7 @@ test('a day handoff sheet whose page cannot be read is left out and said, not pr
 // A person fills out their own card from their phone; Matt approves the Inventory request and
 // taps Add to crew on the Roster tab; crew edit their own card from Tonight. The server keeps
 // everything Matt owns: what leaves the phone is the self fields and nothing else.
-const SELF_FIELDS = ['phone', 'photo_thumb', 'can_drive', 'valid_id', 'on_call', 'smokes', 'can_operate', 'seasons', 'gear'];
+const SELF_FIELDS = ['phone', 'photo_thumb', 'can_drive', 'valid_id', 'on_call', 'cold_rated', 'can_operate', 'seasons', 'gear', 'emergency_name', 'emergency_phone'];
 const pngOf = (page) => page.evaluate(() => { const c = document.createElement('canvas'); c.width = 600; c.height = 400;
   const g = c.getContext('2d'); g.fillStyle = '#a73'; g.fillRect(0, 0, 600, 400); return c.toDataURL('image/png').split(',')[1]; });
 // Inventory with a live request list: Approve and Reject change it, as the real one does.
@@ -4841,6 +4842,11 @@ test('self-service: not on the roster, the card is theirs to fill; Save sends on
   await page.fill('#s_phone', ' 555-0199 ');
   await page.selectOption('#s_can_drive', 'yes');
   await page.selectOption('#s_valid_id', 'no');
+  // roster-2: cold-rated is theirs to claim; Smokes is not asked; the emergency contact is theirs to fill.
+  await expect(page.locator('#s_smokes')).toHaveCount(0);
+  await page.selectOption('#s_cold_rated', 'yes');
+  await page.fill('#s_emergency_name', ' Pat Nursery ');
+  await page.fill('#s_emergency_phone', '555-0911');
   await page.check('input[data-sop][value="blower"]');
   await page.fill('#s_seasons', '2');
   await page.selectOption('#s_gear', 'needs_issued');
@@ -4851,10 +4857,14 @@ test('self-service: not on the roster, the card is theirs to fill; Save sends on
   await expect(page.locator('#pendingcard')).toBeVisible();
   await expect(page.locator('#pendingcard')).toContainText('Your card is in');
   await expect(page.locator('#pendingcard')).toContainText('555-0199');
+  await expect(page.locator('#pendingcard')).toContainText('Pat Nursery · 555-0911');
+  await expect(page.locator('#pendingcard')).not.toContainText('Smokes');
   await expect(page.locator('#pendingcard img.av')).toHaveAttribute('src', /^data:image\/jpeg/);
   const c = calls.find((x) => x.body && x.body.action === 'saveMyCard');
   expect(Object.keys(c.body.card).sort()).toEqual(SELF_FIELDS.slice().sort());
-  expect(c.body.card).toMatchObject({ phone: '555-0199', can_drive: true, valid_id: false, on_call: null, smokes: null, can_operate: ['blower'], seasons: 2, gear: 'needs_issued' });
+  expect(c.body.card).toMatchObject({ phone: '555-0199', can_drive: true, valid_id: false, on_call: null, cold_rated: true, can_operate: ['blower'], seasons: 2, gear: 'needs_issued',
+    emergency_name: 'Pat Nursery', emergency_phone: '555-0911' });
+  expect('smokes' in c.body.card).toBe(false);
   expect(c.body.card.photo_thumb).toMatch(/^data:image\/jpeg;base64,/);
   expect(c.body.card.photo_thumb.length).toBeLessThan(30000);
   expect('name' in c.body.card).toBe(false);
@@ -4966,6 +4976,53 @@ test('self-service: a pending card waits to be added, off the grid and off the B
   await expect(page.locator('.grid [data-open="C04"]')).toHaveCount(1);
   await page.click('nav [data-tab="board"]');
   await expect(page.locator('.chip[data-worker="C04"]')).toHaveCount(1);
+});
+
+// ---- roster-2 (Matt, 10/6/26 bedtime): cold-rated theirs to claim, Smokes his alone, an emergency contact only he sees ----
+test("roster-2: Matt's worker card shows the emergency contact (not set when blank); his editor keeps Smokes and saves the contact trimmed", async ({ page }) => {
+  const w = world();
+  Object.assign(w.crew[0], { emergency_name: 'Kim Test', emergency_phone: '555-0911', smokes: true, cold_rated: false });
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
+  await page.click('nav [data-tab="roster"]');
+  await page.click('[data-open="C03"]');
+  await expect(page.locator('#dlg tr:has-text("Emergency contact")')).toContainText('not set');
+  await page.click('#dlgClose');
+  await page.click('[data-open="C01"]');
+  await expect(page.locator('#dlg tr:has-text("Emergency contact")')).toContainText('Kim Test · 555-0911');
+  await page.click('#w_edit');
+  await expect(page.locator('#f_smokes')).toHaveValue('yes');            // Smokes stays Matt's to set
+  await expect(page.locator('#f_cold_rated')).toHaveValue('no');         // and cold-rated his to correct
+  await expect(page.locator('#f_emergency_name')).toHaveValue('Kim Test');
+  await expect(page.locator('#f_emergency_phone')).toHaveValue('555-0911');
+  await page.fill('#f_emergency_name', ' Kim Tester ');
+  await page.fill('#f_emergency_phone', ' 555-0913 ');
+  await page.click('#f_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  const save = calls.find((c) => c.body.action === 'saveCrew');
+  expect(save.body.record).toMatchObject({ id: 'C01', emergency_name: 'Kim Tester', emergency_phone: '555-0913', smokes: true, cold_rated: false });
+  await page.click('[data-open="C01"]');
+  await expect(page.locator('#dlg tr:has-text("Emergency contact")')).toContainText('Kim Tester · 555-0913');
+});
+
+test('roster-2: Your card on Tonight shows the cold-rated question and the emergency contact from bootstrap, never Smokes; a save carries them', async ({ page }) => {
+  const w = world();
+  Object.assign(w.crew[1], { cold_rated: true, emergency_name: 'Dee Demo', emergency_phone: '555-0912', smokes: true });
+  const calls = await open(page, { token: 'tok-jordan', snow: fakeSnow(w) });
+  await page.click('#yourCard');
+  await expect(page.locator('#s_cold_rated')).toHaveValue('yes');
+  await expect(page.locator('#s_emergency_name')).toHaveValue('Dee Demo');
+  await expect(page.locator('#s_emergency_phone')).toHaveValue('555-0912');
+  await expect(page.locator('#s_smokes')).toHaveCount(0);
+  await expect(page.locator('#dlg')).not.toContainText('smoke');
+  await page.selectOption('#s_cold_rated', 'no');
+  await page.fill('#s_emergency_phone', '555-0914');
+  await page.click('#s_save');
+  await expect(page.locator('#toast')).toHaveText('Saved');
+  const c = calls.find((x) => x.body && x.body.action === 'saveMyCard');
+  expect(c.body.card).toMatchObject({ cold_rated: false, emergency_name: 'Dee Demo', emergency_phone: '555-0914' });
+  expect('smokes' in c.body.card).toBe(false);
+  // Every self field but the picture, which was not touched: left out, so the one on file is kept.
+  expect(Object.keys(c.body.card).sort()).toEqual(SELF_FIELDS.filter((k) => k !== 'photo_thumb').sort());
 });
 
 test('self-service: with no requests and no cards waiting, the Roster tab has no waiting sections', async ({ page }) => {

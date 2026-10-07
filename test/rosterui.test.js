@@ -23,12 +23,18 @@ test('selfFieldsOf keeps only the self fields that are present: never a name, ne
   assert.deepEqual(R.selfFieldsOf(null), {});
 });
 
-test('cardFromForm: trims the phone, reads yes/no/not set, lists machines, blank seasons is null (never 0), gear blank is null', () => {
-  const card = R.cardFromForm({ phone: ' 555-0199 ', can_drive: 'yes', valid_id: 'no', on_call: '', smokes: '', can_operate: ['blower', 'shovel'], seasons: ' 2 ', gear: 'own' });
-  assert.deepEqual(card, { phone: '555-0199', can_drive: true, valid_id: false, on_call: null, smokes: null, can_operate: ['blower', 'shovel'], seasons: 2, gear: 'own' });
+// roster-2 (Matt, 10/6/26 bedtime): cold-rated is theirs to claim (his to correct), the emergency
+// contact is theirs to fill (only he sees it), and Smokes left the form (his alone).
+test('cardFromForm: trims the phone and the emergency contact, reads yes/no/not set, lists machines, blank seasons is null (never 0), gear blank is null', () => {
+  const card = R.cardFromForm({ phone: ' 555-0199 ', can_drive: 'yes', valid_id: 'no', on_call: '', cold_rated: 'yes', can_operate: ['blower', 'shovel'], seasons: ' 2 ', gear: 'own',
+    emergency_name: ' Pat Nursery ', emergency_phone: ' 555-0911 ' });
+  assert.deepEqual(card, { phone: '555-0199', can_drive: true, valid_id: false, on_call: null, cold_rated: true, can_operate: ['blower', 'shovel'], seasons: 2, gear: 'own',
+    emergency_name: 'Pat Nursery', emergency_phone: '555-0911' });
   assert.equal('photo_thumb' in card, false);   // not touched: the one on file stays
-  const blank = R.cardFromForm({ phone: '', can_drive: '', valid_id: '', on_call: '', smokes: '', can_operate: [], seasons: '', gear: '' });
-  assert.deepEqual(blank, { phone: '', can_drive: null, valid_id: null, on_call: null, smokes: null, can_operate: [], seasons: null, gear: null });
+  const blank = R.cardFromForm({ phone: '', can_drive: '', valid_id: '', on_call: '', cold_rated: '', can_operate: [], seasons: '', gear: '', emergency_name: '', emergency_phone: '' });
+  assert.deepEqual(blank, { phone: '', can_drive: null, valid_id: null, on_call: null, cold_rated: null, can_operate: [], seasons: null, gear: null, emergency_name: '', emergency_phone: '' });
+  // Smokes is Matt's: a value from an old form is dropped, never sent.
+  assert.equal('smokes' in R.cardFromForm({ smokes: 'yes' }), false);
 });
 
 test('cardFromForm: a seasons that is not a whole number goes as typed, so the server refuses it in its own words; 0 is 0', () => {

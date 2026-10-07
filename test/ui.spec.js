@@ -19,18 +19,56 @@ const TOKENS = { 'tok-matt': 'admin', 'tok-jordan': 'crew', 'tok-alex': 'lead' }
 // A small fake of the snow backend, with the real reply shapes.
 function fakeSnow(state, opts = {}) {
   return (body) => {
-    const v = { version: opts.version || 'handoff-1' };
+    const v = { version: opts.version || 'roster-1' };
     if (opts.expired && opts.expired.on) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
-    if (body.token === 'tok-nina') return { ok: false, code: 'not_on_roster', name: 'Nina Nursery', reason: "You're signed in, but not on the snow crew yet. Ask Matt to add you.", ...v };
-    const role = TOKENS[body.token];
+    // Roster self-service (10/6/26): the real backend's rules for one's own card (snow-app-script
+    // saveMyCard_, test/api.test.js). Nina is approved in Inventory and not on the roster: her save
+    // makes a pending card (an id past the highest, never the count); until Matt's Add to crew every
+    // other action answers pending_card with the self view. Crew and leads edit their own live record.
+    const SELF = ['phone', 'photo_thumb', 'can_drive', 'valid_id', 'on_call', 'smokes', 'can_operate', 'seasons', 'gear'];
+    const selfView = (c) => ({ id: c.id, name: c.name, pending: c.pending === true, ...Object.fromEntries(SELF.map((k) => [k, c[k] === undefined ? null : c[k]])) });
+    const applySelf = (stored, card) => ({ ...stored, ...Object.fromEntries(SELF.filter((k) => card && card[k] !== undefined).map((k) => [k, card[k]])) });
+    const refuseCard = (card) => {
+      if (typeof card.photo_thumb === 'string' && card.photo_thumb.length > 30000) return 'That picture is too big';
+      if (card.seasons != null && !(Number.isInteger(card.seasons) && card.seasons >= 0)) return 'Seasons must be a whole number';
+      return null;
+    };
+    const nina = () => state.crew.find((c) => String(c.profile_id) === '4' && !c.archived);
+    if (body.token === 'tok-nina') {
+      const mine = nina();
+      if (body.action === 'saveMyCard') {
+        const card = body.card || {}, why = refuseCard(card);
+        if (why) return { ok: false, code: 'invalid', reason: why, ...v };
+        if (mine) { Object.assign(mine, applySelf(mine, card), { rev: mine.rev + 1 }); return { ok: true, card: selfView(mine), pending: mine.pending === true, ...v }; }
+        const max = state.crew.reduce((m, c) => Math.max(m, Number((/^C(\d+)$/.exec(c.id) || [0, 0])[1])), 0);
+        const rec = applySelf({ id: 'C' + String(max + 1).padStart(2, '0'), name: 'Nina Nursery', profile_id: '4', pending: true, rev: 1, archived: false }, card);
+        state.crew.push(rec);
+        return { ok: true, card: selfView(rec), pending: true, ...v };
+      }
+      if (mine && mine.pending) return { ok: false, code: 'pending_card', name: 'Nina Nursery', reason: 'Your card is in. Matt will add you to the crew.', card: selfView(mine), ...v };
+      if (!mine) return { ok: false, code: 'not_on_roster', name: 'Nina Nursery', reason: "You're signed in, but not on the snow crew yet. Ask Matt to add you.", ...v };
+    }
+    const role = body.token === 'tok-nina' ? 'crew' : TOKENS[body.token];
     if (!role) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     // Matt is not on the roster; Alex (C01) is the lead on the roster, Jordan (C03) crew.
-    const me = { name: role === 'admin' ? 'Matthew' : role === 'lead' ? 'Alex Test' : 'Jordan Demo', role, crew_id: role === 'admin' ? null : role === 'lead' ? 'C01' : 'C03' };
+    const me = body.token === 'tok-nina' ? { name: 'Nina Nursery', role: 'crew', crew_id: nina().id }
+      : { name: role === 'admin' ? 'Matthew' : role === 'lead' ? 'Alex Test' : 'Jordan Demo', role, crew_id: role === 'admin' ? null : role === 'lead' ? 'C01' : 'C03' };
     state.moves = state.moves || []; state.callouts = state.callouts || []; state.gear = state.gear || []; state.posts = state.posts || [];
+    const own = () => state.crew.find((c) => c.id === me.crew_id) || { id: me.crew_id, name: me.name };
+    if (body.action === 'saveMyCard') {
+      if (role === 'admin') return { ok: false, code: 'invalid', reason: 'An admin sign-in has no crew card', ...v };
+      const card = body.card || {}, why = refuseCard(card);
+      if (why) return { ok: false, code: 'invalid', reason: why, ...v };
+      const rec = own();
+      Object.assign(rec, applySelf(rec, card), { rev: (rec.rev || 0) + 1 });
+      return { ok: true, card: selfView(rec), pending: false, ...v };
+    }
     if (body.action === 'bootstrap') {
-      const crew = role === 'admin' ? state.crew : state.crew.map((c) => ({ id: c.id, name: c.name, phone: c.phone, photo_thumb: c.photo_thumb || null, is_lead: !!c.is_lead }));
+      // Crew and leads never receive a pending card; Matt gets them whole.
+      const crew = role === 'admin' ? state.crew : state.crew.filter((c) => c.pending !== true).map((c) => ({ id: c.id, name: c.name, phone: c.phone, photo_thumb: c.photo_thumb || null, is_lead: !!c.is_lead }));
       const out = { ok: true, me, sites: state.sites, routes: state.routes, zones: state.zones || [], crew, post: state.posts.at(-1) || null, ...v };
       if (role === 'admin') Object.assign(out, { moves: state.moves, callouts: state.callouts, gear: state.gear });
+      else out.card = selfView(own());   // one's own card, the self view (never the record)
       return out;
     }
     // Pairings: the real backend's shapes (snow-app-script test/pairing.test.js).
@@ -268,6 +306,7 @@ const world = () => ({
 // never answers it at all (Apps Script stuck, or a dead zone that never errors).
 async function open(page, { token, snow, inv, abortSnow, clockAt, delay, abortIf, hangIf } = {}) {
   const calls = [];
+  calls.inv = [];   // Inventory calls, apart (approve / reject carry Matt's token)
   // Shift choices depend on the wall clock: pin it, never trust the test's hour.
   if (clockAt) await page.clock.install({ time: new Date(clockAt) });
   await page.route(isSnow, async (route) => {
@@ -281,6 +320,7 @@ async function open(page, { token, snow, inv, abortSnow, clockAt, delay, abortIf
   });
   await page.route(isInv, async (route) => {
     const p = Object.fromEntries(new URL(route.request().url()).searchParams);
+    calls.inv.push(p);
     const out = inv ? inv(p) : p.action === 'getProfiles' ? { profiles: PROFILES } : {};
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(out) });
   });
@@ -402,10 +442,12 @@ test('a wrong PIN says how many tries are left', async ({ page }) => {
   await expect(page.locator('#si_err')).toHaveText('Wrong PIN. 4 tries left.');
 });
 
-test('approved in Inventory but not on the snow roster gets its own screen', async ({ page }) => {
+test('approved in Inventory but not on the snow roster gets its own screen, with the card to fill out', async ({ page }) => {
   await open(page, { token: 'tok-nina', snow: fakeSnow(world()) });
   await expect(page.locator('#notroster')).toContainText('Nina Nursery');
-  await expect(page.locator('#notroster')).toContainText('Ask Matt to add you');
+  await expect(page.locator('#notroster')).toContainText('Fill out your card and Matt will add you');
+  await expect(page.locator('#fillCard')).toBeVisible();
+  await expect(page.locator('#tabs')).toBeHidden();
 });
 
 test('an expired session goes back to sign-in and forgets the token', async ({ page }) => {
@@ -621,7 +663,7 @@ test('after a conflict the app reloads the latest, so the retry can save', async
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'handoff-1' };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'roster-1' };
     }
     return base(b);
   } });
@@ -4707,4 +4749,169 @@ test('a day handoff sheet whose page cannot be read is left out and said, not pr
   await expect(page.locator('#printsheets .sheet')).toHaveCount(3);
   await expect(page.locator('#printsheets .sheet').nth(2).locator('h1')).toHaveText('Route N2Day of 10/3');
   await expect(page.locator('#toast')).toHaveText("1 day handoff sheet couldn't be built on this phone.");
+});
+
+// ---------- Roster self-service (Matt, 10/6/26) ----------
+// A person fills out their own card from their phone; Matt approves the Inventory request and
+// taps Add to crew on the Roster tab; crew edit their own card from Tonight. The server keeps
+// everything Matt owns: what leaves the phone is the self fields and nothing else.
+const SELF_FIELDS = ['phone', 'photo_thumb', 'can_drive', 'valid_id', 'on_call', 'smokes', 'can_operate', 'seasons', 'gear'];
+const pngOf = (page) => page.evaluate(() => { const c = document.createElement('canvas'); c.width = 600; c.height = 400;
+  const g = c.getContext('2d'); g.fillStyle = '#a73'; g.fillRect(0, 0, 600, 400); return c.toDataURL('image/png').split(',')[1]; });
+// Inventory with a live request list: Approve and Reject change it, as the real one does.
+function invWithRequests(list) {
+  return (p) => {
+    if (p.action === 'getProfiles') return { profiles: list };
+    if (p.action === 'approveProfile' || p.action === 'rejectProfile') {
+      const hit = list.find((x) => String(x.id) === p.id);
+      if (hit) hit.status = p.action === 'approveProfile' ? 'approved' : 'rejected';
+      return { success: !!hit };
+    }
+    return {};
+  };
+}
+
+test('self-service: not on the roster, the card is theirs to fill; Save sends only the self fields, the picture as a JPEG, never a name; then the pending screen', async ({ page }) => {
+  const calls = await open(page, { token: 'tok-nina', snow: fakeSnow(world()) });
+  await expect(page.locator('#notroster')).toContainText('Nina Nursery');
+  await expect(page.locator('#signout')).toBeVisible();
+  await page.click('#fillCard');
+  await expect(page.locator('#s_title')).toHaveText('Nina Nursery');
+  await expect(page.locator('#s_photo_cam')).toHaveAttribute('capture', 'user');   // the front camera on a phone
+  await page.fill('#s_phone', ' 555-0199 ');
+  await page.selectOption('#s_can_drive', 'yes');
+  await page.selectOption('#s_valid_id', 'no');
+  await page.check('input[data-sop][value="blower"]');
+  await page.fill('#s_seasons', '2');
+  await page.selectOption('#s_gear', 'needs_issued');
+  const png = await pngOf(page);
+  await page.locator('#s_photo_file').setInputFiles({ name: 'me.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
+  await expect(page.locator('#s_photo_msg')).toContainText('Picture ready');
+  await page.click('#s_save');
+  await expect(page.locator('#pendingcard')).toBeVisible();
+  await expect(page.locator('#pendingcard')).toContainText('Your card is in');
+  await expect(page.locator('#pendingcard')).toContainText('555-0199');
+  await expect(page.locator('#pendingcard img.av')).toHaveAttribute('src', /^data:image\/jpeg/);
+  const c = calls.find((x) => x.body && x.body.action === 'saveMyCard');
+  expect(Object.keys(c.body.card).sort()).toEqual(SELF_FIELDS.slice().sort());
+  expect(c.body.card).toMatchObject({ phone: '555-0199', can_drive: true, valid_id: false, on_call: null, smokes: null, can_operate: ['blower'], seasons: 2, gear: 'needs_issued' });
+  expect(c.body.card.photo_thumb).toMatch(/^data:image\/jpeg;base64,/);
+  expect(c.body.card.photo_thumb.length).toBeLessThan(30000);
+  expect('name' in c.body.card).toBe(false);
+  expect(c.body.token).toBe('tok-nina');
+  expect(c.contentType).toContain('text/plain');
+});
+
+test('self-service: a pending sign-in sees its card and edits it; a picture not touched is left out of the save; Check again asks the server', async ({ page }) => {
+  const w = world();
+  w.crew.push({ id: 'C04', name: 'Nina Nursery', profile_id: '4', pending: true, rev: 1, phone: '555-0199', photo_thumb: 'data:image/jpeg;base64,QUJD', can_drive: true, seasons: 2 });
+  const calls = await open(page, { token: 'tok-nina', snow: fakeSnow(w) });
+  await expect(page.locator('#pendingcard')).toContainText('Your card is in');
+  await expect(page.locator('#pendingcard img.av')).toHaveAttribute('src', /^data:image\/jpeg/);
+  await expect(page.locator('#signout')).toBeVisible();
+  await expect(page.locator('#tabs')).toBeHidden();
+  await page.click('#editCard');
+  await expect(page.locator('#s_phone')).toHaveValue('555-0199');
+  await expect(page.locator('#s_can_drive')).toHaveValue('yes');
+  await expect(page.locator('#s_seasons')).toHaveValue('2');
+  await expect(page.locator('#s_photo_msg')).toHaveText('Picture on file');
+  await page.fill('#s_phone', '555-0000');
+  await page.click('#s_save');
+  await expect(page.locator('#pendingcard')).toContainText('555-0000');
+  const c = calls.find((x) => x.body && x.body.action === 'saveMyCard');
+  expect('photo_thumb' in c.body.card).toBe(false);
+  expect(c.body.card.phone).toBe('555-0000');
+  await page.click('#checkAgain');
+  await expect(page.locator('#pendingcard')).toBeVisible();
+  expect(calls.filter((x) => x.body && x.body.action === 'bootstrap').length).toBe(2);
+});
+
+test('self-service: the server refuses a card in its own words; the form keeps what was typed; Cancel goes back', async ({ page }) => {
+  await open(page, { token: 'tok-nina', snow: fakeSnow(world()) });
+  await page.click('#fillCard');
+  await page.fill('#s_seasons', 'two');
+  await page.click('#s_save');
+  await expect(page.locator('#s_err')).toHaveText('Seasons must be a whole number');
+  await expect(page.locator('#s_seasons')).toHaveValue('two');
+  await expect(page.locator('#pendingcard')).toHaveCount(0);
+  await page.click('#s_cancel');
+  await expect(page.locator('#notroster')).toBeVisible();
+});
+
+test('self-service: crew open Your card on Tonight, see their card from bootstrap, and save only the form', async ({ page }) => {
+  const calls = await open(page, { token: 'tok-jordan', snow: fakeSnow(world()) });
+  await expect(page.locator('#yourCard')).toBeVisible();
+  await page.click('#yourCard');
+  await expect(page.locator('#dlg')).toBeVisible();
+  await expect(page.locator('#s_title')).toHaveText('Jordan Demo');
+  await expect(page.locator('#s_phone')).toHaveValue('555-0103');
+  await page.fill('#s_phone', '555-0333');
+  await page.check('input[data-sop][value="shovel"]');
+  await page.click('#s_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  await expect(page.locator('#toast')).toHaveText('Saved');
+  const c = calls.find((x) => x.body && x.body.action === 'saveMyCard');
+  expect(c.body.card.phone).toBe('555-0333');
+  expect(c.body.card.can_operate).toEqual(['shovel']);
+  expect('name' in c.body.card).toBe(false);
+  await page.click('#yourCard');
+  await expect(page.locator('#s_phone')).toHaveValue('555-0333');   // the card follows the reply
+});
+
+test('self-service: Matt sees the pending Inventory request; Approve calls Inventory with his token and the row goes', async ({ page }) => {
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: invWithRequests(PROFILES.map((p) => ({ ...p }))) });
+  await page.click('nav [data-tab="roster"]');
+  await expect(page.locator('#waitapprove')).toContainText('Waiting for approval (1)');
+  await expect(page.locator('#waitapprove')).toContainText('Pending Pat');
+  await page.click('[data-approve="9"]');
+  await expect(page.locator('#toast')).toHaveText('Pending Pat can sign in now');
+  const a = calls.inv.find((x) => x.action === 'approveProfile');
+  expect(a).toMatchObject({ action: 'approveProfile', id: '9', token: 'tok-matt' });
+  await expect(page.locator('#waitapprove')).toHaveCount(0);
+  await page.click('#addWorker');
+  await expect(page.locator('#f_profile option[value="9"]')).toHaveCount(1);   // approved: a sign-in Matt can link
+});
+
+test('self-service: Reject takes a second tap, then calls Inventory; one tap alone sends nothing', async ({ page }) => {
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: invWithRequests(PROFILES.map((p) => ({ ...p }))) });
+  await page.click('nav [data-tab="roster"]');
+  await page.click('[data-reject="9"]');
+  await expect(page.locator('[data-reject="9"]')).toHaveText('Really reject?');
+  expect(calls.inv.some((x) => x.action === 'rejectProfile')).toBe(false);
+  await page.click('[data-reject="9"]');
+  await expect(page.locator('#toast')).toHaveText('Request rejected');
+  expect(calls.inv.find((x) => x.action === 'rejectProfile')).toMatchObject({ id: '9', token: 'tok-matt' });
+  await expect(page.locator('#waitapprove')).toHaveCount(0);
+});
+
+test('self-service: a pending card waits to be added, off the grid and off the Board; Add to crew saves it whole with pending false', async ({ page }) => {
+  const w = world();
+  w.crew.push({ id: 'C04', name: 'Nina Nursery', profile_id: '4', pending: true, rev: 1, phone: '555-0199', can_drive: true });
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
+  await page.click('nav [data-tab="board"]');
+  await expect(page.locator('.chip[data-worker="C01"]')).toHaveCount(1);
+  await expect(page.locator('.chip[data-worker="C04"]')).toHaveCount(0);
+  await page.click('nav [data-tab="roster"]');
+  await expect(page.locator('#waitadd')).toContainText('Waiting to be added (1)');
+  await expect(page.locator('#waitadd')).toContainText('Nina Nursery');
+  await expect(page.locator('.grid [data-open="C04"]')).toHaveCount(0);
+  await page.click('#waitadd .pname[data-open="C04"]');
+  await expect(page.locator('#dlg')).toContainText('Waiting to be added');
+  await page.click('#dlgClose');
+  await page.click('#waitadd [data-addcrew="C04"]');
+  await expect(page.locator('#toast')).toHaveText('Nina Nursery is on the crew');
+  const c = calls.find((x) => x.body && x.body.action === 'saveCrew');
+  expect(c.body.record).toMatchObject({ id: 'C04', name: 'Nina Nursery', profile_id: '4', pending: false, rev: 1, phone: '555-0199', can_drive: true });
+  await expect(page.locator('#waitadd')).toHaveCount(0);
+  await expect(page.locator('.grid [data-open="C04"]')).toHaveCount(1);
+  await page.click('nav [data-tab="board"]');
+  await expect(page.locator('.chip[data-worker="C04"]')).toHaveCount(1);
+});
+
+test('self-service: with no requests and no cards waiting, the Roster tab has no waiting sections', async ({ page }) => {
+  await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: invWithRequests(PROFILES.filter((x) => x.status !== 'pending')) });
+  await page.click('nav [data-tab="roster"]');
+  await expect(page.locator('.grid')).toBeVisible();
+  await expect(page.locator('#waitapprove')).toHaveCount(0);
+  await expect(page.locator('#waitadd')).toHaveCount(0);
 });

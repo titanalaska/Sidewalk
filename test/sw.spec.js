@@ -37,11 +37,11 @@ test('the shell is cached, Apps Script never is, and other apps\' caches survive
   await page.waitForTimeout(500);
   const state = await page.evaluate(async () => {
     const names = await caches.keys();
-    const shell = await caches.open('titan-snow-shell-27');
+    const shell = await caches.open('titan-snow-shell-31');
     const urls = (await shell.keys()).map((r) => r.url);
     return { names, urls };
   });
-  expect(state.names).toContain('titan-snow-shell-27');
+  expect(state.names).toContain('titan-snow-shell-31');
   expect(state.names).toContain('wolf-beds-v2');
   expect(state.names).toContain('groundwork-shell-v34');
   expect(state.names).not.toContain('titan-snow-shell-2');          // its own old versions are cleaned up

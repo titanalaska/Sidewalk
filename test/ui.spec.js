@@ -4708,3 +4708,97 @@ test('a day handoff sheet whose page cannot be read is left out and said, not pr
   await expect(page.locator('#printsheets .sheet').nth(2).locator('h1')).toHaveText('Route N2Day of 10/3');
   await expect(page.locator('#toast')).toHaveText("1 day handoff sheet couldn't be built on this phone.");
 });
+
+// ---------- Place from the roster (Matt, 10/6/26) ----------
+// The Roster tab says where tonight's Board has each person, and the worker card places,
+// promotes or pulls them: one Move each, planned as a Board tap is, through the Board's
+// one-at-a-time write. Nothing is stored but the Move.
+const MOVE = (worker, to_route, role) => ({ id: 'M-' + worker, at: '2026-10-06T17:00:00-08:00', worker, to_route, role });
+
+test("place from the roster: tiles say where tonight's Board has each person", async ({ page }) => {
+  const w = world();
+  w.moves = [MOVE('C01', 'R1', 'lead')];
+  await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
+  await page.click('nav [data-tab="roster"]');
+  await expect(page.locator('[data-open="C01"] .where')).toHaveText('N1 · lead');
+  await expect(page.locator('[data-open="C03"] .where')).toHaveText('Unplaced');
+});
+
+test('place from the roster: Place sends one Move as a member; the tile and the Board follow', async ({ page }) => {
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
+  await page.click('nav [data-tab="roster"]');
+  await page.click('[data-open="C03"]');
+  await expect(page.locator('#w_where')).toHaveText('Unplaced');
+  await page.selectOption('#w_route', 'R1');
+  await page.click('#w_place');
+  await expect(page.locator('#dlg')).toBeHidden();
+  await expect(page.locator('#toast')).toHaveText('Jordan Demo placed on N1');
+  const m = calls.filter((c) => c.body.action === 'addMove');
+  expect(m.length).toBe(1);
+  expect(m[0].body.record).toMatchObject({ worker: 'C03', to_route: 'R1', role: 'member' });
+  expect(m[0].body.record.at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  await expect(page.locator('[data-open="C03"] .where')).toHaveText('N1');
+  await page.click('nav [data-tab="board"]');
+  await expect(page.locator('.board-route[data-route="R1"] .chip[data-worker="C03"]')).toHaveCount(1);
+});
+
+test('place from the roster: Make lead and Unassign are one Move each; nothing to change writes nothing', async ({ page }) => {
+  const w = world();
+  w.moves = [MOVE('C03', 'R1', 'member')];
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
+  await page.click('nav [data-tab="roster"]');
+  await page.click('[data-open="C03"]');
+  await expect(page.locator('#w_route')).toHaveValue('R1');
+  await page.click('#w_place');   // already a member of N1
+  await expect(page.locator('#toast')).toHaveText('Nothing to change');
+  expect(calls.filter((c) => c.body.action === 'addMove').length).toBe(0);
+  await page.click('[data-open="C03"]');
+  await page.click('#w_lead');
+  await expect(page.locator('#toast')).toHaveText('Jordan Demo: lead on N1');
+  await expect(page.locator('[data-open="C03"] .where')).toHaveText('N1 · lead');
+  await page.click('[data-open="C03"]');
+  await page.click('#w_unassign');
+  await expect(page.locator('#toast')).toHaveText('Jordan Demo taken off the Board');
+  await expect(page.locator('[data-open="C03"] .where')).toHaveText('Unplaced');
+  const m = calls.filter((c) => c.body.action === 'addMove').map((c) => c.body.record);
+  expect(m).toMatchObject([{ worker: 'C03', to_route: 'R1', role: 'lead' }, { worker: 'C03', to_route: null, role: null }]);
+});
+
+test("place from the roster: Place with no route picked asks for one and sends nothing; a lost save toasts and changes nothing", async ({ page }) => {
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()), abortIf: (b) => b.action === 'addMove' });
+  await page.click('nav [data-tab="roster"]');
+  await page.click('[data-open="C03"]');
+  await expect(page.locator('#w_unassign')).toHaveCount(0);   // not on the Board: nothing to pull
+  await page.click('#w_place');
+  await expect(page.locator('#w_err')).toHaveText('Pick a route');
+  expect(calls.filter((c) => c.body.action === 'addMove').length).toBe(0);
+  await page.selectOption('#w_route', 'R1');
+  await page.click('#w_place');
+  await expect(page.locator('#toast')).toContainText('Not saved');
+  await expect(page.locator('[data-open="C03"] .where')).toHaveText('Unplaced');
+});
+
+test('place from the roster: a second place while one is saving sends nothing more', async ({ page }) => {
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()), delay: { addMove: 1500 } });
+  await page.click('nav [data-tab="roster"]');
+  await page.click('[data-open="C03"]');
+  await page.selectOption('#w_route', 'R1');
+  await page.click('#w_place');
+  await page.click('[data-open="C01"]');
+  await page.selectOption('#w_route', 'R1');
+  await page.click('#w_place');
+  await expect(page.locator('#toast')).toContainText('Still saving');
+  await expect(page.locator('[data-open="C03"] .where')).toHaveText('N1', { timeout: 5000 });
+  expect(calls.filter((c) => c.body.action === 'addMove').length).toBe(1);
+});
+
+test('place from the roster: a card still waiting to be added has no Place row', async ({ page }) => {
+  const w = world();
+  w.crew.push({ id: 'C04', name: 'Nina Nursery', profile_id: '4', pending: true, rev: 1 });
+  await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
+  await page.click('nav [data-tab="roster"]');
+  await page.click('[data-open="C04"]');
+  await expect(page.locator('#dlg')).toBeVisible();
+  await expect(page.locator('#w_route')).toHaveCount(0);
+  await expect(page.locator('#w_place')).toHaveCount(0);
+});

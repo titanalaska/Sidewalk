@@ -4914,6 +4914,8 @@ test('self-service: with no requests and no cards waiting, the Roster tab has no
   await expect(page.locator('.grid')).toBeVisible();
   await expect(page.locator('#waitapprove')).toHaveCount(0);
   await expect(page.locator('#waitadd')).toHaveCount(0);
+});
+
 // ---------- Place from the roster (Matt, 10/6/26) ----------
 // The Roster tab says where tonight's Board has each person, and the worker card places,
 // promotes or pulls them: one Move each, planned as a Board tap is, through the Board's
@@ -5006,6 +5008,8 @@ test('place from the roster: a card still waiting to be added has no Place row',
   await expect(page.locator('#dlg')).toBeVisible();
   await expect(page.locator('#w_route')).toHaveCount(0);
   await expect(page.locator('#w_place')).toHaveCount(0);
+});
+
 // ---------- Live window (Matt, 10/6/26) ----------
 // The live view's summary line, and the wide layout on a laptop or TV. The numbers below are
 // worked by hand from stormWorld: R1 = [S1] (walks Z1 sidewalk + Z2 heated; Z3 is no_touch and
@@ -5060,6 +5064,8 @@ test('live window: on a wide screen the Storm tab opens out and the routes sit i
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.click('nav [data-tab="routes"]');
   expect(await page.evaluate(() => [document.body.dataset.tab, getComputedStyle(document.querySelector('main')).maxWidth])).toEqual(['routes', '720px']);
+});
+
 // ---------- Snow map (Matt, 10/6/26) ----------
 // stormWorld with S1 given a saved view at NWS_POINT (so the NWS is asked about 61.34,-149.51) and
 // S2 left with no view and no outline (not mapped). Clock 7:30 AM Alaska on 10/3 (15:30Z).

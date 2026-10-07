@@ -256,3 +256,15 @@ body.has-ref.ref-min #mapbox{height:62vh}
   body.printing #printsheets .printname{display:none}
   body.printing #printsheets{max-width:none;margin:0;padding:0;box-shadow:none}
 }
+/* The bars fit a phone (Matt, 10/6/26 evening). Six admin tabs must share the bottom bar whatever
+   the phone's text size: each shrinks, never pushes a sibling off the screen. In the top bar the
+   name outranks the title: "Snow Crew" gives way before the name does. */
+nav button{min-width:0;padding:8px 2px;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header h1{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+header #who{flex:1 1 auto;min-width:0;text-align:left}
+/* On a phone, once someone is signed in, the name takes the title's place: "Snow Crew" is the icon
+   they tapped; their own name and role are what the bar is for. */
+@media (max-width:480px){
+  header:has(#who:not(:empty)) h1{display:none}
+  header #who{font-size:14px;padding:4px 10px}
+}

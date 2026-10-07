@@ -30,7 +30,7 @@ test('the shell is cached, Apps Script never is, and other apps\' caches survive
   await page.route((u) => u.href.includes('script.google.com'), (route) =>
     route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: false, code: 'signin', reason: 'Sign in', version: 'pairings-1' }) }));
   await page.goto('http://localhost:' + PORT + '/index.html');
-  await page.evaluate(async () => { await caches.open('wolf-beds-v2'); await caches.open('groundwork-shell-v34'); await caches.open('titan-snow-shell-2'); await caches.open('titan-snow-shell-3'); await caches.open('titan-snow-shell-4'); await caches.open('titan-snow-shell-5'); await caches.open('titan-snow-shell-6'); await caches.open('titan-snow-shell-7'); await caches.open('titan-snow-shell-8'); await caches.open('titan-snow-shell-9'); await caches.open('titan-snow-shell-10'); await caches.open('titan-snow-shell-11'); await caches.open('titan-snow-shell-12'); await caches.open('titan-snow-shell-13'); await caches.open('titan-snow-shell-14'); await caches.open('titan-snow-shell-15'); await caches.open('titan-snow-shell-17'); await caches.open('titan-snow-shell-18'); await caches.open('titan-snow-shell-19'); await caches.open('titan-snow-shell-20'); await caches.open('titan-snow-shell-21'); await caches.open('titan-snow-shell-22'); await caches.open('titan-snow-shell-23'); await caches.open('titan-snow-shell-24'); });
+  await page.evaluate(async () => { await caches.open('wolf-beds-v2'); await caches.open('groundwork-shell-v34'); await caches.open('titan-snow-shell-2'); await caches.open('titan-snow-shell-3'); await caches.open('titan-snow-shell-4'); await caches.open('titan-snow-shell-5'); await caches.open('titan-snow-shell-6'); await caches.open('titan-snow-shell-7'); await caches.open('titan-snow-shell-8'); await caches.open('titan-snow-shell-9'); await caches.open('titan-snow-shell-10'); await caches.open('titan-snow-shell-11'); await caches.open('titan-snow-shell-12'); await caches.open('titan-snow-shell-13'); await caches.open('titan-snow-shell-14'); await caches.open('titan-snow-shell-15'); await caches.open('titan-snow-shell-17'); await caches.open('titan-snow-shell-18'); await caches.open('titan-snow-shell-19'); await caches.open('titan-snow-shell-20'); await caches.open('titan-snow-shell-21'); await caches.open('titan-snow-shell-22'); await caches.open('titan-snow-shell-23'); await caches.open('titan-snow-shell-24'); await caches.open('titan-snow-shell-25'); });
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.reload();
   await page.evaluate(() => navigator.serviceWorker.ready);
@@ -66,6 +66,7 @@ test('the shell is cached, Apps Script never is, and other apps\' caches survive
   expect(state.names).not.toContain('titan-snow-shell-22');
   expect(state.names).not.toContain('titan-snow-shell-23');
   expect(state.names).not.toContain('titan-snow-shell-24');
+  expect(state.names).not.toContain('titan-snow-shell-25');
   expect(state.names).not.toContain('titan-snow-shell-16');
   // The map pieces are in the shell, so a map opens with no signal (zones only, no photo).
   for (const f of ['/vendor/maplibre-gl.js', '/vendor/maplibre-gl.css', '/lib/geo.js', '/lib/mapview.js', '/lib/bpimport.js', '/lib/mapedit.js',

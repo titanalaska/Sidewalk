@@ -4708,3 +4708,59 @@ test('a day handoff sheet whose page cannot be read is left out and said, not pr
   await expect(page.locator('#printsheets .sheet').nth(2).locator('h1')).toHaveText('Route N2Day of 10/3');
   await expect(page.locator('#toast')).toHaveText("1 day handoff sheet couldn't be built on this phone.");
 });
+
+// ---------- Live window (Matt, 10/6/26) ----------
+// The live view's summary line, and the wide layout on a laptop or TV. The numbers below are
+// worked by hand from stormWorld: R1 = [S1] (walks Z1 sidewalk + Z2 heated; Z3 is no_touch and
+// never walked), R2 = [S2] (no zones: one "Whole site" walk).
+test('live window: the summary line counts sites done, open Problems, the newest real tap and routes started, and follows the poll', async ({ page }) => {
+  const w = stormWorld();
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test'), logRow(2, 'S1', 'Z2', 'checked', 'Alex Test')];   // S1 done; S2 untouched
+  await openStorm(page, w, { token: 'tok-matt' });
+  await expect(page.locator('#livesum')).toHaveText('1 of 2 sites done · 0 problems · last tap 6:30 AM · 1 of 2 routes started');
+  // A Problem lands at S1 on the next poll: S1 is no longer done, one Problem is open, the tap is newer.
+  w.log.push(logRow(3, 'S1', 'Z1', 'problem', 'Jordan Demo', { note: 'ice', at: '2026-10-03T06:45:00.000-08:00' }));
+  await pollNow(page);
+  await expect(page.locator('#livesum')).toHaveText('0 of 2 sites done · 1 problem · last tap 6:45 AM · 1 of 2 routes started');
+  // An undo of that Problem is not a tap: the newest real tap is the 6:30 one again.
+  w.log.push(logRow(4, 'S1', 'Z1', 'cleared', 'Jordan Demo', { undoes: 'L-3', at: '2026-10-03T06:50:00.000-08:00' }));
+  await pollNow(page);
+  await expect(page.locator('#livesum')).toHaveText('1 of 2 sites done · 0 problems · last tap 6:30 AM · 1 of 2 routes started');
+});
+
+test('live window: with no storm open the line says so and still counts the sites and routes', async ({ page }) => {
+  const w = stormWorld();
+  w.storms = [];
+  await openStorm(page, w, { token: 'tok-matt' });
+  await expect(page.locator('#livesum')).toHaveText('No storm open · 2 sites on 2 routes');
+});
+
+test('live window: crew get no summary line (they see their own route, not the live view)', async ({ page }) => {
+  await openStorm(page, stormWorld());
+  await expect(page.locator('h2.shift-route')).toHaveCount(1);
+  await expect(page.locator('#livesum')).toHaveCount(0);
+});
+
+test('live window: on a wide screen the Storm tab opens out and the routes sit in a grid; on a phone, one column', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openStorm(page, stormWorld(), { token: 'tok-matt' });
+  await expect(page.locator('.live-grid .live-route')).toHaveCount(2);
+  expect(await page.evaluate(() => document.body.dataset.tab)).toBe('storm');
+  const wide = await page.evaluate(() => ({
+    cols: getComputedStyle(document.querySelector('.live-grid')).gridTemplateColumns.split(' ').length,
+    main: getComputedStyle(document.querySelector('main')).maxWidth,
+  }));
+  expect(wide.cols).toBeGreaterThanOrEqual(2);
+  expect(wide.main).toBe('none');
+  await page.setViewportSize({ width: 390, height: 844 });
+  const narrow = await page.evaluate(() => ({
+    cols: getComputedStyle(document.querySelector('.live-grid')).gridTemplateColumns,
+    main: getComputedStyle(document.querySelector('main')).maxWidth,
+  }));
+  expect(narrow.cols).toBe('none');
+  expect(narrow.main).toBe('720px');
+  // Another tab is not the live window, whatever the width.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.click('nav [data-tab="routes"]');
+  expect(await page.evaluate(() => [document.body.dataset.tab, getComputedStyle(document.querySelector('main')).maxWidth])).toEqual(['routes', '720px']);
+});

@@ -256,3 +256,17 @@ body.has-ref.ref-min #mapbox{height:62vh}
   body.printing #printsheets .printname{display:none}
   body.printing #printsheets{max-width:none;margin:0;padding:0;box-shadow:none}
 }
+/* Live window (Matt, 10/6/26): on a laptop or TV the Storm tab's live view is a dashboard.
+   The summary line is on every screen; from 1000 px the column opens out, Problems and
+   Callouts share a row, and the routes sit in a grid. Phones keep one column. */
+.livesum{font-weight:600;font-size:15px;padding:8px 12px;border-radius:10px;background:var(--chip);margin:-4px 0 12px}
+@media (min-width:1000px){
+  body[data-tab="storm"] main{max-width:none;padding:12px 24px}
+  body[data-tab="storm"] .livesum{font-size:20px;padding:12px 16px}
+  body[data-tab="storm"] .live-top{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px;align-items:start}
+  body[data-tab="storm"] .live-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;align-items:start}
+  body[data-tab="storm"] .live-grid .card{margin-bottom:0}
+  body[data-tab="storm"] .live-route .route-badge{font-size:20px}
+  body[data-tab="storm"] .live-count,body[data-tab="storm"] .live-who,body[data-tab="storm"] .live-sitename{font-size:17px}
+  body[data-tab="storm"] .stormhead{font-size:20px}
+}

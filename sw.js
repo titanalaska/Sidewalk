@@ -11,7 +11,7 @@ var CACHE_VERSION = 'titan-snow-shell-31';
 // plain background). The aerial TILES are never cached: other origins pass by.
 var SHELL = ['./', 'index.html', 'app.css', 'lib/config.js', 'lib/forms.js', 'lib/api.js', 'lib/geo.js',
   'lib/mapview.js', 'lib/bpimport.js', 'lib/mapedit.js', 'lib/time.js', 'lib/board.js', 'lib/history.js', 'lib/gear.js',
-  'lib/warnings.js', 'lib/pairing.js', 'lib/boardui.js', 'lib/rosterui.js', 'lib/shiftlog.js', 'lib/livesum.js',
+  'lib/warnings.js', 'lib/pairing.js', 'lib/boardui.js', 'lib/rosterui.js', 'lib/shiftlog.js', 'lib/livesum.js', 'lib/routesheet.js', 'lib/handoff.js', 'lib/btnote.js', 'lib/shiftlogui.js', 'lib/weather.js', 'lib/callout.js', 'lib/snowmap.js', 'lib/share.js', 'lib/app.js', 'vendor/maplibre-gl.js', 'vendor/maplibre-gl.css',
   'manifest.json', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png'];
 
 self.addEventListener('install', function (e) {

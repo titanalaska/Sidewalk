@@ -270,3 +270,18 @@ body.has-ref.ref-min #mapbox{height:62vh}
   body[data-tab="storm"] .live-count,body[data-tab="storm"] .live-who,body[data-tab="storm"] .live-sitename{font-size:17px}
   body[data-tab="storm"] .stormhead{font-size:20px}
 }
+/* Snow map (Matt, 10/6/26): a dot per site on one map of Anchorage, coloured by the next 12 hours'
+   forecast snowfall; a measured depth rings the dot. Steps: no forecast, none, under 1", 1-3", 3-6", 6"+. */
+#snowmapbox{position:relative;height:48vh;min-height:260px;border-radius:12px;overflow:hidden;border:1px solid var(--line);background:#e8e6e1}
+#snowmapcard .row{margin-top:0;align-items:center;justify-content:space-between}
+#snowmapcard h2{flex:1}
+.snowmapfoot{margin-top:8px;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.snowmapfoot i{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:4px;vertical-align:-1px;border:1px solid #777}
+#snowmapinfo{margin-top:8px;min-height:1.4em}
+.snowdot{display:flex;flex-direction:column;align-items:center;cursor:pointer;font:600 12px/1.2 system-ui,sans-serif;color:#1d1d1b;--dot:#bbb}
+.snowdot-pin{width:16px;height:16px;border-radius:50%;background:var(--dot);border:2px solid #fff;box-shadow:0 0 3px rgba(0,0,0,.6)}
+.snowdot-label{margin-top:2px;padding:1px 5px;border-radius:6px;background:rgba(255,255,255,.92);white-space:nowrap}
+.snowdot.nofc{--dot:#bdbdbd}.snowdot.none{--dot:#ffffff}.snowdot.light{--dot:#9ecae1}.snowdot.mid{--dot:#4292c6}.snowdot.heavy{--dot:#08519c}.snowdot.severe{--dot:#6a3d9a}
+.snowdot.measured .snowdot-pin{box-shadow:0 0 0 3px #1b7a3a,0 0 4px rgba(0,0,0,.6)}
+.snowdot.measured .snowdot-label{font-weight:800;background:#e6f4ea}
+.snowmapfoot i.nofc{background:#bdbdbd}.snowmapfoot i.none{background:#fff}.snowmapfoot i.light{background:#9ecae1}.snowmapfoot i.mid{background:#4292c6}.snowmapfoot i.heavy{background:#08519c}.snowmapfoot i.severe{background:#6a3d9a}

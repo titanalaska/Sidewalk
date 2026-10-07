@@ -19,7 +19,7 @@ const TOKENS = { 'tok-matt': 'admin', 'tok-jordan': 'crew', 'tok-alex': 'lead' }
 // A small fake of the snow backend, with the real reply shapes.
 function fakeSnow(state, opts = {}) {
   return (body) => {
-    const v = { version: opts.version || 'roster-1' };
+    const v = { version: opts.version || 'roster-2' };
     if (opts.expired && opts.expired.on) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     // Roster self-service (10/6/26): the real backend's rules for one's own card (snow-app-script
     // saveMyCard_, test/api.test.js). Nina is approved in Inventory and not on the roster: her save
@@ -664,7 +664,7 @@ test('after a conflict the app reloads the latest, so the retry can save', async
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'roster-1' };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'roster-2' };
     }
     return base(b);
   } });

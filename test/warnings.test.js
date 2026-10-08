@@ -113,3 +113,22 @@ test('clearance marked not set is flagged as unknown', () => {
   assert.deepEqual(rules(ws), ['clearance-unknown']);
   assert.match(ws[0].text, /JBER clearance not set/);
 });
+
+// --- 10/7/26 (Matt, first field test): a lead who can't drive is ALLOWED, and named.
+// The lead drives the truck, so the route-level "nobody can drive" is not enough: with
+// a driving member aboard it stays quiet while the lead still has no licence.
+test("lead who can't drive: allowed, warned by name, even with a driver aboard", () => {
+  // Casey (can_drive false) leads N1 with Alex (drives): no-driver stays quiet, the lead is named.
+  const ws = W.warningsFor(route.N1, { lead: 'C04', members: ['C01'] }, workers, [], '2026-10-01');
+  assert.deepEqual(rules(ws), ['lead-no-licence']);
+  assert.deepEqual(ws[0].workers, ['C04']);
+  assert.equal(ws[0].text, "Casey Mock leads but can't drive");
+});
+test("lead who can't drive: a non-driving MEMBER is not named; a lead with licence not set is not named (driver-unknown covers it)", () => {
+  // Alex leads, Casey rides: nothing (Alex drives).
+  assert.deepEqual(rules(W.warningsFor(route.N1, { lead: 'C01', members: ['C04'] }, workers, [], '2026-10-01')), []);
+  // Casey leads alone with can_drive blank: "not set" is said as not set, never as "can't drive".
+  const w = clone(workers);
+  w.C04.can_drive = null;
+  assert.deepEqual(rules(W.warningsFor(route.N1, { lead: 'C04', members: [] }, w, [], '2026-10-01')), ['driver-unknown']);
+});

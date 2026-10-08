@@ -1548,6 +1548,19 @@ test('a route warns, never blocks: no driver on a crew of one', async ({ page })
   await expect(page.locator('[data-route="R1"] .warns')).toContainText('Nobody on this route can drive');
 });
 
+test("a lead who can't drive is placed anyway, and the route names them (Matt, 10/7/26 field test)", async ({ page }) => {
+  const w = world(); w.crew = w.crew.map((c) => ({ ...c, can_drive: c.id === 'C03' }));   // Alex can't, Jordan can
+  await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
+  await page.click('nav [data-tab="board"]');
+  await page.click('.chip[data-worker="C01"]');
+  await page.click('[data-place="R1"][data-role="lead"]');
+  await page.click('.chip[data-worker="C03"]');
+  await page.click('[data-place="R1"][data-role="member"]');
+  await expect(page.locator('[data-route="R1"] .chip')).toHaveCount(2);                 // placed, not blocked
+  await expect(page.locator('[data-route="R1"] .warns [data-rule="lead-no-licence"]')).toHaveText("Alex Test leads but can't drive");
+  await expect(page.locator('[data-route="R1"] .warns')).not.toContainText('Nobody on this route can drive');   // Jordan drives
+});
+
 test('a site with no clearance set never warns about clearance', async ({ page }) => {
   await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
   await page.click('nav [data-tab="board"]');
@@ -4870,6 +4883,37 @@ test('self-service: not on the roster, the card is theirs to fill; Save sends on
   expect('name' in c.body.card).toBe(false);
   expect(c.body.token).toBe('tok-nina');
   expect(c.contentType).toContain('text/plain');
+});
+
+// Pictures (Matt, 10/7/26 field test: Gene's 160 px picture stretched over a 140+ px tile was blurry):
+// stored at 240 px on the long side. The server caps the data URL at 30,000 characters, so a
+// noisy picture is squeezed (lower quality, then smaller) until it fits, instead of being refused.
+const noisyPngOf = (page) => page.evaluate(() => { const c = document.createElement('canvas'); c.width = 600; c.height = 600;
+  const g = c.getContext('2d'); const d = g.createImageData(600, 600); for (let i = 0; i < d.data.length; i++) d.data[i] = (i % 4 === 3) ? 255 : Math.floor(Math.random() * 256);
+  g.putImageData(d, 0, 0); return c.toDataURL('image/png').split(',')[1]; });
+const sizeOf = (page, src) => page.evaluate((s) => new Promise((res) => { const i = new Image(); i.onload = () => res([i.naturalWidth, i.naturalHeight]); i.src = s; }), src);
+
+test('self-service: pictures are stored at 240 px; a noisy one is squeezed under the server cap, never refused', async ({ page }) => {
+  const calls = await open(page, { token: 'tok-nina', snow: fakeSnow(world()) });
+  await page.click('#fillCard');
+  await page.locator('#s_photo_file').setInputFiles({ name: 'me.png', mimeType: 'image/png', buffer: Buffer.from(await pngOf(page), 'base64') });
+  await expect(page.locator('#s_photo_msg')).toContainText('Picture ready');
+  await page.click('#s_save');
+  await expect(page.locator('#pendingcard')).toBeVisible();
+  const flat = calls.find((x) => x.body && x.body.action === 'saveMyCard').body.card.photo_thumb;
+  expect(await sizeOf(page, flat)).toEqual([240, 160]);                       // 600x400 scaled to the 240 px long side
+  expect(flat.length).toBeLessThan(30000);
+  await page.click('#editCard');
+  await page.locator('#s_photo_file').setInputFiles({ name: 'noise.png', mimeType: 'image/png', buffer: Buffer.from(await noisyPngOf(page), 'base64') });
+  await expect(page.locator('#s_photo_msg')).toContainText('Picture ready');
+  await page.click('#s_save');
+  await expect(page.locator('#pendingcard')).toBeVisible();
+  const noisy = calls.filter((x) => x.body && x.body.action === 'saveMyCard').at(-1).body.card.photo_thumb;
+  expect(noisy).toMatch(/^data:image\/jpeg;base64,/);
+  expect(noisy.length).toBeLessThan(30000);                                   // squeezed, not refused
+  const [nw] = await sizeOf(page, noisy);
+  expect(nw).toBeLessThanOrEqual(240);
+  expect(nw).toBeGreaterThanOrEqual(120);                                     // squeezed by quality first, size last
 });
 
 test('self-service: a pending sign-in sees its card and edits it; a picture not touched is left out of the save; Check again asks the server', async ({ page }) => {

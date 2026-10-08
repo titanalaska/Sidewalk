@@ -223,6 +223,9 @@ body.has-ref.ref-min #mapbox{height:62vh}
 .live-status{font-size:14px;color:var(--muted)}
 .live-status.done{color:var(--ok);font-weight:600}
 .live-status.bad{color:var(--warn);font-weight:600}
+.live-status.touched{color:var(--amber);font-weight:600}
+.curbline{font-size:14px;margin-top:4px}
+.curbline.warn{color:var(--amber);font-weight:600}
 .offroute{font-size:12px;font-weight:700;padding:1px 8px;border-radius:999px;background:var(--yellow-bg);color:var(--yellow-ink);border:1px solid var(--yellow-line)}
 .live-totals{margin-top:4px}
 /* Route sheets (10/3/26): the truck line, the Sheets status, and the Print view. */

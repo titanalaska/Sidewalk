@@ -77,3 +77,17 @@ test('dotLabel: a measured depth in bold words, else the forecast as a guess, el
   assert.equal(M.dotLabel(2.4, { inches: 3, at: 'X', by_name: 'Alex' }, clock), '3.0" CLOCK(X) Alex');
   assert.equal(M.dotLabel(null, { inches: 0, at: 'X', by_name: '' }, clock), '0.0" CLOCK(X)');
 });
+
+test('siteStatus: Done, Problem, Touched, k of n walks, Not started (Touched: Matt, 10/8/26)', () => {
+  const Log = require('../lib/shiftlog.js');
+  // S1: one sidewalk and a curb line (300 ft: one "Curbs" item) -> 2 walks.
+  const zones = [{ id: 'Z1', site_id: 'S1', type: 'sidewalk', name: 'Walk' },
+    { id: 'Z9', site_id: 'S1', type: 'hand', name: 'Curb - lot', area_sqft: 1200 }];
+  const r = (seq, zone, state, note) => ({ id: 'L-' + seq, seq, storm_id: 'ST', site_id: 'S1', zone_id: zone, state, note: note || '' });
+  const words = (rows) => M.siteStatus('S1', zones, Log.walkStates(rows, 'ST'));
+  assert.equal(words([]), 'Not started');
+  assert.equal(words([r(2, 'Z1', 'cleared')]), 'Touched');                                   // the sidewalk done, the curbs not
+  assert.equal(words([r(2, 'Z1', 'cleared'), r(5, 'curbs-1', 'problem', 'car on it')]), 'Problem');
+  assert.equal(words([r(2, 'Z1', 'cleared'), r(5, 'curbs-1', 'cleared')]), 'Done');
+  assert.equal(words([r(5, 'curbs-1', 'cleared')]), '1 of 2 walks');                       // curbs first, sidewalk open
+});

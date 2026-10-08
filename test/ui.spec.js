@@ -19,7 +19,7 @@ const TOKENS = { 'tok-matt': 'admin', 'tok-jordan': 'crew', 'tok-alex': 'lead' }
 // A small fake of the snow backend, with the real reply shapes.
 function fakeSnow(state, opts = {}) {
   return (body) => {
-    const v = { version: opts.version || 'roster-3' };
+    const v = { version: opts.version || 'curbs-1' };
     if (opts.expired && opts.expired.on) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     // Roster self-service (10/6/26): the real backend's rules for one's own card (snow-app-script
     // saveMyCard_, test/api.test.js). Nina is approved in Inventory and not on the roster: her save
@@ -665,7 +665,7 @@ test('after a conflict the app reloads the latest, so the retry can save', async
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'roster-3' };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'curbs-1' };
     }
     return base(b);
   } });
@@ -5465,4 +5465,62 @@ test('roster-3: the switch is remembered on this phone until 9 AM and is off aga
   expect(await visit('2026-10-03T08:59:00-08:00', false)).toBe('true');   // the clock window ended at 8:00; only the switch keeps it on until 9:00
   expect(await visit('2026-10-03T09:00:00-08:00', false)).toBe('false');  // 9:00 sharp: the switch has expired, the night is over
   await ctx.close();
+});
+
+// ---------------- Touched + the curb roll-up (Matt, 10/8/26) ----------------
+// A site is Touched once its sidewalks and heated walks are done; its "Curb ..." hand lines roll up
+// into "Curbs" items (750 ft x 1.2 = 900 ft each, at most 5), one tap each. PAC's curbs here:
+// Z6 1,200 sq ft = 300 ft, Z7 800 sq ft = 200 ft -> 500 ft, one item "Curbs (about 500 ft)".
+const CURBS = [
+  { id: 'Z6', site_id: 'S1', type: 'hand', name: 'Curb - lot', area_sqft: 1200, from: 'bootprint:J1:6', rev: 1 },
+  { id: 'Z7', site_id: 'S1', type: 'hand', name: 'Curb - island', area_sqft: 800, from: 'bootprint:J1:7', rev: 1 },
+];
+test('the crew see one Curbs walk for the curb lines, after the others, and tapping it sends curbs-1', async ({ page }) => {
+  const w = stormWorld(); w.zones.push(...CURBS);
+  const calls = await openStorm(page, w);
+  // By name: Heated walk, Main entry; then the curbs item. The two curb lines are not walks of their own.
+  expect(await page.locator('[data-walkrow]').evaluateAll((els) => els.map((e) => e.dataset.walkrow))).toEqual(['S1|Z2', 'S1|Z1', 'S1|curbs-1']);
+  await expect(walkRow(page, 'S1|curbs-1')).toContainText('Curbs (about 500 ft)');
+  await walkBtn(page, 'S1|curbs-1', 'cleared').click();
+  await expect.poll(() => tapCalls(calls).length).toBe(1);
+  expect(tapCalls(calls)[0].body).toMatchObject({ action: 'tapZone', site_id: 'S1', zone_id: 'curbs-1', state: 'cleared' });
+});
+
+test('Touched: sidewalks done and curbs left reads Touched in its own colour; the route and the summary count it', async ({ page }) => {
+  // PAC: Main entry cleared 6:30, Heated walk checked 6:40, curbs untapped -> Touched, not done.
+  // N1 = PAC + EXTRA (untapped): 0 of 2 sites done, 1 touched. Four sites in all on the live view.
+  const w = liveWorld(); w.zones.push(...CURBS);
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: at('06:30') }), logRow(2, 'S1', 'Z2', 'checked', 'Jordan Demo', { by_key: 'C03', at: at('06:40') })];
+  await openStorm(page, w, { token: 'tok-matt' });
+  const status = page.locator('[data-livesite="S1"] .live-status');
+  await expect(status).toHaveText('Touched');
+  await expect(status).toHaveClass(/\btouched\b/);
+  await expect(status).not.toHaveClass(/\bdone\b/);
+  await expect(page.locator('[data-liveroute="R1"] .live-count')).toHaveText('0 of 2 sites done, 1 touched');
+  await expect(page.locator('#livesum')).toContainText('0 of 4 sites done, 1 touched · 0 problems');
+  // Its colour is not the Done green.
+  const touchedColour = await status.evaluate((e) => getComputedStyle(e).color);
+  w.log.push(logRow(3, 'S1', 'curbs-1', 'cleared', 'Alex Test', { at: at('06:50') }));
+  await pollNow(page);
+  await expect(status).toHaveText('Done');
+  expect(await status.evaluate((e) => getComputedStyle(e).color)).not.toBe(touchedColour);
+  await expect(page.locator('[data-liveroute="R1"] .live-count')).toHaveText('1 of 2 sites done');
+});
+
+test("Matt's Sites cards show each site's curbs and flag one over size; the crew's never do", async ({ page }) => {
+  // PAC: 500 ft, one item. TUDOR-TRANSIT: 1,266 + 951 + 1,233 + 2,555 = 6,005 ft in 4 zones: ceil(6005 / 900) = 7,
+  // the cap is 5, and never more items than zones makes it 4; 4 x 900 = 3,600 < 6,005, so over size.
+  const w = world();
+  w.zones = [...CURBS, ...[[1266, 14], [951, 15], [1233, 16], [2555, 17]].map(([ft, bp], i) =>
+    ({ id: 'T' + bp, site_id: 'S2', type: 'hand', name: 'Curb - part ' + i, area_sqft: ft * 4, from: 'bootprint:J2:' + bp, rev: 1 }))];
+  await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
+  await page.click('nav [data-tab="sites"]');
+  await expect(page.locator('[data-site="S1"] .curbline')).toHaveText('Curbs: 500 ft in 1 item');
+  await expect(page.locator('[data-site="S2"] .curbline')).toHaveText('Curbs: 6,005 ft in 4 items · over 900 ft per item');
+  await expect(page.locator('[data-site="S2"] .curbline')).toHaveClass(/\bwarn\b/);
+  const crew = await page.context().newPage();
+  await open(crew, { token: 'tok-jordan', snow: fakeSnow(w) });
+  await crew.click('nav [data-tab="sites"]');
+  await expect(crew.locator('[data-site="S1"]')).toBeVisible();
+  await expect(crew.locator('.curbline')).toHaveCount(0);
 });

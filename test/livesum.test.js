@@ -24,22 +24,31 @@ test('the summary: sites once each, done by every walk, open problems, the newes
   const s = L.liveSummary({ routes, zones, log, stormId: ST });
   // S1 done; S2 back to none; S3 has an open Problem. The newest real tap is row 5 (row 6 is a reading, row 4 an undo).
   // R1 started (S1), R2 started (S3); R3's only site had its tap undone: not started.
-  assert.deepEqual(s, { sitesDone: 1, sitesTotal: 3, problems: 1, lastTapAt: '2026-12-04T19:50:00-09:00', routesStarted: 2, routesTotal: 3 });
+  assert.deepEqual(s, { sitesDone: 1, sitesTouched: 0, sitesTotal: 3, problems: 1, lastTapAt: '2026-12-04T19:50:00-09:00', routesStarted: 2, routesTotal: 3 });
 });
 
 test('the summary with no storm: nothing done, nothing open, no tap, but the counts of what there is', () => {
   assert.deepEqual(L.liveSummary({ routes, zones, log, stormId: null }),
-    { sitesDone: 0, sitesTotal: 3, problems: 0, lastTapAt: null, routesStarted: 0, routesTotal: 3 });
+    { sitesDone: 0, sitesTouched: 0, sitesTotal: 3, problems: 0, lastTapAt: null, routesStarted: 0, routesTotal: 3 });
 });
 
 test("the summary ignores another storm's rows", () => {
   const old = log.map((r) => Object.assign({}, r, { storm_id: 'ST-0' }));
   assert.deepEqual(L.liveSummary({ routes, zones, log: old, stormId: ST }),
-    { sitesDone: 0, sitesTotal: 3, problems: 0, lastTapAt: null, routesStarted: 0, routesTotal: 3 });
+    { sitesDone: 0, sitesTouched: 0, sitesTotal: 3, problems: 0, lastTapAt: null, routesStarted: 0, routesTotal: 3 });
 });
 
 test('the summary takes the states already worked out, when the caller has them', () => {
   const CrewShiftLog = require('../lib/shiftlog.js');
   const states = CrewShiftLog.walkStates(log, ST);
   assert.deepEqual(L.liveSummary({ routes, zones, log, stormId: ST, states }), L.liveSummary({ routes, zones, log, stormId: ST }));
+});
+
+test('the summary counts Touched sites (sidewalks done, curbs left) apart from done (Matt, 10/8/26)', () => {
+  // S1 gets a curb line (1,200 sq ft = 300 ft: one "Curbs" item). Rows 1, 2 clear both of S1's sidewalks,
+  // so S1 is Touched, not done: 0 done, 1 touched. S2 and S3 as above (back to none; an open Problem).
+  const withCurb = zones.concat([{ id: 'Z9', site_id: 'S1', type: 'hand', name: 'Curb - lot', area_sqft: 1200, ring: [[0, 0], [0, 1], [1, 1]] }]);
+  const s = L.liveSummary({ routes, zones: withCurb, log, stormId: ST });
+  assert.equal(s.sitesDone, 0);
+  assert.equal(s.sitesTouched, 1);
 });

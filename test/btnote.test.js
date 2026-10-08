@@ -121,3 +121,14 @@ test('two passes in one shift: the site-card lines say they cover the whole shif
   o.log = [row(1, 'Z1', 'cleared')];
   assert.ok(N.btNote(o, 'night-2026-12-04').text.split('\n').includes('Depth: 3"'));
 });
+
+// Curb roll-up (Matt, 10/8/26): the curb lines are one "Curbs" walk. Walks are listed with commas, so the
+// item's feet go in brackets: "Curbs, about 500 ft" in a comma list read as two walks, "Curbs" and "about 500 ft".
+test('a curbs item reads as one walk in the note: its feet in brackets, not after a comma', () => {
+  // Curbs: 1,200 sq ft = 300 ft + 800 sq ft = 200 ft -> one item of 500 ft. Main entry and the curbs cleared.
+  const o = base();
+  o.zones = ZONES.concat([{ id: 'Z6', site_id: 'S1', type: 'hand', name: 'Curb - lot', area_sqft: 1200, from: 'bootprint:J1:6' },
+    { id: 'Z7', site_id: 'S1', type: 'hand', name: 'Curb - island', area_sqft: 800, from: 'bootprint:J1:7' }]);
+  o.log = [row(1, 'Z1', 'cleared'), row(2, 'Z2', 'checked'), row(3, 'curbs-1', 'cleared')];
+  assert.equal(N.btNote(o, 'night-2026-12-04').text.split('\n')[0], 'Cleared: Main entry, Curbs (about 500 ft). Checked: Heated walk. Not done: Back stairs.');
+});

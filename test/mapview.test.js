@@ -22,3 +22,20 @@ test('marks: cleared, treated and checked are a tick; problem is a bang', () => 
 test('marks: not started, undone and unknown states get no mark', () => {
   for (const r of [undefined, null, {}, { state: 'none' }, { state: 'whatever' }]) assert.strictEqual(markOf(r), '', JSON.stringify(r));
 });
+
+// Curb roll-up (Matt, 10/8/26): a curb line is tapped as its "Curbs" item, so its mark comes from the item's row.
+const { markFor } = require('../lib/mapview.js');
+test('marks: a curb zone takes its Curbs item\'s mark; a sidewalk its own', () => {
+  const Log = require('../lib/shiftlog.js');
+  const zones = [{ id: 'Z1', site_id: 'S1', type: 'sidewalk', name: 'Walk' },
+    { id: 'Z9', site_id: 'S1', type: 'hand', name: 'Curb - lot', area_sqft: 1200 },
+    { id: 'Z8', site_id: 'S1', type: 'hand', name: 'Curb - island', area_sqft: 400 }];
+  const states = { 'S1|curbs-1': { state: 'cleared' }, 'S1|Z1': { state: 'problem' } };
+  assert.strictEqual(markFor(zones[1], zones, states, Log), '✓');
+  assert.strictEqual(markFor(zones[2], zones, states, Log), '✓');
+  assert.strictEqual(markFor(zones[0], zones, states, Log), '!');
+  // An old row on the curb zone's own id (from before the roll-up) no longer marks it.
+  assert.strictEqual(markFor(zones[1], zones, { 'S1|Z9': { state: 'cleared' } }, Log), '');
+  // No shift log loaded (a cut-off load): a zone is looked up by its own id, never an error.
+  assert.strictEqual(markFor(zones[0], zones, states, null), '!');
+});

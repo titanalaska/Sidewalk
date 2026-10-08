@@ -132,3 +132,67 @@ test("lead who can't drive: a non-driving MEMBER is not named; a lead with licen
   w.C04.can_drive = null;
   assert.deepEqual(rules(W.warningsFor(route.N1, { lead: 'C04', members: [] }, w, [], '2026-10-01')), ['driver-unknown']);
 });
+
+// ---- Valley and a short night (Matt, 10/8/26) ----
+// A night is short when the work cannot reach 8 hours before the 8 AM deadline. 8 working hours
+// plus the mandatory 30-minute lunch is 8.5 hours on the clock, so the latest start that still
+// gets there is 8:00 AM minus 8.5 h = 11:30 PM. "Midnight to 8" is only 7.5 hours of work (Matt's
+// correction of the first draft, which said midnight). After 11:30 PM and before 8:00 AM is short.
+// Exactly 11:30:00 PM is exactly 8 hours: not short.
+test('isShortNight: after 11:30 PM and before 8:00 AM, to the second; a manual switch adds nights the clock cannot know', () => {
+  const at = (hms) => '2026-10-09T' + hms + '-08:00';
+  const table = [
+    ['23:29:59', false], ['23:30:00', false], ['23:30:01', true], ['23:59:59', true],
+    ['00:00:00', true], ['03:15:00', true], ['07:59:59', true], ['08:00:00', false],
+    ['09:00:00', false], ['12:00:00', false], ['18:00:00', false], ['20:00:00', false],
+  ];
+  for (const [hms, want] of table) assert.equal(W.isShortNight(at(hms), false), want, hms);
+  // A cleanup night starts around 8 PM with little work: only Matt knows, so his switch turns it on.
+  assert.equal(W.isShortNight(at('20:00:00'), true), true);
+  assert.equal(W.isShortNight(at('12:00:00'), true), true);
+  // The switch never turns the clock's own answer off.
+  assert.equal(W.isShortNight(at('00:30:00'), false), true);
+});
+
+test('isShortNight: a time that cannot be read is not a short night, and never throws; the switch still counts', () => {
+  for (const bad of ['', null, undefined, 'tonight', 12, '2026-10-09']) {
+    assert.equal(W.isShortNight(bad, false), false, String(bad));
+    assert.equal(W.isShortNight(bad, true), true, String(bad));
+  }
+});
+
+test('the short-night cutoff is worked out from the three numbers, never typed in', () => {
+  const S = W.SHORT_NIGHT;
+  assert.deepEqual([S.workHours, S.lunchMinutes, S.deadlineHour], [8, 30, 8]);
+  // 24:00 + 8:00 deadline - (8 h work + 30 min lunch) = 23:30 = 84,600 seconds into the day.
+  assert.equal(S.cutoffSeconds, 24 * 3600 + S.deadlineHour * 3600 - (S.workHours * 3600 + S.lunchMinutes * 60));
+  assert.equal(S.cutoffSeconds, 84600);
+});
+
+const withHome = (id, home) => { const w = clone(workers); w[id].home_area = home; return w; };
+test('valley-short: a Valley person on a route warns on a short night, naming them; warn only', () => {
+  const ws = W.warningsFor(route.N1, { lead: 'C02', members: [] }, withHome('C02', 'valley'), [], '2026-10-01', { shortNight: true });
+  assert.deepEqual(rules(ws), ['valley-short']);
+  assert.equal(ws[0].text, 'Sam Sample: Valley, short night (under 8 hours)');
+  assert.deepEqual(ws[0].workers, ['C02']);
+});
+
+test('valley-short: never on a normal night, for Anchorage, or when not set', () => {
+  const lead = { lead: 'C02', members: [] };
+  assert.deepEqual(W.warningsFor(route.N1, lead, withHome('C02', 'valley'), [], '2026-10-01', { shortNight: false }), []);
+  assert.deepEqual(W.warningsFor(route.N1, lead, withHome('C02', 'valley'), [], '2026-10-01', {}), []);
+  assert.deepEqual(W.warningsFor(route.N1, lead, withHome('C02', 'valley'), [], '2026-10-01'), []);
+  assert.deepEqual(W.warningsFor(route.N1, lead, withHome('C02', 'anchorage'), [], '2026-10-01', { shortNight: true }), []);
+  // Not set (null) and a record that never had the field are the same: no guess either way.
+  assert.deepEqual(W.warningsFor(route.N1, lead, withHome('C02', null), [], '2026-10-01', { shortNight: true }), []);
+  assert.deepEqual(W.warningsFor(route.N1, lead, workers, [], '2026-10-01', { shortNight: true }), []);
+});
+
+test('valley-short: one line per Valley person, beside the other warnings, never instead of them', () => {
+  const w = withHome('C02', 'valley');
+  w.C01.home_area = 'valley';
+  w.C01.cold_rated = false;
+  const ws = W.warningsFor(route.N1, { lead: 'C02', members: ['C01'] }, w, [], '2026-10-01', { shortNight: true });
+  assert.deepEqual(rules(ws), ['cold', 'valley-short', 'valley-short']);
+  assert.deepEqual(ws.filter((x) => x.rule === 'valley-short').map((x) => x.workers[0]).sort(), ['C01', 'C02']);
+});

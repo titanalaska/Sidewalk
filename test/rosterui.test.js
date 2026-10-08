@@ -27,14 +27,22 @@ test('selfFieldsOf keeps only the self fields that are present: never a name, ne
 // contact is theirs to fill (only he sees it), and Smokes left the form (his alone).
 test('cardFromForm: trims the phone and the emergency contact, reads yes/no/not set, lists machines, blank seasons is null (never 0), gear blank is null', () => {
   const card = R.cardFromForm({ phone: ' 555-0199 ', can_drive: 'yes', valid_id: 'no', on_call: '', cold_rated: 'yes', can_operate: ['blower', 'shovel'], seasons: ' 2 ', gear: 'own',
-    emergency_name: ' Pat Nursery ', emergency_phone: ' 555-0911 ' });
+    emergency_name: ' Pat Nursery ', emergency_phone: ' 555-0911 ', home_area: 'valley' });
   assert.deepEqual(card, { phone: '555-0199', can_drive: true, valid_id: false, on_call: null, cold_rated: true, can_operate: ['blower', 'shovel'], seasons: 2, gear: 'own',
-    emergency_name: 'Pat Nursery', emergency_phone: '555-0911' });
+    emergency_name: 'Pat Nursery', emergency_phone: '555-0911', home_area: 'valley' });
   assert.equal('photo_thumb' in card, false);   // not touched: the one on file stays
-  const blank = R.cardFromForm({ phone: '', can_drive: '', valid_id: '', on_call: '', cold_rated: '', can_operate: [], seasons: '', gear: '', emergency_name: '', emergency_phone: '' });
-  assert.deepEqual(blank, { phone: '', can_drive: null, valid_id: null, on_call: null, cold_rated: null, can_operate: [], seasons: null, gear: null, emergency_name: '', emergency_phone: '' });
+  const blank = R.cardFromForm({ phone: '', can_drive: '', valid_id: '', on_call: '', cold_rated: '', can_operate: [], seasons: '', gear: '', emergency_name: '', emergency_phone: '', home_area: '' });
+  assert.deepEqual(blank, { phone: '', can_drive: null, valid_id: null, on_call: null, cold_rated: null, can_operate: [], seasons: null, gear: null, emergency_name: '', emergency_phone: '', home_area: null });
   // Smokes is Matt's: a value from an old form is dropped, never sent.
   assert.equal('smokes' in R.cardFromForm({ smokes: 'yes' }), false);
+});
+
+// home_area (Matt, 10/8/26): Valley or Anchorage, blank until chosen. Never guessed: a value the form
+// does not offer is sent as blank, so a stale or odd form can never put a third answer on a record.
+test('cardFromForm: where one lives is valley, anchorage or blank (null); anything else is blank, never guessed', () => {
+  assert.equal(R.cardFromForm({ home_area: 'valley' }).home_area, 'valley');
+  assert.equal(R.cardFromForm({ home_area: 'anchorage' }).home_area, 'anchorage');
+  for (const v of ['', undefined, null, 'wasilla', 'Valley', 'ANCHORAGE', 7]) assert.equal(R.cardFromForm({ home_area: v }).home_area, null, String(v));
 });
 
 test('cardFromForm: a seasons that is not a whole number goes as typed, so the server refuses it in its own words; 0 is 0', () => {

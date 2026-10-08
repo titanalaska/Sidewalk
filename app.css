@@ -1,7 +1,7 @@
 :root{color-scheme:light dark}
-:root{--bg:#f6f5f2;--card:#fff;--ink:#1d1d1b;--muted:#6b6a66;--line:#dedcd6;--accent:#1f5fa8;--on-accent:#fff;--warn:#b3261e;--warn-bg:#fbe9e7;--chip:#eef1f5}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#141414;--card:#1e1e1e;--ink:#eee;--muted:#a3a3a3;--line:#333;--accent:#7fb0ea;--on-accent:#0b1b2e;--warn:#ff8a80;--warn-bg:#3a1d1b;--chip:#2a2d33}}
-:root[data-theme="dark"]{--bg:#141414;--card:#1e1e1e;--ink:#eee;--muted:#a3a3a3;--line:#333;--accent:#7fb0ea;--on-accent:#0b1b2e;--warn:#ff8a80;--warn-bg:#3a1d1b;--chip:#2a2d33}
+:root{--bg:#f6f5f2;--card:#fff;--ink:#1d1d1b;--muted:#6b6a66;--line:#dedcd6;--accent:#1f5fa8;--on-accent:#fff;--warn:#b3261e;--warn-bg:#fbe9e7;--chip:#eef1f5;--amber:#b36b00;--amber-bg:#fff0d1}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#141414;--card:#1e1e1e;--ink:#eee;--muted:#a3a3a3;--line:#333;--accent:#7fb0ea;--on-accent:#0b1b2e;--warn:#ff8a80;--warn-bg:#3a1d1b;--chip:#2a2d33;--amber:#ffc266;--amber-bg:#3d2c0c}}
+:root[data-theme="dark"]{--bg:#141414;--card:#1e1e1e;--ink:#eee;--muted:#a3a3a3;--line:#333;--accent:#7fb0ea;--on-accent:#0b1b2e;--warn:#ff8a80;--warn-bg:#3a1d1b;--chip:#2a2d33;--amber:#ffc266;--amber-bg:#3d2c0c}
 *{box-sizing:border-box}
 [hidden]{display:none !important}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding-bottom:140px}
@@ -297,3 +297,8 @@ header #who{flex:1 1 auto;min-width:0;text-align:left}
   header:has(#who:not(:empty)) h1{display:none}
   header #who{font-size:14px;padding:4px 10px}
 }
+
+/* A Valley person (roster-3, 10/8/26): a small V always; amber while it is a short night (Matt does not call Valley crew in under 8 hours). */
+.chip .home{display:inline-block;font-size:11px;font-weight:700;line-height:1;padding:2px 5px;border-radius:8px;background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber)}
+.chip.valley-short{border-color:var(--amber);background:var(--amber-bg)}
+#shortnight.on{background:var(--amber-bg);color:var(--amber);border-color:var(--amber)}

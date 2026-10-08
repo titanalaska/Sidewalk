@@ -19,14 +19,15 @@ const TOKENS = { 'tok-matt': 'admin', 'tok-jordan': 'crew', 'tok-alex': 'lead' }
 // A small fake of the snow backend, with the real reply shapes.
 function fakeSnow(state, opts = {}) {
   return (body) => {
-    const v = { version: opts.version || 'roster-2' };
+    const v = { version: opts.version || 'roster-3' };
     if (opts.expired && opts.expired.on) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     // Roster self-service (10/6/26): the real backend's rules for one's own card (snow-app-script
     // saveMyCard_, test/api.test.js). Nina is approved in Inventory and not on the roster: her save
     // makes a pending card (an id past the highest, never the count); until Matt's Add to crew every
     // other action answers pending_card with the self view. Crew and leads edit their own live record.
     // roster-2 (10/7/26): cold_rated and the emergency contact are theirs; smokes is Matt's alone.
-    const SELF = ['phone', 'photo_thumb', 'can_drive', 'valid_id', 'on_call', 'cold_rated', 'can_operate', 'seasons', 'gear', 'emergency_name', 'emergency_phone'];
+    // roster-3 (10/8/26): home_area (valley | anchorage), theirs to say.
+    const SELF = ['phone', 'photo_thumb', 'can_drive', 'valid_id', 'on_call', 'cold_rated', 'can_operate', 'seasons', 'gear', 'emergency_name', 'emergency_phone', 'home_area'];
     const selfView = (c) => ({ id: c.id, name: c.name, pending: c.pending === true, ...Object.fromEntries(SELF.map((k) => [k, c[k] === undefined ? null : c[k]])) });
     const applySelf = (stored, card) => ({ ...stored, ...Object.fromEntries(SELF.filter((k) => card && card[k] !== undefined).map((k) => [k, card[k]])) });
     const refuseCard = (card) => {
@@ -664,7 +665,7 @@ test('after a conflict the app reloads the latest, so the retry can save', async
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'roster-2' };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'roster-3' };
     }
     return base(b);
   } });
@@ -4829,7 +4830,7 @@ test('a day handoff sheet whose page cannot be read is left out and said, not pr
 // A person fills out their own card from their phone; Matt approves the Inventory request and
 // taps Add to crew on the Roster tab; crew edit their own card from Tonight. The server keeps
 // everything Matt owns: what leaves the phone is the self fields and nothing else.
-const SELF_FIELDS = ['phone', 'photo_thumb', 'can_drive', 'valid_id', 'on_call', 'cold_rated', 'can_operate', 'seasons', 'gear', 'emergency_name', 'emergency_phone'];
+const SELF_FIELDS = ['phone', 'photo_thumb', 'can_drive', 'valid_id', 'on_call', 'cold_rated', 'can_operate', 'seasons', 'gear', 'emergency_name', 'emergency_phone', 'home_area'];
 const pngOf = (page) => page.evaluate(() => { const c = document.createElement('canvas'); c.width = 600; c.height = 400;
   const g = c.getContext('2d'); g.fillStyle = '#a73'; g.fillRect(0, 0, 600, 400); return c.toDataURL('image/png').split(',')[1]; });
 // Inventory with a live request list: Approve and Reject change it, as the real one does.
@@ -5323,4 +5324,145 @@ test('bars: all six admin tabs sit inside a 320 px screen, and the name badge ke
   // Nothing in the header leaves the screen.
   const hdr = await page.locator('header > *').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().right)));
   for (const r of hdr) expect(r).toBeLessThanOrEqual(320);
+});
+
+// ---- roster-3 (Matt, 10/8/26): where one lives, and a short night on the Board ----
+// Valley or Anchorage is theirs to say (blank until chosen) and only Matt sees it. On a short night he will
+// not call Valley people in for under 8 hours: the Board marks them (a V always; amber plus a line while it
+// is a short night). Short = after 11:30 PM and before 8 AM (8 h work + the 30-minute lunch), or Matt's own
+// switch for a night only he knows is short. Warn, never block; a blank never fires.
+const homeWorld = () => { const w = world(); w.crew = w.crew.map((c) => (c.id === 'C03' ? { ...c, home_area: 'valley' } : c.id === 'C01' ? { ...c, home_area: 'anchorage' } : c)); return w; };
+const JORDAN_ON_N1 = [{ id: 'M1', at: '2026-10-01T17:00:00.000-08:00', worker: 'C03', to_route: 'R1', role: 'member' }];
+
+test('roster-3: Your card asks where you live, blank until chosen; Valley is sent with the save and the card follows the reply', async ({ page }) => {
+  const calls = await open(page, { token: 'tok-jordan', snow: fakeSnow(world()) });
+  await page.click('#yourCard');
+  await expect(page.locator('#s_home_area')).toHaveValue('');
+  await expect(page.locator('#dlgIn')).toContainText('Only Matt sees where you live.');
+  await page.selectOption('#s_home_area', 'valley');
+  await page.click('#s_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  const saves = () => calls.filter((x) => x.body && x.body.action === 'saveMyCard');
+  expect(saves().at(-1).body.card.home_area).toBe('valley');
+  await page.click('#yourCard');
+  await expect(page.locator('#s_home_area')).toHaveValue('valley');
+  // Saved again with nothing touched: still Valley, never cleared by the form.
+  await page.click('#s_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(saves().at(-1).body.card.home_area).toBe('valley');
+  // Chosen back to not set: sent as null, the server clears it.
+  await page.click('#yourCard');
+  await page.selectOption('#s_home_area', '');
+  await page.click('#s_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(saves().at(-1).body.card.home_area).toBe(null);
+});
+
+test("roster-3: Matt's worker card shows where they live (not set when blank) and his editor sets and clears it", async ({ page }) => {
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
+  const saved = () => calls.filter((c) => c.body.action === 'saveCrew').at(-1).body.record;
+  await page.click('nav [data-tab="roster"]');
+  await page.click('[data-open="C03"]');
+  await expect(page.locator('#dlgIn tr', { hasText: 'Lives in' })).toContainText('not set');
+  await page.click('#w_edit');
+  await expect(page.locator('#f_home_area')).toHaveValue('');
+  await page.selectOption('#f_home_area', 'valley');
+  await page.click('#f_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(saved().home_area).toBe('valley');
+  await page.click('nav [data-tab="roster"]');
+  await page.click('[data-open="C03"]');
+  await expect(page.locator('#dlgIn tr', { hasText: 'Lives in' })).toContainText('Valley');
+  await page.click('#w_edit');
+  await page.selectOption('#f_home_area', '');
+  await page.click('#f_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(saved().home_area).toBe(null);
+});
+
+test('roster-3: a Valley chip carries a V all the time; Anchorage and not set carry nothing; a normal evening has no line and the switch is off', async ({ page }) => {
+  const w = homeWorld(); w.moves = JORDAN_ON_N1;
+  await open(page, { token: 'tok-matt', snow: fakeSnow(w), clockAt: '2026-10-02T18:00:00-08:00' });
+  await page.click('nav [data-tab="board"]');
+  await expect(page.locator('.chip[data-worker="C03"] .home')).toHaveText('V');
+  await expect(page.locator('.chip[data-worker="C01"] .home')).toHaveCount(0);
+  await expect(page.locator('.chip[data-worker="C03"]')).not.toHaveClass(/valley-short/);
+  await expect(page.locator('li[data-rule="valley-short"]')).toHaveCount(0);
+  await expect(page.locator('#shortnight')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#shortnight')).toContainText('off');
+});
+
+// 8 working hours + the 30-minute lunch = 8.5 h before the 8 AM deadline: 11:30 PM is the last start that
+// reaches 8 h. Exactly 11:30:00 PM is exactly 8 hours (not short): that second is pinned in warnings.test.js; the page clock
+// keeps running after install, so a screen test at the exact second would drift to 23:30:01 under load. At 8:00 AM the night is over.
+for (const [stamp, short] of [['2026-10-02T23:29:00', false], ['2026-10-02T23:29:30', false], ['2026-10-02T23:31:00', true],
+  ['2026-10-03T00:00:00', true], ['2026-10-03T07:59:00', true], ['2026-10-03T08:00:00', false]]) {
+  test('roster-3: at ' + stamp.slice(11, 19) + ' the clock says ' + (short ? 'a short night' : 'a normal night') + ': a Valley person on a route ' + (short ? 'warns and is amber' : 'is left alone'), async ({ page }) => {
+    const w = homeWorld(); w.moves = JORDAN_ON_N1;
+    await open(page, { token: 'tok-matt', snow: fakeSnow(w), clockAt: stamp + '-08:00' });
+    await page.click('nav [data-tab="board"]');
+    await expect(page.locator('[data-route="R1"]')).toBeVisible();
+    await expect(page.locator('[data-route="R1"] .warns li[data-rule="valley-short"]')).toHaveCount(short ? 1 : 0);
+    if (short) {
+      await expect(page.locator('[data-route="R1"] .warns li[data-rule="valley-short"]')).toHaveText('Jordan Demo: Valley, short night (under 8 hours)');
+      await expect(page.locator('.chip[data-worker="C03"]')).toHaveClass(/valley-short/);
+      // The clock's own answer cannot be switched off: the button says so and is disabled.
+      await expect(page.locator('#shortnight')).toBeDisabled();
+      await expect(page.locator('#shortnight')).toContainText('after 11:30 PM');
+    } else {
+      await expect(page.locator('.chip[data-worker="C03"]')).not.toHaveClass(/valley-short/);
+      await expect(page.locator('#shortnight')).toBeEnabled();
+    }
+    await expect(page.locator('#shortnight')).toHaveAttribute('aria-pressed', short ? 'true' : 'false');
+  });
+}
+
+test('roster-3: on a short night an unplaced Valley person is amber in Unassigned too, and an Anchorage person or a blank is not', async ({ page }) => {
+  const w = homeWorld(); w.crew.push({ id: 'C04', name: 'Blank Person', rev: 1 });
+  await open(page, { token: 'tok-matt', snow: fakeSnow(w), clockAt: '2026-10-03T01:00:00-08:00' });
+  await page.click('nav [data-tab="board"]');
+  await expect(page.locator('.chip[data-worker="C03"]')).toHaveClass(/valley-short/);
+  await expect(page.locator('.chip[data-worker="C01"]')).not.toHaveClass(/valley-short/);
+  await expect(page.locator('.chip[data-worker="C04"]')).not.toHaveClass(/valley-short/);
+  await expect(page.locator('.chip[data-worker="C04"] .home')).toHaveCount(0);
+});
+
+test("roster-3: the switch is Matt's own for a cleanup night: off at 8 PM, on until 9 AM when tapped, nothing sent, and off again when tapped back", async ({ page }) => {
+  const w = homeWorld(); w.moves = JORDAN_ON_N1;
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w), clockAt: '2026-10-02T20:00:00-08:00' });
+  await page.click('nav [data-tab="board"]');
+  await expect(page.locator('#shortnight')).toContainText('off');
+  await expect(page.locator('li[data-rule="valley-short"]')).toHaveCount(0);
+  const before = calls.length;
+  await page.click('#shortnight');
+  await expect(page.locator('#shortnight')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#shortnight')).toContainText('until 9 AM');
+  await expect(page.locator('[data-route="R1"] .warns li[data-rule="valley-short"]')).toHaveCount(1);
+  await expect(page.locator('.chip[data-worker="C03"]')).toHaveClass(/valley-short/);
+  // Phone-local: no write of any kind goes to the backend.
+  expect(calls.slice(before).filter((c) => /^(save|add|post|handoff|archive)/.test(c.body.action))).toEqual([]);
+  // It lasts until the next 9 AM after it was turned on: 8 PM on 10/2 -> 9 AM on 10/3.
+  expect(await page.evaluate(() => Number(localStorage.getItem('snow-short-night-until')))).toBe(new Date('2026-10-03T09:00:00-08:00').getTime());
+  await page.click('#shortnight');
+  await expect(page.locator('#shortnight')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('li[data-rule="valley-short"]')).toHaveCount(0);
+});
+
+test('roster-3: the switch is remembered on this phone until 9 AM and is off again at 9:00 sharp', async ({ browser }) => {
+  const ctx = await browser.newContext({ timezoneId: 'America/Anchorage', viewport: { width: 390, height: 844 } });
+  const w = homeWorld(); w.moves = JORDAN_ON_N1;
+  const visit = async (stamp, tap) => {
+    const page = await ctx.newPage();
+    await open(page, { token: 'tok-matt', snow: fakeSnow(w), clockAt: stamp });
+    await page.click('nav [data-tab="board"]');
+    await expect(page.locator('#shortnight')).toBeVisible();
+    if (tap) await page.click('#shortnight');
+    const on = await page.locator('#shortnight').getAttribute('aria-pressed');
+    await page.close();
+    return on;
+  };
+  expect(await visit('2026-10-02T20:00:00-08:00', true)).toBe('true');
+  expect(await visit('2026-10-03T08:59:00-08:00', false)).toBe('true');   // the clock window ended at 8:00; only the switch keeps it on until 9:00
+  expect(await visit('2026-10-03T09:00:00-08:00', false)).toBe('false');  // 9:00 sharp: the switch has expired, the night is over
+  await ctx.close();
 });

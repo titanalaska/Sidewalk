@@ -1855,6 +1855,10 @@ const walkBtn = (page, key, state) => page.locator('[data-walk="' + key + '"][da
 const phoneState = (page) => page.evaluate(() => SnowShiftUI.state());
 // Another visibilitychange = the app coming back on screen = one poll now.
 const pollNow = (page) => page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+// The app mirrors what is open onto the browser history (the phone's Back button) and pops it
+// with history.go(), which answers later. Before a second page.goto in one test, wait for that
+// pop to land: with nothing open, the app's own stack is empty.
+const backSettled = (page) => page.waitForFunction(() => !((history.state && history.state.snow) || []).length);
 // Matt and the leads land on the live view; tapping a route opens it as the crew see it.
 const openRoute = async (page, id) => { await page.locator('[data-openroute="' + id + '"]').click(); await expect(page.locator('#liveBack')).toBeVisible(); };
 
@@ -2060,6 +2064,9 @@ test('short site names show their address on the Routes tab, in the route editor
   await page.click('[data-edit="route:R2"]');
   await expect(page.locator('#r_add option[value="S1"]')).toHaveText('PAC · 4001 TUDOR CENTRE');
   await page.click('#dlgClose');
+  // Closing the editor pops its Back step with history.go(-1), which lands later; a goto
+  // started before it lands is cancelled (net::ERR_ABORTED, 10/9/26). Wait for the stack to settle.
+  await backSettled(page);
   await openStorm(page, w);
   await expect(page.locator('.shift-site').first()).toContainText('4001 TUDOR CENTRE');
 });

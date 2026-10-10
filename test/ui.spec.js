@@ -6109,3 +6109,42 @@ test('Spanish: EN comes back without a reload, and ES twice does not double-tran
   expect(boots()).toBe(before);
   expect(await page.evaluate(() => localStorage.getItem('snow-lang'))).toBe('en');
 });
+
+test('Spanish: the Storm tab reads Spanish, the English is gone, and a tap still sends cleared', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  const calls = await openStorm(page, stormWorld());
+  await expect(walkBtn(page, 'S1|Z1', 'cleared')).toHaveText('Despejado');
+  await expect(walkBtn(page, 'S1|Z1', 'treated')).toHaveText('Tratado');
+  await expect(page.getByText('Cleared', { exact: true })).toHaveCount(0);
+  await expect(page.locator('#stormhead')).toHaveText('Tormenta abierta · Nieve detenida');
+  await walkBtn(page, 'S1|Z1', 'cleared').click();
+  await expect.poll(() => tapCalls(calls).length).toBe(1);
+  expect(tapCalls(calls)[0].body.state).toBe('cleared'); // the server never sees a Spanish word
+});
+
+test('Spanish: Tonight for the crew: Tu ruta, and LÍDER keeps its space before the name', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await openStorm(page, stormWorld());
+  await page.click('nav [data-tab="tonight"]');
+  await expect(page.locator('.tonight-route.mine .badge')).toHaveText('Tu ruta');
+  await expect(page.getByText('Your route', { exact: true })).toHaveCount(0);
+  await expect(page.locator('.tonight-route.mine .lead').first()).toHaveText('LÍDER ');
+  await expect(page.locator('.tonight-route.mine .crewlist li').first()).toContainText('LÍDER Alex Test');
+});
+
+test('Spanish: a walk refused after the switch says No se guardó (the observer path)', async ({ page }) => {
+  await openStorm(page, stormWorld(), { abortIf: (b) => b.action === 'tapZone' });
+  await expect(walkBtn(page, 'S1|Z1', 'cleared')).toHaveText('Cleared');
+  await page.click('#langWrap [data-lang="es"]');
+  await walkBtn(page, 'S1|Z1', 'cleared').click();
+  await expect(walkRow(page, 'S1|Z1')).toContainText('No se guardó');
+  await expect(walkRow(page, 'S1|Z1').getByText('Not saved')).toHaveCount(0);
+  await expect(page.locator('[data-retry="S1|Z1"]')).toHaveText('Reintentar');
+});
+
+test('Spanish: the weather hint is translated by rule', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await nws(page);
+  await openStorm(page, withView(stormWorld(), 'S1', NWS_POINT));
+  await expect(page.locator('#stormhint')).toHaveText('Nieve hasta las 10 AM');
+});

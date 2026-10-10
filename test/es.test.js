@@ -40,3 +40,14 @@ test('every row has a Spanish value different from its key and no row is blank',
   assert.ok(rows.length > 0);
   for (const [k, v] of rows) assert.ok(typeof v === 'string' && v.trim() && v !== k, 'row ' + JSON.stringify(k));
 });
+
+test('the status words the crew tap all night (spec, Groundwork vocabulary; one crew member checks before ship)', () => {
+  const words = {
+    'Cleared': 'Despejado', 'Treated': 'Tratado', 'Problem': 'Problema', 'Checked': 'Revisado', 'Touched': 'Tocado',
+    'Done': 'Listo', 'Clean again': 'Limpiar de nuevo', 'Whole site': 'Todo el sitio', 'Retry': 'Reintentar', 'Undo': 'Deshacer',
+    'Sidewalk': 'Banqueta', 'Hand work': 'Trabajo a mano', 'Heated: check only, no melt': 'Calefaccionado: solo revisar, sin derretidor',
+    'Snow storage': 'Depósito de nieve', 'Do not touch': 'No tocar',
+    "Couldn't reach the server. Not saved, try again.": 'No se pudo conectar con el servidor. No se guardó, inténtalo de nuevo.',
+  };
+  for (const [en, es] of Object.entries(words)) assert.equal(Es.translateString(en), es, en);
+});

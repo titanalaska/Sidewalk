@@ -53,9 +53,11 @@ Two fixes, two different costs:
 - `getZones` with `site_id` and no `slim`: **unchanged**, rings included. This is where maps get
   their outlines.
 - No `slim`: **byte-for-byte today's reply.** This is what keeps an un-updated phone working.
-- `centroid(ring)` moves from `lib/mapview.js` into the shared `geo.js` (byte-identical on both
-  halves, already in `test/geo-identity.test.js`). `SnowMapView.centroid` stays exported as the
-  same function so no caller changes.
+- `centroid(ring)` moves from `lib/mapview.js` into a **new shared `points.js`** (byte-identical on
+  both halves, added to `test/geo-identity.test.js`), with the site-point rule itself
+  (`sitePoint`, `pointsFor`) and the ring stripping (`slim`). `SnowMapView.centroid` stays exported
+  and delegates to it, so no caller changes. *(Amended while planning, 10/9/26: the first draft put
+  it in `geo.js`, but that file is copied verbatim from Bootprint and is never edited here.)*
 - Nothing new is stored: points are computed per call from the cached Zones rows. No new tab, no
   new Google service, **no editor step** (no backfill run).
 - `VERSION = 'outlines-1'`; the version-label mutation re-pointed in the same commit.
@@ -74,7 +76,7 @@ site record back, and a computed point must never be written into the Sheet as i
     `{ v: 1, sites: { <site_id>: { at: <iso>, rings: { <zone_id>: [[lng, lat], ...] } } } }`.
   - `keep(siteId, zones)`: replaces that site's entry with the rings of the given zones.
   - `keepOne(siteId, zone)`: one zone (an editor save).
-  - `withRings(zones, siteId)`: the zones that have a kept ring, each a copy with `ring` attached.
+  - `withRings(siteId, zones)`: the zones that have a kept ring, each a copy with `ring` attached.
   - `changed(siteId, zones)`: true when the fresh zones' rings differ from the kept ones (any zone
     added, gone, or with different corners).
   - `forget()`: removes the key.

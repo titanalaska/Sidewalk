@@ -179,3 +179,56 @@ test('the photo switch tapped on a map whose style is still unparsed takes effec
   expect(await moa()).toBe('visible');
   expect(errors).toEqual([]);
 });
+
+// ---------- 2. the Import from Bootprint preview, coloured by type ----------
+// The preview drew every outline as one white dashed line, and Matt read a 4-ft curb ring
+// (hand work) as a sidewalk. Each previewed outline now carries the type it will import as,
+// and the draft layer colours by it from the one table the zones and the legend use
+// (SnowMap.TYPES, Bootprint's colours). The dash stays: these are not saved yet. The
+// outline being drawn carries no type and keeps the white fallback.
+const mPin = (x, y) => ({ lat: PAC[1] + y / RE / DEGR, lng: PAC[0] + x / (RE * Math.cos(PAC[1] * DEGR)) / DEGR, accuracy: 0 });
+const bpRect = (x, y) => [mPin(x, y), mPin(x + 10, y), mPin(x + 10, y + 5), mPin(x, y + 5)];
+const bpExport = () => Buffer.from(JSON.stringify({ schema: 'bootprint-library-export', version: 1, jobs: [
+  { id: 'NEAR', name: 'Near PAC', zones: [
+    { id: 1, name: 'Front walk', mode: 'area', surface: 'walk', pins: bpRect(-80, -20), widthFt: '' },
+    { id: 2, name: 'Curb 4 ft', mode: 'area', surface: 'hand', pins: bpRect(-80, -40), widthFt: '' },
+    { id: 3, name: 'Snow pile 1', mode: 'area', surface: 'storage', pins: bpRect(-80, -60), widthFt: '' },
+  ] }] }));
+// A match expression's type -> colour pairs, as an object; null for anything else.
+const matchPairs = (expr) => {
+  if (!Array.isArray(expr) || expr[0] !== 'match' || JSON.stringify(expr[1]) !== '["get","type"]') return null;
+  const out = {};
+  for (let i = 2; i < expr.length - 1; i += 2) out[expr[i]] = expr[i + 1];
+  return { pairs: out, fallback: expr[expr.length - 1] };
+};
+
+test('the import preview carries each outline\'s type, and the draft layer colours by the zones\' own table', async ({ page }) => {
+  await tilesAnswer(page);
+  await open(page, { token: 'tok-matt', snow: fakeSnow(mapWorld()) });
+  await page.click('nav [data-tab="sites"]');
+  await page.click('[data-map="S1"]');
+  await page.waitForFunction(() => window.SnowMapView && window.SnowMapView.getSource('zones'));
+  await page.click('#mapedit');
+  await page.setInputFiles('#ed_bpfile', { name: 'bootprint-library-2026-10-09.json', mimeType: 'application/json', buffer: bpExport() });
+  await page.locator('#bp_jobs [data-bpjob]').first().click();
+  await expect(page.locator('#bp_sum')).toContainText('2 walks · 1 snow pile to add');
+  // Each previewed outline says what it will import as: walk -> sidewalk, hand -> hand, storage -> storage.
+  await expect.poll(() => page.evaluate(() => window.SnowMapView.getSource('draft')._data.features.map((f) => f.properties.type)))
+    .toEqual(['sidewalk', 'hand', 'storage']);
+  const paint = await page.evaluate(() => ({
+    line: window.SnowMapView.getPaintProperty('draft-line', 'line-color'),
+    dash: window.SnowMapView.getPaintProperty('draft-line', 'line-dasharray'),
+    fill: window.SnowMapView.getPaintProperty('draft-fill', 'fill-color'),
+    zones: window.SnowMapView.getPaintProperty('zones-line', 'line-color'),
+    table: Object.fromEntries(Object.keys(window.SnowMap.TYPES).map((k) => [k, window.SnowMap.TYPES[k].color])),
+  }));
+  // Bootprint's colours (Matt, 10/4/26), read off the table the legend is drawn from.
+  expect(paint.table).toMatchObject({ sidewalk: '#1c6fb0', hand: '#d98c00', storage: '#7d5ba6', no_touch: '#e0218a' });
+  const line = matchPairs(paint.line);
+  expect(line).not.toBeNull();
+  expect(line.pairs).toEqual(paint.table);            // every type, its own colour
+  expect(line.fallback).toBe('#ffffff');               // no type (the outline being drawn): white, as before
+  expect(line.pairs).toEqual(matchPairs(paint.zones).pairs); // the same table as the saved zones
+  expect(matchPairs(paint.fill).pairs).toEqual(paint.table);
+  expect(paint.dash).toEqual([2, 1]);                  // still marked as not saved
+});

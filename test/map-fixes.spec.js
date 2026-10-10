@@ -108,7 +108,8 @@ async function unparsedMap(page, errors, state) {
   await page.click('nav [data-tab="sites"]');
   await holdFrames(page);
   await page.click('[data-map="S1"]');
-  await expect(page.locator('#mapedit')).toBeEnabled({ timeout: 12000 });
+  // Past the page's own 8 s fallback (lib/mapview.js) with room for a loaded laptop: 12 s raced it.
+  await expect(page.locator('#mapedit')).toBeEnabled({ timeout: 20000 });
   expect(await styleParsed(page)).toBe(false);
   return calls;
 }

@@ -6063,3 +6063,49 @@ test("Matt's Sites cards show each site's curbs and flag one over size; the crew
   await expect(crew.locator('[data-site="S1"]')).toBeVisible();
   await expect(crew.locator('.curbline')).toHaveCount(0);
 });
+
+// ---------- Spanish (Matt, 10/9/26: crew screens, switched on the phone) ----------
+// The screen is translated by lib/es.js; a test on translated text asserts the Spanish
+// is visible AND the English is gone (10/5/26 rule), never toContainText alone.
+test('Spanish: a phone set to ES opens the sign-in form in Spanish, before anyone signs in', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await open(page, { snow: fakeSnow(world()) });
+  await expect(page.locator('#signin h2')).toHaveText('Iniciar sesión');
+  await expect(page.getByText('Sign in', { exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.lang)).toBe('es');
+  await expect(page.locator('#langWrap .lang-btn[data-lang="es"]')).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('Spanish: no snow-lang yet, wolf-lang=es from Groundwork opens Spanish and writes snow-lang', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('wolf-lang', 'es'));
+  await open(page, { snow: fakeSnow(world()) });
+  await expect(page.locator('#signin h2')).toHaveText('Iniciar sesión');
+  expect(await page.evaluate(() => localStorage.getItem('snow-lang'))).toBe('es');
+});
+
+test('Spanish: snow-lang=en wins over wolf-lang=es; a garbage value reads as English', async ({ page }) => {
+  await page.addInitScript(() => { localStorage.setItem('snow-lang', 'en'); localStorage.setItem('wolf-lang', 'es'); });
+  await open(page, { snow: fakeSnow(world()) });
+  await expect(page.locator('#signin h2')).toHaveText('Sign in');
+  expect(await page.evaluate(() => localStorage.getItem('snow-lang'))).toBe('en'); // not overwritten by wolf-lang
+  await page.evaluate(() => { localStorage.setItem('snow-lang', 'fr'); localStorage.removeItem('wolf-lang'); });
+  await page.goto(PAGE);
+  await expect(page.locator('#signin h2')).toHaveText('Sign in');
+  await expect(page.locator('#langWrap .lang-btn[data-lang="en"]')).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('Spanish: EN comes back without a reload, and ES twice does not double-translate', async ({ page }) => {
+  const calls = await open(page, { token: 'tok-jordan', snow: fakeSnow(world()) });
+  await expect(page.locator('nav [data-tab="routes"]')).toHaveText('Routes');
+  const boots = () => calls.filter((c) => c.body.action === 'bootstrap').length;
+  const before = boots();
+  await page.click('#langWrap [data-lang="es"]');
+  await page.click('#langWrap [data-lang="es"]');
+  await expect(page.locator('nav [data-tab="routes"]')).toHaveText('Rutas');
+  await expect(page.locator('nav [data-tab="sites"]')).toHaveText('Sitios');
+  await page.click('#langWrap [data-lang="en"]');
+  await expect(page.locator('nav [data-tab="routes"]')).toHaveText('Routes');
+  await expect(page.locator('nav [data-tab="sites"]')).toHaveText('Sites');
+  expect(boots()).toBe(before);
+  expect(await page.evaluate(() => localStorage.getItem('snow-lang'))).toBe('en');
+});

@@ -56,3 +56,31 @@ test('the status words the crew tap all night (spec, Groundwork vocabulary; one 
   };
   for (const [en, es] of Object.entries(words)) assert.equal(Es.translateString(en), es, en);
 });
+
+test('final review: the rows and rules the crew screens were still missing', () => {
+  const cases = {
+    'PIN is 4 digits.': 'El PIN tiene 4 dígitos.',
+    'Wrong PIN. 3 tries left.': 'PIN incorrecto. Quedan 3 intentos.',
+    'Too many wrong PINs. Wait 5 minutes.': 'Demasiados PIN incorrectos. Espera 5 minutos.',
+    ' (waiting for approval)': ' (esperando aprobación)',
+    'This goes to Matt in Titan Inventory. Once he approves it, sign in with your name and this PIN.':
+      'Esto le llega a Matt en Titan Inventory. Cuando lo apruebe, inicia sesión con tu nombre y este PIN.',
+    "Can't reach the server. Trying again.": 'No se puede conectar con el servidor. Intentando de nuevo.',
+    'Add minutes for Blower, or untick it': 'Agrega minutos para Sopladora, o desmárcala',
+    'Night of 10/3, posted 12:12 AM': 'Noche del 10/3, publicado 12:12 AM',
+    'Day of 10/3, posted 9:05 AM': 'Día del 10/3, publicado 9:05 AM',
+    'Shifts worked': 'Turnos trabajados',
+    '— 3 nights · 1 day': '— 3 noches · 1 día',
+    '— 1 night · 2 days': '— 1 noche · 2 días',
+    'Start': 'Inicio',           // the card's times line is exactly this text node
+    '· Finish': '· Fin',
+    'Start storm': 'Start storm', // a lead's control: NOT a row, never "Inicio storm" (spec: leads' screens stay)
+    'not set': 'sin definir',
+    'none': 'ninguno',
+    'own': 'propio',
+    'needs issued': 'se necesita entregar',
+    'I have my own': 'Tengo el mío',
+    'I need it issued': 'Necesito que me lo entreguen',
+  };
+  for (const [en, es] of Object.entries(cases)) assert.equal(Es.translateString(en), es, en);
+});

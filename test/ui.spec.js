@@ -6193,3 +6193,99 @@ test('Spanish: without lib/es.js the app still signs in and runs, in English', a
   await expect(page.locator('#langWrap .lang-btn[aria-pressed="true"]')).toHaveCount(0); // nothing painted, nothing thrown
   expect(errors).toEqual([]);
 });
+
+// ---- Spanish, final-review fix pass (10/9/26): the data rule on Tonight, the guard's own holes, a lead's
+// controls, a comparison on translated text, and rows the review found missing. Each failed before its fix.
+test('Spanish: Tonight never translates a route, site or person name, while its labels still do', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  const w = stormWorld();
+  // Tonight draws every name from the post itself: a real route name with a dictionary word in it, a site
+  // with two, and a night lead named like two rows.
+  w.posts = [{ ...POST, shift: 'night-2026-10-02',
+    routes: [{ id: 'R1', name: 'ANTHC Sidewalk 1', sites: [{ id: 'S1', name: 'Map Valley Plaza' }], lead: 'C01', members: ['C03'] }],
+    people: { C01: { name: 'Valley Lead', phone: '555-0101', shifts: { night: 3, day: 1 } }, C03: POST.people.C03 } }];
+  await openStorm(page, w);
+  await page.click('nav [data-tab="tonight"]');
+  const mine = page.locator('.tonight-route.mine');
+  await expect(page.locator('#shifts-worked')).toContainText('Valley Lead — 3 noches · 1 día'); // the name kept, the counts by rule
+  await expect(mine.locator('.route-badge')).toHaveText('ANTHC Sidewalk 1');
+  await expect(mine.locator('.sitelist li').first()).toContainText('Map Valley Plaza');
+  await expect(mine.locator('.crewlist li').first()).toContainText('LÍDER Valley Lead');
+  await expect(page.locator('#main').getByText('Banqueta')).toHaveCount(0);
+  await expect(page.locator('#main').getByText('El Valle')).toHaveCount(0);
+  await expect(page.locator('#main').getByText('Mapa Valley')).toHaveCount(0);
+  await expect(mine.locator('.badge')).toHaveText('Tu ruta');                 // the labels beside them still translate
+  await expect(mine.locator('.sitelist li [data-map]').first()).toHaveText('Mapa');
+});
+
+test('Spanish: data-no-es holds for a text node set later and for attributes under it (the engine itself)', async ({ page }) => {
+  const w = stormWorld();
+  await openStorm(page, w);
+  await page.evaluate(() => {
+    const p = document.createElement('span'); p.id = 'probe'; p.setAttribute('data-no-es', '');
+    p.innerHTML = '<img id="probe_img" alt="Lead" title="Valley">';
+    const q = document.createElement('img'); q.id = 'probe_out'; q.alt = 'Lead';
+    document.querySelector('main').append(p, q);
+  });
+  await page.click('#langWrap [data-lang="es"]');                              // the full-body path
+  expect(await page.evaluate(() => [document.getElementById('probe_img').alt, document.getElementById('probe_img').title, document.getElementById('probe_out').alt]))
+    .toEqual(['Lead', 'Valley', 'Líder']);
+  await page.evaluate(() => { document.getElementById('who').textContent = 'Valley Lead'; });   // the observer path, a new Text node
+  await expect(page.locator('#who')).toHaveText('Valley Lead');
+  await page.evaluate(() => { document.getElementById('who').firstChild.nodeValue = 'Map Start'; }); // characterData
+  await expect(page.locator('#who')).toHaveText('Map Start');
+});
+
+test("Spanish: a lead's storm controls are not half-translated; the card's Start and Finish are", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  const w = stormWorld(); w.storms = [];                                       // no storm open: Start storm shows
+  await openStorm(page, w, { token: 'tok-alex' });
+  await expect(page.locator('[data-storm="start"]')).toHaveText('Start storm');
+  w.storms = [START_ROW];
+  await page.reload();                                                        // the storm is open now
+  await page.click('nav [data-tab="storm"]');
+  await openRoute(page, 'R1');
+  await openCard(page, 'S1');
+  await expect(page.locator('.vc-times')).toContainText('Inicio');
+  await expect(page.locator('.vc-times')).toContainText('Fin');
+  await expect(page.locator('.vc-times').getByText('Start')).toHaveCount(0);
+  await expect(page.locator('.vc-times').getByText('Finish')).toHaveCount(0);
+});
+
+test('Spanish: the still-saving note on another card still clears when the slow save lands', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  const w = stormWorld();
+  const calls = await openStorm(page, w, { delay: { saveVisit: 2000 } });
+  await openCard(page, 'S1');
+  await page.fill('#vc_depth', '2');
+  await page.click('#vc_save');
+  await page.click('#dlgClose');
+  await expect(page.locator('#dlg')).toBeHidden();
+  await page.click('#otherRoutes');
+  await openCard(page, 'S2');
+  await page.fill('#vc_depth', '7');
+  await page.click('#vc_save');
+  await expect(page.locator('#vc_err')).toContainText('Todavía se está guardando');
+  expect(visitCalls(calls)).toHaveLength(1);
+  await expect.poll(async () => (await phoneState(page)).visits.map((r) => r.id)).toEqual(['V-1']);
+  await expect(page.locator('#vc_err')).toHaveText('');                        // cleared, as it is in English
+});
+
+test('Spanish: the Problems box keeps the site name as typed', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  const w = stormWorld();
+  w.sites[0].name = 'Sidewalk Plaza';
+  w.log = [logRow(1, 'S1', 'Z1', 'problem', 'Alex Test', { note: 'ice, needs chipper' })];
+  await openStorm(page, w, { token: 'tok-matt' });
+  await expect(page.locator('#problems b').first()).toHaveText('Sidewalk Plaza');
+  await expect(page.locator('#problems').getByText('Banqueta')).toHaveCount(0);
+});
+
+test('Spanish: a three-digit PIN is refused in Spanish', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await open(page, { snow: fakeSnow(world()) });
+  await page.selectOption('#si_who', '3');
+  await page.fill('#si_pin', '123');
+  await page.click('#si_go');
+  await expect(page.locator('#si_err')).toHaveText('El PIN tiene 4 dígitos.');
+});

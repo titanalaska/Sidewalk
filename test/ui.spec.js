@@ -915,7 +915,9 @@ test('the old-map picture shows beside the map and is never sent or stored', asy
   const calls = await adminMap(page, mapWorld());
   await page.click('#mapedit');
   // After Edit map, which stores its own on/off flag: from here, nothing new may be kept.
-  const before = await page.evaluate(() => JSON.stringify(Object.keys(localStorage).sort().map((k) => [k, localStorage.getItem(k)])));
+  // R13: every key EXCEPT snow-outlines. Editor saves now keep the zone's outline there, per the outlines spec; the picture rule is unchanged (it is checked on that key below).
+  const others = () => page.evaluate(() => JSON.stringify(Object.keys(localStorage).filter((k) => k !== 'snow-outlines').sort().map((k) => [k, localStorage.getItem(k)])));
+  const before = await others();
   await page.setInputFiles('#ed_reffile', { name: 'Night 1 - PAC.png', mimeType: 'image/png', buffer: PNG1 });
   await expect(page.locator('#refpanel img')).toBeVisible();
   expect(await page.locator('#refpanel img').getAttribute('src')).toMatch(/^blob:/);
@@ -934,8 +936,13 @@ test('the old-map picture shows beside the map and is never sent or stored', asy
     expect(s).not.toContain('Night 1 - PAC');
     expect(s).not.toContain('blob:');
   }
-  const after = await page.evaluate(() => JSON.stringify(Object.keys(localStorage).sort().map((k) => [k, localStorage.getItem(k)])));
-  expect(after).toBe(before);
+  expect(await others()).toBe(before);
+  // The one key a save does write: the zone's outline, and nothing of the picture.
+  const kept = await page.evaluate(() => localStorage.getItem('snow-outlines'));
+  expect(kept).not.toBeNull();
+  expect(kept).not.toContain('data:image');
+  expect(kept).not.toContain('blob:');
+  expect(kept).not.toContain('Night 1 - PAC');
   await page.click('#ref_close');
   await expect(page.locator('#refpanel')).toBeHidden();
 });

@@ -42,6 +42,10 @@ const mapWorld = () => ({
 });
 
 // bootstrap and saveZone with the real reply shapes (the fake in test/ui.spec.js, cut to the map).
+// This fake is the backend as it is LIVE today, curbs-1: it has never heard of `slim`, so every
+// reply carries the rings and no `points` key. Since 10/9/26 (outlines on demand) the phone asks
+// for slim and expects outlines-1; against this backend it must still open its maps (the version
+// banner shows, nothing here asserts on it). The slim path is test/ui.spec.js's and test/outlines.spec.js's.
 function fakeSnow(state) {
   return (body) => {
     const v = { version: 'curbs-1' }, role = TOKENS[body.token];

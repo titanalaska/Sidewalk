@@ -133,6 +133,45 @@ test('no saved view and no zones: no point', () => {
   assert.equal(SnowWeather.point({ map: { center: ['x', 'y'] } }, []), null);
 });
 
+// Outlines on demand (10/9/26): sign-in no longer carries the outlines, so the server sends one
+// [lng, lat] per site (S.points) and the phone's zones have no ring. The point's order is now the
+// saved view, then the server's point, then the first zone given that has a ring (one the server
+// sent, or one this phone kept for a map).
+const SERVER = [-149.8761, 61.2049]; // [lng, lat], as the server sends it
+// Paper: 61.2049 * 100 = 6120.49 -> 6120 -> 61.2; -149.8761 * 100 = -14987.61 -> -14988 -> -149.88.
+const SERVER_2DP = [61.2, -149.88];
+const RING = [[-149.0, 61.0], [-148.9898, 61.0], [-148.9898, 61.0102], [-149.0, 61.0102]]; // centroid (-148.9949, 61.0051) -> [61.01, -148.99]
+
+test('point: the server\'s point is used when there is no saved view, rounded to two decimals', () => {
+  assert.deepEqual(SnowWeather.point({}, [], SERVER), SERVER_2DP);
+  assert.deepEqual(SnowWeather.point({ map: { zoom: 18 } }, [], SERVER), SERVER_2DP);          // a view with no centre
+  assert.deepEqual(SnowWeather.point({ map: { center: ['x', 'y'] } }, [], SERVER), SERVER_2DP); // a centre that is not numbers
+});
+
+test('point: the saved view beats the server\'s point', () => {
+  // The view at 61.3351, -149.5149 (-> [61.34, -149.51]) and the server's point at another place.
+  assert.deepEqual(SnowWeather.point({ map: { center: [-149.5149, 61.3351] } }, [], SERVER), [61.34, -149.51]);
+});
+
+test('point: the server\'s point beats a zone\'s ring', () => {
+  assert.deepEqual(SnowWeather.point({}, [{ ring: RING }], SERVER), SERVER_2DP);
+});
+
+test('point: with neither a view nor a server point, a ring\'s centroid is used', () => {
+  assert.deepEqual(SnowWeather.point({}, [{ ring: RING }]), [61.01, -148.99]);            // no third argument
+  assert.deepEqual(SnowWeather.point({}, [{ ring: RING }], undefined), [61.01, -148.99]); // a backend that ignores slim: no points key
+  assert.deepEqual(SnowWeather.point({}, [{ ring: RING }], null), [61.01, -148.99]);
+  // Slim zones (no ring) before the kept copy: the first zone WITH a ring is the one.
+  assert.deepEqual(SnowWeather.point({}, [{ id: 'Z1' }, { id: 'Z2', ring: [] }, { id: 'Z1', ring: RING }], null), [61.01, -148.99]);
+});
+
+test('point: a server point that is not two finite numbers is passed over, never an error', () => {
+  for (const bad of [['x', 'y'], [1], [], {}, 'nope', 7, [NaN, 61], [-149.8, Infinity], [null, null]]) {
+    assert.deepEqual(SnowWeather.point({}, [{ ring: RING }], bad), [61.01, -148.99], JSON.stringify(bad)); // falls to the ring
+    assert.equal(SnowWeather.point({}, [], bad), null, JSON.stringify(bad));                               // and with nothing else, no point
+  }
+});
+
 // ---------------- fetchHint ----------------
 
 const HOURLY = 'https://api.weather.gov/gridpoints/ZZZ/1,1/forecast/hourly';

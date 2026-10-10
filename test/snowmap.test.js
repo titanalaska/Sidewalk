@@ -21,6 +21,35 @@ test('pointsFor: the saved view wins, else the first outline, else the site is l
   assert.deepEqual(r.missing, [{ id: 'S4', name: 'Nowhere' }]);
 });
 
+// Outlines on demand (10/9/26): the slim sign-in carries one [lng, lat] per site (S.points) and
+// zones with no ring. pointsFor passes points[site.id] through to SnowWeather.point, whose order is
+// the saved view, the server's point, then a ring.
+test('pointsFor: a site with only a server point is in points, not missing; the view still beats it; no points key is today\'s reply', () => {
+  const sites = [
+    { id: 'S1', name: 'PAC', address: '621 W 6TH', map: { center: [-149.8912, 61.2167] } },   // a view AND a server point
+    { id: 'S2', name: 'IB', address: '4141 AMBASSADOR' },                                       // a server point only (its zone came slim)
+    { id: 'S4', name: 'Nowhere' },                                                               // nothing
+    { id: 'S5', name: 'Gone', archived: true },                                                  // archived: never a dot, even with a point
+  ];
+  const slimZones = [{ id: 'Z1', site_id: 'S2' }]; // no ring: the sign-in was slim
+  // Paper: S1's view 61.2167 -> 61.22, -149.8912 -> -149.89 (the server's point for it, elsewhere, is not used).
+  //        S2's server point [-149.8761, 61.2049]: 61.2049 -> 61.2, -149.8761 -> -149.88.
+  const points = { S1: [-149.0, 61.0], S2: [-149.8761, 61.2049], S5: [-149.9, 61.2] };
+  const r = M.pointsFor(sites, slimZones, points);
+  assert.deepEqual(r.points.map((p) => [p.id, p.name, p.address, p.lat, p.lon]),
+    [['S1', 'PAC', '621 W 6TH', 61.22, -149.89], ['S2', 'IB', '4141 AMBASSADOR', 61.2, -149.88]]);
+  assert.deepEqual(r.missing, [{ id: 'S4', name: 'Nowhere' }]);
+  // A backend that ignores slim sends no points key at all: S.points is {} and a ring still counts.
+  const ringZones = [{ id: 'Z1', site_id: 'S2', ring: [[-149.80, 61.18], [-149.80, 61.19], [-149.79, 61.19], [-149.79, 61.18]] }];
+  for (const none of [{}, undefined, null]) {
+    const q = M.pointsFor(sites, ringZones, none);
+    assert.deepEqual(q.points.map((p) => [p.id, p.lat, p.lon]), [['S1', 61.22, -149.89], ['S2', 61.19, -149.8]], String(none));
+    assert.deepEqual(q.missing, [{ id: 'S4', name: 'Nowhere' }]);
+  }
+  // A server point for a site that is not in `sites` is nothing to draw.
+  assert.deepEqual(M.pointsFor([{ id: 'S4', name: 'Nowhere' }], [], { S9: [-149.8761, 61.2049] }), { points: [], missing: [{ id: 'S4', name: 'Nowhere' }] });
+});
+
 test('forecastInches: each period counts by the fraction inside [now, now + hours]; 25.4 mm over 6 h with 3 h inside is 0.5"', () => {
   const series = [{ start: T, end: T + 6 * H, mm: 25.4 }];
   assert.equal(M.forecastInches(series, T + 3 * H, 12), 0.5);

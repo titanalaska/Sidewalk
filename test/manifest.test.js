@@ -46,7 +46,22 @@ test('the shell caches the shift log files', () => {
   assert.ok(loaded.length > 10, 'found the page\'s script tags');
   for (const f of loaded) assert.ok(shell.includes(f), f + ' is loaded by index.html but not in the shell');
   // A new shell means a new cache name, or installed phones keep the old one.
-  assert.match(sw, /var CACHE_VERSION = 'titan-snow-shell-38';/);
+  assert.match(sw, /var CACHE_VERSION = 'titan-snow-shell-39';/);
+});
+
+// Outlines on demand (10/9/26): lib/points.js (the shared centroid and site point) and
+// lib/outlines.js (the kept copies) are loaded by the page and cached in the shell. mapview.js
+// reads SnowPoints when it loads, so points.js must come first; a map opened with no signal
+// draws from outlines.js, so both are in the shell.
+test('the page loads points.js before mapview.js, and outlines.js; the shell carries both', () => {
+  const html = read('index.html').toString();
+  const loaded = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(loaded.includes('lib/points.js'), 'lib/points.js is not loaded by index.html');
+  assert.ok(loaded.includes('lib/outlines.js'), 'lib/outlines.js is not loaded by index.html');
+  assert.ok(loaded.indexOf('lib/points.js') < loaded.indexOf('lib/mapview.js'), 'lib/points.js must load before lib/mapview.js');
+  const sw = read('sw.js').toString();
+  const shell = JSON.parse(sw.match(/var SHELL = (\[[\s\S]*?\]);/)[1].replace(/'/g, '"'));
+  for (const f of ['lib/points.js', 'lib/outlines.js']) assert.ok(shell.includes(f), f + ' is not in the shell');
 });
 
 test('the offline shell carries the manifest and icons', () => {

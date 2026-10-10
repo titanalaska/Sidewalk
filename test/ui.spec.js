@@ -15,11 +15,18 @@ const PROFILES = [
   { id: 9, name: 'Pending Pat', status: 'pending', hasPin: true },
 ];
 const TOKENS = { 'tok-matt': 'admin', 'tok-jordan': 'crew', 'tok-alex': 'lead' };
+// The server's own points file (byte-identical on both halves): the fake answers `slim` with it,
+// so what it sends is what the real backend sends, never more.
+const SnowPoints = require('../lib/points.js');
 
 // A small fake of the snow backend, with the real reply shapes.
+// opts.oldBackend: the backend as it is live today (curbs-1), which has never heard of `slim`:
+// rings in every reply, no `points` key. A phone that has updated must still work against it.
 function fakeSnow(state, opts = {}) {
   return (body) => {
-    const v = { version: opts.version || 'curbs-1' };
+    const v = { version: opts.version || (opts.oldBackend ? 'curbs-1' : 'outlines-1') };
+    // Outlines on demand (10/9/26, snow-app-script Code.js): `slim: true`, exactly true, and nothing else.
+    const slim = body.slim === true && !opts.oldBackend;
     if (opts.expired && opts.expired.on) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     // Roster self-service (10/6/26): the real backend's rules for one's own card (snow-app-script
     // saveMyCard_, test/api.test.js). Nina is approved in Inventory and not on the roster: her save
@@ -71,6 +78,9 @@ function fakeSnow(state, opts = {}) {
       const out = { ok: true, me, sites: state.sites, routes: state.routes, zones: state.zones || [], crew, post: state.posts.at(-1) || null, ...v };
       if (role === 'admin') Object.assign(out, { moves: state.moves, callouts: state.callouts, gear: state.gear });
       else out.card = selfView(own());   // one's own card, the self view (never the record)
+      // As Code.js: the points are worked out FIRST, from the outlines the zones still have, then the
+      // rings go. Only on `slim: true`; any other request gets the reply it always got.
+      if (slim) { out.points = SnowPoints.pointsFor(out.sites, out.zones); out.zones = SnowPoints.slim(out.zones); }
       return out;
     }
     // Pairings: the real backend's shapes (snow-app-script test/pairing.test.js).
@@ -79,7 +89,7 @@ function fakeSnow(state, opts = {}) {
     // The real getZones: Matt gets archived zones too, everyone else live ones; site_id narrows it.
     if (body.action === 'getZones') {
       const zones = (state.zones || []).filter((z) => role === 'admin' || z.archived !== true).filter((z) => !body.site_id || z.site_id === body.site_id);
-      return { ok: true, zones, ...v };
+      return { ok: true, zones: slim ? SnowPoints.slim(zones) : zones, ...v };
     }
     if (body.action === 'getBoard') return { ok: true, moves: state.moves, callouts: state.callouts, gear: state.gear, post: state.posts.at(-1) || null, ...v };
     if (body.action === 'addMove' || body.action === 'addGear') {
@@ -665,7 +675,7 @@ test('after a conflict the app reloads the latest, so the retry can save', async
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'curbs-1' };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'outlines-1' };
     }
     return base(b);
   } });
@@ -3122,11 +3132,12 @@ const NWS_PERIODS = ['Light Snow', 'Snow', 'Snow Showers', ...Array(9).fill('Mos
 async function nws(page, o = {}) {
   const seen = [];
   const cors = { 'access-control-allow-origin': '*' };
+  const pointsUrl = o.points || NWS_POINTS; // the one point the NWS answers; any other is a 404
   await page.route((u) => u.hostname === 'api.weather.gov', (route) => {
     const u = route.request().url();
     seen.push(u);
     if (o.fail) return route.abort();
-    if (u === NWS_POINTS) return route.fulfill({ contentType: 'application/geo+json', headers: cors, body: JSON.stringify({ properties: { forecastHourly: NWS_HOURLY, forecastGridData: NWS_GRID } }) });
+    if (u === pointsUrl) return route.fulfill({ contentType: 'application/geo+json', headers: cors, body: JSON.stringify({ properties: { forecastHourly: NWS_HOURLY, forecastGridData: NWS_GRID } }) });
     if (u === NWS_GRID) return route.fulfill({ contentType: 'application/geo+json', headers: cors, body: JSON.stringify({ properties: { snowfallAmount: { uom: 'wmoUnit:mm', values: o.grid || [] } } }) });
     if (u === NWS_HOURLY) return route.fulfill({ contentType: 'application/geo+json', headers: cors, body: JSON.stringify({ properties: { periods: NWS_PERIODS } }) });
     return route.fulfill({ status: 404, headers: cors, body: '{}' });
@@ -3190,6 +3201,140 @@ test('a forecast failure shows no hint and taps still work', async ({ page }) =>
   await pollNow(page);
   await expect(page.locator('#stormhint')).toHaveCount(0);
   expect(seen).toHaveLength(1); // no hammering a failing service
+});
+
+// ---------------- Outlines on demand (Matt, 10/9/26): the slim sign-in ----------------
+// Sign-in used to carry every zone's outline (225 KB of 341 KB). The phone now sends `slim: true`
+// on both bootstrap calls and on the Storm tab's zone refresh, and the server answers with zones
+// that have no `ring` plus one [lng, lat] per site (`points`). The forecast point is then the saved
+// view, else the server's point, else a ring. A backend that has never heard of `slim` (curbs-1,
+// live today) answers as it always did, and the phone must still work against it.
+//
+// Main entry (Z1 at PAC) drawn as a 2-thousandth square around (-149.8761, 61.2049), so its
+// centroid IS that point, with no saved view on PAC. Paper, two decimals as the NWS is asked:
+// 61.2049 * 100 = 6120.49 -> 6120 -> 61.2; -149.8761 * 100 = -14987.61 -> -14988 -> -149.88.
+const SLIM_RING = [[-149.8771, 61.2039], [-149.8751, 61.2039], [-149.8751, 61.2059], [-149.8771, 61.2059]];
+const SLIM_POINTS = 'https://api.weather.gov/points/61.2,-149.88';
+const slimWorld = () => { const w = stormWorld(); w.zones = w.zones.map((z) => (z.id === 'Z1' ? { ...z, ring: SLIM_RING } : z)); return w; };
+// The fake's replies, kept beside the calls: what the phone was sent, not only what it asked.
+const recorded = (fake) => { const replies = []; const f = (b) => { const r = fake(b); replies.push({ body: b, reply: r }); return r; }; f.replies = replies; return f; };
+const boots = (calls) => calls.filter((c) => c.body.action === 'bootstrap');
+const zoneCalls = (calls) => calls.filter((c) => c.body.action === 'getZones');
+
+test('the fake answers slim exactly as the server does: rings dropped and points added only on slim === true', async () => {
+  // Checked without a page: the fake is what every slim test below trusts, so it is pinned here first.
+  const f = fakeSnow(slimWorld());
+  const plain = f({ action: 'bootstrap', token: 'tok-jordan' });
+  expect(plain.points).toBeUndefined();
+  expect(plain.zones.map((z) => Array.isArray(z.ring))).toEqual([true, false, false]); // today's reply: Z1's ring, Z2 and Z3 undrawn
+  for (const notTrue of ['true', 1, 'yes', {}, [], null]) {
+    const r = f({ action: 'bootstrap', token: 'tok-jordan', slim: notTrue });
+    expect(r.points, JSON.stringify(notTrue)).toBeUndefined();
+    expect(r.zones.map((z) => Array.isArray(z.ring)), JSON.stringify(notTrue)).toEqual([true, false, false]);
+  }
+  const slim = f({ action: 'bootstrap', token: 'tok-jordan', slim: true });
+  expect(JSON.stringify(slim)).not.toContain('"ring"');
+  expect(slim.zones.map((z) => [z.id, z.site_id, z.type, z.name])).toEqual([['Z1', 'S1', 'sidewalk', 'Main entry'], ['Z2', 'S1', 'heated', 'Heated walk'], ['Z3', 'S1', 'no_touch', 'Ski trail']]);
+  expect(Object.keys(slim.points)).toEqual(['S1']); // TUDOR-TRANSIT (S2) has no view and no zones: no entry
+  expect(slim.points.S1[0]).toBeCloseTo(-149.8761, 9);
+  expect(slim.points.S1[1]).toBeCloseTo(61.2049, 9);
+  // getZones the same way; and an old backend ignores the flag on both.
+  expect(f({ action: 'getZones', token: 'tok-jordan', slim: true }).zones.some((z) => 'ring' in z)).toBe(false);
+  expect(f({ action: 'getZones', token: 'tok-jordan' }).zones[0].ring).toEqual(SLIM_RING);
+  const old = fakeSnow(slimWorld(), { oldBackend: true });
+  const ob = old({ action: 'bootstrap', token: 'tok-jordan', slim: true });
+  expect(ob.version).toBe('curbs-1');
+  expect(ob.points).toBeUndefined();
+  expect(ob.zones[0].ring).toEqual(SLIM_RING);
+  expect(old({ action: 'getZones', token: 'tok-jordan', slim: true }).zones[0].ring).toEqual(SLIM_RING);
+});
+
+test('every bootstrap asks for the slim reply: at sign-in, and the reload after a conflict', async ({ page }) => {
+  // Matt's save of S1 conflicts (someone else saved first): the app reloads with a second bootstrap.
+  const state = world();
+  let first = true;
+  const base = recorded(fakeSnow(state));
+  const calls = await open(page, { token: 'tok-matt', snow: (b) => {
+    if (b.action === 'saveSite' && first) {
+      first = false;
+      state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'outlines-1' };
+    }
+    return base(b);
+  } });
+  await page.click('nav [data-tab="sites"]');
+  await page.click('[data-edit="site:S1"]');
+  await page.click('#s_save');
+  await expect(page.locator('#s_err')).toContainText('Someone changed this');
+  await expect.poll(() => boots(calls).length).toBe(2);
+  expect(boots(calls).map((c) => c.body.slim)).toEqual([true, true]);
+  // And the server answered both as slim: a points map, no ring anywhere.
+  const sent = base.replies.filter((r) => r.body.action === 'bootstrap').map((r) => r.reply);
+  expect(sent).toHaveLength(2);
+  for (const r of sent) { expect(r.points).toEqual({}); expect(JSON.stringify(r)).not.toContain('"ring"'); } // world() has no zones: no points
+  await expect(page.locator('#verwarn')).toBeHidden(); // outlines-1 is the version the app expects
+});
+
+test('the forecast point is the server\'s point: the slim sign-in carries no outline, and the hint still comes from where Main entry is', async ({ page }) => {
+  const seen = await nws(page, { points: SLIM_POINTS });
+  const calls = await openStorm(page, slimWorld());
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
+  await expect(page.locator('#stormhint')).toHaveText('Snow until 10 AM');
+  expect(seen).toEqual([SLIM_POINTS, NWS_HOURLY]); // the server's point, rounded; never the saved-view point (there is none)
+  expect(boots(calls).map((c) => c.body.slim)).toEqual([true]);
+  // The reply a slim bootstrap gets from this world has no ring in it (the fake is deterministic):
+  // the phone could only have had the point from `points`.
+  expect(JSON.stringify(fakeSnow(slimWorld())({ action: 'bootstrap', token: 'tok-jordan', slim: true }))).not.toContain('"ring"');
+  // The walk list is whole with zero outlines on the phone: Heated walk, Main entry.
+  expect(await page.locator('[data-walkrow]').evaluateAll((els) => els.map((e) => e.dataset.walkrow))).toEqual(['S1|Z2', 'S1|Z1']);
+  await walkBtn(page, 'S1|Z1', 'cleared').click();
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Cleared · Jordan Demo · 7:50 AM');
+});
+
+test('the saved view still beats the server\'s point', async ({ page }) => {
+  // PAC has a saved view at NWS_POINT and Main entry drawn elsewhere (the server's point would be
+  // the ring's centroid only when there is no view; with one, points.S1 IS the view).
+  const seen = await nws(page);
+  await openStorm(page, withView(slimWorld(), 'S1', NWS_POINT));
+  await expect(page.locator('#stormhint')).toHaveText('Snow until 10 AM');
+  expect(seen).toEqual([NWS_POINTS, NWS_HOURLY]);
+});
+
+test('the Storm tab\'s zone refresh asks for the slim reply, and the walks still follow it', async ({ page }) => {
+  // Matt archives Main entry (Z1) while Jordan's phone is in his pocket. Back on screen the phone
+  // asks for the zones again, slim, with no site named; Heated walk is still there, Main entry gone.
+  const w = slimWorld();
+  const calls = await openStorm(page, w);
+  await expect(walkRow(page, 'S1|Z1')).toBeVisible();
+  w.zones = w.zones.map((z) => (z.id === 'Z1' ? { ...z, archived: true, rev: 2 } : z));
+  await pollNow(page);
+  await expect(walkRow(page, 'S1|Z1')).toHaveCount(0);
+  await expect(walkRow(page, 'S1|Z2')).toBeVisible();
+  expect(zoneCalls(calls)).toHaveLength(1);
+  expect(zoneCalls(calls)[0].body.slim).toBe(true);
+  expect(zoneCalls(calls)[0].body.site_id).toBeUndefined();
+});
+
+test('against a backend that ignores slim (curbs-1, live today) the phone still works: outlines come, no points, the hint from the first outline, and the version banner', async ({ page }) => {
+  const seen = await nws(page, { points: SLIM_POINTS });
+  const fake = recorded(fakeSnow(slimWorld(), { oldBackend: true }));
+  const calls = await open(page, { token: 'tok-jordan', snow: fake, clockAt: STORM_CLOCK });
+  await page.click('nav [data-tab="storm"]');
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
+  // The phone asked for slim; the old server sent today's reply: Z1's ring, no points key.
+  expect(boots(calls).map((c) => c.body.slim)).toEqual([true]);
+  const sent = fake.replies.find((r) => r.body.action === 'bootstrap').reply;
+  expect(sent.points).toBeUndefined();
+  expect(sent.zones[0].ring).toEqual(SLIM_RING);
+  // No point from the server: the hint comes from the outline's centroid, the same place.
+  await expect(page.locator('#stormhint')).toHaveText('Snow until 10 AM');
+  expect(seen).toEqual([SLIM_POINTS, NWS_HOURLY]);
+  // The labels differ, so the banner says so; nothing else breaks.
+  await expect(page.locator('#verwarn')).toBeVisible();
+  await expect(page.locator('#verwarn')).toContainText('Backend out of date');
+  await walkBtn(page, 'S1|Z1', 'cleared').click();
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Cleared · Jordan Demo · 7:50 AM');
+  await expect(page.locator('#stormerr')).toHaveCount(0);
 });
 
 // ---------------- Callouts: new snow since the last cleaning (Part B2, Matt 10/4/26) ----------------

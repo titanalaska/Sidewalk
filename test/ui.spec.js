@@ -1478,6 +1478,83 @@ test('a crew phone never opens a map in the editor, whatever this device remembe
   await expect(page.locator('#edbar')).toHaveCount(0);
 });
 
+// 10/9/26, Fire Station #10 (14861 Mountain Air Dr): MapLibre parses an inline style on
+// the NEXT ANIMATION FRAME, and frames stop while the page is off screen (the phone's
+// screen off, the app behind another; the desktop pane's window hidden). SnowMap.open
+// still hands the map over after its 8 s fallback, so Edit map came on over a map whose
+// style was not parsed yet: the editor's addSource('draft') threw "Style is not done
+// loading", the bar never came, and with Edit map remembered the map said it couldn't
+// load. The aerial tiles are held open as well, as they were that night: the editor
+// must never wait for the photo, which may never come.
+// Frames are held from the tap on the site until the test lets them go; MapLibre looks
+// requestAnimationFrame up on each call, so the page's own copy is what it gets. The stub
+// stays in place and passes frames through once released: Playwright's own in-page script
+// keeps a bound copy of whatever it first found there, and polls its waits with it.
+const tilesHang = (page) => page.route((u) => /ancgis\.com|arcgisonline\.com/.test(u.href), () => { /* never answered */ });
+const holdFrames = (page) => page.evaluate(() => {
+  const real = window.requestAnimationFrame.bind(window), held = [];
+  let holding = true;
+  window.requestAnimationFrame = (cb) => (holding ? (held.push(cb), 0) : real(cb));
+  window.__frames = { release: () => { holding = false; held.splice(0).forEach((cb) => real(cb)); } };
+});
+const releaseFrames = (page) => page.evaluate(() => window.__frames.release());
+const draftFeatures = (page) => page.evaluate(() => {
+  const s = window.SnowMapView.getSource('draft'), d = s && s._data;
+  return !d ? -1 : d.type === 'FeatureCollection' ? d.features.length : 1;
+});
+async function unparsedMap(page, errors) {
+  page.on('pageerror', (e) => errors.push(String(e)));
+  await tilesHang(page);
+  await open(page, { token: 'tok-matt', snow: fakeSnow(mapWorld()) });
+  await page.click('nav [data-tab="sites"]');
+  await holdFrames(page);
+  await page.click('[data-map="S1"]');
+  // The 8 s fallback hands the map over with its style still unparsed (no zones source yet).
+  await expect(page.locator('#mapedit')).toBeEnabled({ timeout: 12000 });
+  expect(await page.evaluate(() => !!window.SnowMapView.getSource('zones'))).toBe(false);
+}
+
+test('Edit map on a map whose style is still unparsed: the bar comes, and the import previews once the style parses', async ({ page }) => {
+  const errors = [];
+  await unparsedMap(page, errors);
+  await page.click('#mapedit');
+  await expect(page.locator('#ed_new')).toBeVisible();
+  await expect(page.locator('#ed_bpfile')).toHaveCount(1);
+  await expect(page.locator('#ed_reffile')).toHaveCount(1);
+  // The file can be picked and the job chosen before the style is there; the preview waits for it.
+  await importFile(page, bpExport());
+  await page.locator('#bp_jobs [data-bpjob]').first().click();
+  await expect(page.locator('#bp_sum')).toContainText('2 walks to add');
+  expect(await draftFeatures(page)).toBe(-1);
+  await releaseFrames(page);
+  await page.waitForFunction(() => window.SnowMapView.getSource('zones'));
+  await expect.poll(() => draftFeatures(page)).toBe(2);
+  // The photo never came (its tiles are still held): the preview did not wait for it.
+  await page.waitForTimeout(1000);
+  expect(await page.evaluate(() => window.SnowMapView.isStyleLoaded())).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test('with Edit map remembered, a map whose style is still unparsed opens in the editor, and a zone can be started', async ({ page }) => {
+  const errors = [];
+  await page.addInitScript(() => localStorage.setItem('titan-snow-editing', '1'));
+  await unparsedMap(page, errors);
+  await expect(page.locator('#ed_new')).toBeVisible();
+  await expect(page.locator('#mapwarn')).not.toContainText("couldn't load");
+  await page.click('#ed_new');
+  await expect(page.locator('#zoneform')).toBeVisible();
+  // Corners tapped before the style is there are kept (the markers are the page's own);
+  // their outline is drawn the moment the draft arrives with the style.
+  await tapCorners(page, CORNERS.slice(0, 3));
+  await expect(page.locator('.zone-corner')).toHaveCount(3);
+  expect(await draftFeatures(page)).toBe(-1);
+  await releaseFrames(page);
+  await page.waitForFunction(() => window.SnowMapView.getSource('zones'));
+  await expect.poll(() => draftFeatures(page)).toBe(1); // the outline, drawn on the draft that arrived with the style
+  expect(await page.evaluate(() => window.SnowMapView.getSource('draft')._data.geometry.type)).toBe('Polygon');
+  expect(errors).toEqual([]);
+});
+
 test('a file that is not a Bootprint export is refused with a reason', async ({ page }) => {
   await adminMap(page, mapWorld());
   await page.click('#mapedit');

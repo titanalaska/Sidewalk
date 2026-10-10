@@ -99,6 +99,30 @@ test('keep replaces rather than merges: a moved corner is the new corner, nothin
   assert.deepEqual(raw(st).sites.S1.rings, { Z2: moved });
 });
 
+// R9 (10/10/26): a failed or malformed getZones reply must never wipe the copy a map draws offline. The page
+// only calls keep with an ok reply's zones, and keep itself refuses anything that is not a list: an Array,
+// even [], is an answer ("this site has no zones now") and replaces; undefined, null, a string, a number or
+// an object is not an answer and changes nothing.
+test('keep with something that is not a list is a no-op that returns false; an empty list still replaces', () => {
+  const st = memory();
+  const s = O.store(st);
+  assert.equal(s.keep('S1', [Z1, Z2]), true);
+  const before = st.items[O.KEY]; // the exact text on disk, `at` included
+  for (const notAList of [undefined, null, 'Z1', 5, true, {}, { 0: Z1, length: 1 }]) {
+    assert.equal(s.keep('S1', notAList), false, JSON.stringify(notAList));
+    // Same text: the entry was not rewritten, so Z1 and Z2 are still kept.
+    assert.equal(st.items[O.KEY], before, JSON.stringify(notAList));
+  }
+  assert.deepEqual(s.withRings('S1', [slim(Z1), slim(Z2)]), [Z1, Z2]);
+  // A site never kept gets no entry from a non-list either.
+  assert.equal(s.keep('S9', undefined), false);
+  assert.deepEqual(Object.keys(raw(st).sites), ['S1']);
+  // [] is a real answer: the site has no zones, and that replaces what was kept.
+  assert.equal(s.keep('S1', []), true);
+  assert.deepEqual(raw(st).sites.S1.rings, {});
+  assert.deepEqual(s.withRings('S1', [slim(Z1)]), []);
+});
+
 test("keep leaves another site's entry exactly as it was", () => {
   const st = memory();
   const s = O.store(st);

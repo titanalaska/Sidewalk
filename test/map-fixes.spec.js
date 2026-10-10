@@ -56,6 +56,11 @@ function fakeSnow(state) {
       if (role === 'admin') Object.assign(out, { moves: [], callouts: [], gear: [] });
       return out;
     }
+    // A site map asks for its own site's zones, rings included (no `slim`): since outlines on demand
+    // (10/9/26) that is where a map's outlines come from. The backend as it is live today has always answered it.
+    if (body.action === 'getZones') {
+      return { ok: true, zones: state.zones.filter((z) => z.archived !== true && (!body.site_id || z.site_id === body.site_id)), ...v };
+    }
     if (body.action === 'saveZone') {
       if (role !== 'admin') return { ok: false, code: 'forbidden', reason: 'Only Matt can do that.', ...v };
       // A fresh id per new record, as the real backend does.

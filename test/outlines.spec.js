@@ -427,6 +427,21 @@ for (const [label, bad] of [
   });
 }
 
+test("a reply that also carries another site's zone neither draws nor keeps it", async ({ page }) => {
+  // Not something this server does (it filters by site_id); a copy that is wrong about it must not smear S2's
+  // outline into S1's map or S1's entry.
+  const calls = await openApp(page, fakeSnow(mapWorld()), { kept: SEED_S1 });
+  const ctl = calls.ctl;
+  const stray = zone('Z4', 'S2', 'hand', 'Back lot', Z4_RING);
+  ctl.rewrite = (b, reply) => (isSiteZones(b) ? { ...reply, zones: [...reply.zones, stray] } : reply);
+  await toMap(page, 'S1');
+  await expectDrawn(page, [{ id: 'Z1', ring: Z1_RING }, { id: 'Z2', ring: Z2_RING }]);
+  await expect.poll(async () => (await keptNow(page)).sites.S1.at).not.toBe(SEED_AT); // the reply was kept
+  expect((await keptNow(page)).sites.S1.rings).toEqual({ Z1: Z1_RING, Z2: Z2_RING }); // no Z4
+  await page.waitForTimeout(300);
+  expect(await setZonesCalls(page)).toEqual([]); // and it is not news to the map
+});
+
 test('Matt: Edit map stays disabled until the reply has landed', async ({ page }) => {
   const calls = await openApp(page, fakeSnow(mapWorld()), { token: 'tok-matt', kept: SEED_S1 });
   const ctl = calls.ctl; ctl.holdIf = isSiteZones;

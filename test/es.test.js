@@ -1,0 +1,42 @@
+// The Spanish engine, pure part (lib/es.js): the dictionary pass and the rules.
+// Expected values are the rows the spec fixes (docs/superpowers/specs/2026-10-09-spanish-design.md).
+const test = require('node:test');
+const assert = require('node:assert');
+const Es = require('../lib/es.js');
+
+test('a known phrase translates; an unknown one comes back unchanged', () => {
+  assert.equal(Es.translateString('Sign in'), 'Iniciar sesión');
+  assert.equal(Es.translateString('Pumpkin spice'), 'Pumpkin spice');
+});
+
+test('longest key wins: "Not saved: try again" is one row, not "Not saved" + ": try again"', () => {
+  // Both "try again" and the whole line are rows; the whole line must win.
+  assert.equal(Es.translateString('Not saved: try again'), 'No se guardó: inténtalo de nuevo');
+});
+
+test('a short key never bites into a longer word: Back vs Backend', () => {
+  assert.equal(Es.translateString('Back'), 'Atrás');
+  assert.equal(Es.translateString('‹ Back'), '‹ Atrás');
+  assert.equal(Es.translateString("Backend out of date. Tell Matt: the app and the server don't match."),
+    'El servidor está desactualizado. Dile a Matt: la app y el servidor no coinciden.');
+});
+
+test('leading and trailing spaces survive ("Tonight: " before a bold name)', () => {
+  assert.equal(Es.translateString('Tonight: '), 'Esta noche: ');
+  assert.equal(Es.translateString(' · admin'), ' · admin'); // a role tag, not a row: unchanged, space and all
+});
+
+test('number rules: the weather hint and the curb items', () => {
+  assert.equal(Es.translateString('Snow until 10 AM'), 'Nieve hasta las 10 AM');
+  assert.equal(Es.translateString('No snow in the next 12 h'), 'Sin nieve en las próximas 12 h');
+  // lib/shiftlog.js curbItems(): 'Curbs' or 'Curbs <g> of <k>', then ' (about <commas(feet)> ft)'
+  assert.equal(Es.translateString('Curbs (about 690 ft)'), 'Bordillos (unos 690 ft)');
+  assert.equal(Es.translateString('Curbs 1 of 2 (about 470 ft)'), 'Bordillos 1 de 2 (unos 470 ft)');
+  assert.equal(Es.translateString('Curbs (about 2,730 ft)'), 'Bordillos (unos 2,730 ft)');
+});
+
+test('every row has a Spanish value different from its key and no row is blank', () => {
+  const rows = Object.entries(Es.ES);
+  assert.ok(rows.length > 0);
+  for (const [k, v] of rows) assert.ok(typeof v === 'string' && v.trim() && v !== k, 'row ' + JSON.stringify(k));
+});

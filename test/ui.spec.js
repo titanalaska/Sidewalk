@@ -6148,3 +6148,36 @@ test('Spanish: the weather hint is translated by rule', async ({ page }) => {
   await openStorm(page, withView(stormWorld(), 'S1', NWS_POINT));
   await expect(page.locator('#stormhint')).toHaveText('Nieve hasta las 10 AM');
 });
+
+test('Spanish: a zone name, a site note and a name stay as typed', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  const w = stormWorld();
+  w.zones[0].name = 'Sidewalk - front entry';            // "Sidewalk" is a dictionary row; the name is Matt's
+  w.sites[0].notes = 'Clean again between every car';     // "Clean again" is a dictionary row; the note is Matt's
+  await openStorm(page, w);
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Sidewalk - front entry');
+  await expect(walkRow(page, 'S1|Z1').getByText('Banqueta')).toHaveCount(0);
+  await expect(page.locator('#who')).toHaveText('Jordan Demo');
+  await page.click('nav [data-tab="sites"]'); // the Sites list prints s.notes (lib/app.js)
+  await expect(page.locator('.site-card[data-site="S1"]')).toContainText('Clean again between every car');
+  await expect(page.locator('.site-card[data-site="S1"]').getByText('Limpiar de nuevo')).toHaveCount(0);
+  await expect(page.locator('.site-card[data-site="S1"] [data-map]')).toHaveText('Mapa'); // the button beside it still translates
+});
+
+test('Spanish: the Copy for BT text is byte-identical in EN and ES', async ({ page }) => {
+  const w = stormWorld();
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: '2026-10-03T06:30:00.000-08:00' }),
+    logRow(2, 'S1', 'Z2', 'checked', 'Alex Test', { at: '2026-10-03T06:45:00.000-08:00' })];
+  await stubClipboard(page);
+  await openStorm(page, w, { token: 'tok-alex' });
+  await openRoute(page, 'R1');
+  await page.locator('[data-bt="S1"]').click();
+  await page.click('#bt_copy');
+  await page.click('#dlgClose'); // the dialog is modal: the header switch is reachable only between openings
+  await page.click('#langWrap [data-lang="es"]');
+  await page.locator('[data-bt="S1"]').click();
+  await expect(page.locator('label[for="bt_text"]')).toHaveText('Notas'); // the label translates
+  await page.click('#bt_copy');
+  const copied = await page.evaluate(() => window.__copied);
+  expect(copied).toEqual(['Cleared: Main entry. Checked: Heated walk.', 'Cleared: Main entry. Checked: Heated walk.']);
+});

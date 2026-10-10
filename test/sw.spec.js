@@ -73,7 +73,7 @@ test('the shell is cached, Apps Script never is, and other apps\' caches survive
   // 10/9/26 that includes the shared points file and the kept outlines (lib/points.js, lib/outlines.js).
   for (const f of ['/vendor/maplibre-gl.js', '/vendor/maplibre-gl.css', '/lib/geo.js', '/lib/points.js', '/lib/outlines.js', '/lib/mapview.js', '/lib/bpimport.js', '/lib/mapedit.js',
     '/lib/time.js', '/lib/board.js', '/lib/history.js', '/lib/gear.js', '/lib/warnings.js', '/lib/pairing.js', '/lib/boardui.js',
-    '/lib/shiftlog.js', '/lib/routesheet.js', '/lib/handoff.js', '/lib/shiftlogui.js', '/lib/weather.js', '/lib/callout.js', '/lib/share.js', '/manifest.json', '/icon-192.png', '/icon-512.png', '/icon-maskable-512.png']) {
+    '/lib/shiftlog.js', '/lib/routesheet.js', '/lib/handoff.js', '/lib/shiftlogui.js', '/lib/es.js', '/lib/weather.js', '/lib/callout.js', '/lib/share.js', '/manifest.json', '/icon-192.png', '/icon-512.png', '/icon-maskable-512.png']) {
     expect(state.urls.some((u) => u.endsWith(f)), f).toBe(true);
   }
   expect(state.urls.some((u) => u.endsWith('/lib/app.js'))).toBe(true);

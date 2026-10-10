@@ -17,6 +17,11 @@ test('longest key wins: "Not saved: try again" is one row, not "Not saved" + ": 
 test('a short key never bites into a longer word: Back vs Backend', () => {
   assert.equal(Es.translateString('Back'), 'Atrás');
   assert.equal(Es.translateString('‹ Back'), '‹ Atrás');
+  // Bare longer words with a key inside: these are the ones only the \b anchors protect (the full banner
+  // below is its own row, so longest-first would save it even without them; the 10/9 mutation check found that).
+  assert.equal(Es.translateString('Backend'), 'Backend');
+  assert.equal(Es.translateString('Mapbox'), 'Mapbox');
+  assert.equal(Es.translateString('Startup'), 'Startup');
   assert.equal(Es.translateString("Backend out of date. Tell Matt: the app and the server don't match."),
     'El servidor está desactualizado. Dile a Matt: la app y el servidor no coinciden.');
 });

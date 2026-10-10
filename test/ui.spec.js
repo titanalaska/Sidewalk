@@ -6181,3 +6181,15 @@ test('Spanish: the Copy for BT text is byte-identical in EN and ES', async ({ pa
   const copied = await page.evaluate(() => window.__copied);
   expect(copied).toEqual(['Cleared: Main entry. Checked: Heated walk.', 'Cleared: Main entry. Checked: Heated walk.']);
 });
+
+test('Spanish: without lib/es.js the app still signs in and runs, in English', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  await page.route((u) => u.href.endsWith('/lib/es.js'), (r) => r.abort());
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await openStorm(page, stormWorld());
+  expect(await page.evaluate(() => typeof SnowEs)).toBe('undefined'); // the block really held
+  await expect(walkBtn(page, 'S1|Z1', 'cleared')).toHaveText('Cleared');
+  await expect(page.locator('#langWrap .lang-btn[aria-pressed="true"]')).toHaveCount(0); // nothing painted, nothing thrown
+  expect(errors).toEqual([]);
+});

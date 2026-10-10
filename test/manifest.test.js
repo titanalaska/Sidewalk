@@ -39,7 +39,7 @@ test('the shell caches the shift log files', () => {
   const sw = read('sw.js').toString();
   const shell = JSON.parse(sw.match(/var SHELL = (\[[\s\S]*?\]);/)[1].replace(/'/g, '"'));
   // The three new files by name...
-  for (const f of ['lib/shiftlog.js', 'lib/routesheet.js', 'lib/handoff.js', 'lib/shiftlogui.js', 'lib/weather.js', 'lib/callout.js', 'lib/share.js']) assert.ok(shell.includes(f), f + ' is not in the shell');
+  for (const f of ['lib/shiftlog.js', 'lib/routesheet.js', 'lib/handoff.js', 'lib/shiftlogui.js', 'lib/es.js', 'lib/weather.js', 'lib/callout.js', 'lib/share.js']) assert.ok(shell.includes(f), f + ' is not in the shell');
   // ...and, so the next file added can't be forgotten, EVERY script the page loads.
   const html = read('index.html').toString();
   const loaded = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);

@@ -228,6 +228,12 @@ body.has-ref.ref-min #mapbox{height:62vh}
 .live-status.touched{color:var(--amber);font-weight:600}
 .curbline{font-size:14px;margin-top:4px}
 .curbline.warn{color:var(--amber);font-weight:600}
+/* Archived lists (Matt, 10/10/26): sites and routes under the live list, zones in the map editor; closed until opened */
+.archived{margin:16px 0 8px}
+.archived summary{cursor:pointer;color:var(--muted);padding:10px 0}
+.archlist{list-style:none;margin:0;padding:0}
+.archlist li{display:flex;align-items:center;gap:6px;padding:4px 0;border-top:1px solid var(--line)}
+.archlist li > span{flex:1}
 .offroute{font-size:12px;font-weight:700;padding:1px 8px;border-radius:999px;background:var(--yellow-bg);color:var(--yellow-ink);border:1px solid var(--yellow-line)}
 .live-totals{margin-top:4px}
 /* Route sheets (10/3/26): the truck line, the Sheets status, and the Print view. */

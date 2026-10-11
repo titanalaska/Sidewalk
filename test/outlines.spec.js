@@ -7,6 +7,7 @@
 // `slim === true` and nothing else, the points are worked out from the outlines the zones still have,
 // then the rings are dropped. ui.spec.js pins the same behaviour on its bigger fake.
 const { test, expect } = require('@playwright/test');
+const fs = require('fs');
 const path = require('path');
 const url = require('url');
 const SnowPoints = require('../lib/points.js');
@@ -270,6 +271,7 @@ async function openApp(page, fake, o = {}) {
   const calls = [];
   calls.errors = [];
   page.on('pageerror', (e) => calls.errors.push(String(e)));
+  if (o.clock) await page.clock.install({ time: new Date(o.clock) }); // a storm on screen, as openStorm sets it up
   await page.route((u) => /ancgis\.com|arcgisonline\.com/.test(u.href), (route) => route.fulfill({ contentType: 'image/png', body: PNG1 }));
   (o.without || []).forEach((file) => page.route((u) => u.href.endsWith(file), (route) => route.abort()));
   await page.route(isSnow, async (route) => {
@@ -645,6 +647,60 @@ test('a zone save that lands after sign-out writes nothing', async ({ page }) =>
   await expect.poll(() => ctl.served.filter(isSave).length).toBe(1);
   await page.waitForTimeout(400);
   expect(await keptText(page)).toBeNull();
+});
+
+// A session that expires while a map from a kept copy is still being BUILT (final review, 10/9/26). The Storm
+// tab's poll answers `signin`, the sign-in screen replaces the page (no #maploading any more) and the map
+// library finishes loading after that. The map that open() then returns belongs to nobody: it has to be freed
+// (one WebGL context each), and the page must not trip over the missing #maploading and blame THAT in the log.
+//
+// How the build is held open: SnowMap.open awaits vendor/maplibre-gl.js, which the page loads on the first map
+// (Jordan's Storm tab loads no map of its own), so this route holds that one file until the test lets it go.
+// The file it serves is the real one with one line added: a counter on maplibregl.Map.prototype.remove.
+const REMOVE_SPY = '\n;(function () { var P = window.maplibregl.Map.prototype, real = P.remove; window.__mapRemoves = 0;' +
+  ' P.remove = function () { window.__mapRemoves++; return real.apply(this, arguments); }; })();\n';
+test('a session that expires while a kept-copy map is being built: the map is freed, nothing is blamed', async ({ page }) => {
+  // The Storm tab shows Jordan's route N1 with PAC (S1) on it: Z1 and Z2 are S1's walks, and the phone kept both.
+  // Calls, in order: 1 getShiftLog (the tab opens), 1 getZones {site_id: S1} (the Map tap), 1 getShiftLog (the
+  // app coming back on screen) answered `signin`. The count of getZones with a site_id is 1 until the end.
+  const w = mapWorld();
+  w.storms = world().storms; w.post = world().post;
+  const calls = await openApp(page, fakeSnow(w), { kept: SEED_S1, clock: STORM_CLOCK });
+  const ctl = calls.ctl;
+  const logged = [];
+  page.on('console', (m) => { if (m.type() === 'error') logged.push(m.text()); });
+  let asked = false; // the zones have been asked for: from here on the server says the session is over
+  ctl.rewrite = (b, reply) => {
+    if (isSiteZones(b)) asked = true;
+    return asked && b.action === 'getShiftLog' ? { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', version: VERSION } : reply;
+  };
+  const src = fs.readFileSync(path.resolve(__dirname, '..', 'vendor', 'maplibre-gl.js'), 'utf8');
+  let letGo; const gate = new Promise((go) => { letGo = go; });
+  await page.route((u) => u.href.endsWith('/vendor/maplibre-gl.js'), async (route) => {
+    await gate;
+    await route.fulfill({ contentType: 'application/javascript', body: src + REMOVE_SPY });
+  });
+
+  await page.click('nav [data-tab="storm"]');
+  await expect(walkRow(page, 'S1|Z1')).toBeVisible();
+  await page.click('[data-map="S1"]');
+  await expect(page.locator('#mapback')).toBeVisible();
+  await expect.poll(() => ctl.served.filter(isSiteZones).length).toBe(1);
+  expect(await page.evaluate(() => typeof window.maplibregl)).toBe('undefined'); // still held: nothing is built yet
+
+  await pollNow(page); // the Storm tab's poll gets `signin`
+  await expect(page.locator('#signin')).toBeVisible();
+  expect(await mapOpen(page)).toBe(false);
+
+  letGo(); // the library arrives; the map that was waiting for it is built on a page that is gone
+  await expect.poll(() => page.evaluate(() => window.__mapRemoves)).toBe(1);
+  await page.waitForTimeout(400);
+  expect(await page.evaluate(() => window.__mapRemoves)).toBe(1); // freed once, not twice
+  expect(await mapOpen(page)).toBe(false); // and never handed to the page
+  expect(logged.filter((t) => /Site map failed to open/.test(t))).toEqual([]); // no TypeError blamed on the map
+  expect(calls.errors).toEqual([]);
+  // A session that merely expired keeps this phone's copy (only an explicit sign-out wipes it).
+  expect((await keptNow(page)).sites.S1.rings).toEqual({ Z1: Z1_RING, Z2: Z2_RING });
 });
 
 test('a full store: the map still opens from the reply, with no page error', async ({ page }) => {

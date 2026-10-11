@@ -536,9 +536,9 @@ test('Back while "Loading map…" is up: the reply is still kept, and no map ope
 });
 
 test('a map opened twice before the first reply lands is judged by what IT shows, not by what was kept meanwhile', async ({ page }) => {
-  // Open S1 (held), Back, open S1 again (held): both draw the old corner. The first reply lands and is kept.
-  // The second reply then matches the COPY on disk, but not the second map, which is still showing the old
-  // corner: it must redraw.
+  // Open S1 (held), Back, open S1 again (held): both draw the old corner. The first reply lands and is not kept
+  // (a newer ask for S1 is out). The second reply is kept the moment it lands, so it matches the COPY on disk, but
+  // not the second map, which is still showing the old corner: it must redraw.
   const w = mapWorld(); w.zones[0] = zone('Z1', 'S1', 'sidewalk', 'Main entry', Z1_MOVED);
   const calls = await openApp(page, fakeSnow(w), { kept: SEED_S1 });
   const ctl = calls.ctl; ctl.holdIf = isSiteZones;
@@ -549,13 +549,13 @@ test('a map opened twice before the first reply lands is judged by what IT shows
   await expect.poll(() => ctl.waiting.length).toBe(2);
   await expectDrawn(page, [{ id: 'Z1', ring: Z1_RING }, { id: 'Z2', ring: Z2_RING }]);
 
-  ctl.release(0); // the first map's reply: kept; that map is gone, so nothing is drawn
-  await expect.poll(async () => (await keptNow(page)).sites.S1.rings.Z1).toEqual(Z1_MOVED);
+  ctl.release(0); // the first map's reply: not kept (a newer ask for S1 is out); that map is gone, so nothing is drawn
   await page.waitForTimeout(300);
   expect(await setZonesCalls(page)).toEqual([]);
   await expectDrawn(page, [{ id: 'Z1', ring: Z1_RING }, { id: 'Z2', ring: Z2_RING }]);
 
   ctl.release(0); // the second map's reply
+  await expect.poll(async () => (await keptNow(page)).sites.S1.rings.Z1).toEqual(Z1_MOVED);
   await expectDrawn(page, [{ id: 'Z1', ring: Z1_MOVED }, { id: 'Z2', ring: Z2_RING }]);
   expect(await setZonesCalls(page)).toEqual([['Z1', 'Z2']]);
 });
@@ -604,6 +604,39 @@ test('Matt saves a zone on a phone whose storage is full: the map still keeps ev
   await expect(page.locator('#zoneform')).toBeHidden();
   await expectDrawn(page, [{ id: 'Z1', ring: Z1_RING }, { id: 'Z2', ring: Z2_RING }, { id: 'X91', ring: savedRing(calls) }]);
   expect(calls.errors).toEqual([]);
+});
+
+test('an older reply for the same site does not overwrite what a newer map has kept since', async ({ page }) => {
+  // Final review, 10/9/26. Open S1 (the first ask, R1, is slow), Back, open S1 again (the second ask, R2). R2
+  // lands, Matt saves a zone on that second map, and only then does R1 land. R1 was answered before the save,
+  // so it does not hold the new zone: if it were kept it would replace S1's entry and the zone would be gone from
+  // this phone (offline, the next open would be missing it). Only the NEWEST ask for a site keeps its reply.
+  //
+  // The server holds Z1 and Z2 for the whole test, so both replies carry exactly those two (the fake answers when
+  // it is asked, and holds the delivery). The save comes back as X91, the first zone this fake makes (X90 + 1).
+  // Kept copy: after R2 { Z1, Z2 }; after the save { Z1, Z2, X91 }; after R1 still { Z1, Z2, X91 }, untouched.
+  const calls = await openApp(page, fakeSnow(mapWorld()), { token: 'tok-matt', kept: SEED_S1 });
+  const ctl = calls.ctl; ctl.holdIf = isSiteZones;
+  await toMap(page, 'S1');
+  await expectDrawn(page, [{ id: 'Z1', ring: Z1_RING }, { id: 'Z2', ring: Z2_RING }]);
+  await page.click('#mapback');
+  await toMap(page, 'S1');
+  await expect.poll(() => ctl.waiting.length).toBe(2); // R1 first, R2 second
+  await expectDrawn(page, [{ id: 'Z1', ring: Z1_RING }, { id: 'Z2', ring: Z2_RING }]);
+
+  ctl.release(1); // R2: the newest ask is answered, so the map is trusted and Edit map comes on
+  await expect(page.locator('#mapedit')).toBeEnabled();
+  await drawZone(page, 'Back steps');
+  await expect(page.locator('#zoneform')).toBeHidden();
+  const ring4 = savedRing(calls);
+  expect(ring4).toHaveLength(4);
+  await expect.poll(async () => (await keptNow(page)).sites.S1.rings.X91).toEqual(ring4);
+  const before = await keptNow(page);
+  expect(before.sites.S1.rings).toEqual({ Z1: Z1_RING, Z2: Z2_RING, X91: ring4 });
+
+  ctl.release(0); // R1, the old one, lands last
+  await settle(page, ctl, 2);
+  expect(await keptNow(page)).toEqual(before); // it wrote nothing: the saved zone is still there
 });
 
 // ---- sign-out, and a full store ----

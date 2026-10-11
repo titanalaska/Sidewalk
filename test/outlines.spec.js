@@ -46,7 +46,7 @@ function fakeSnow(state) {
   const slimWanted = (body) => body.slim === true;
   const ROLES = { 'tok-jordan': 'crew', 'tok-matt': 'admin' };
   const reply = (body) => {
-    const v = { version: VERSION };
+    const v = { version: VERSION, action: body.action }; // every POST reply names the action it answers (the phone's not-saved guard)
     const role = ROLES[body.token];
     if (!role) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     const me = role === 'admin' ? { name: 'Matthew', role: 'admin', crew_id: null } : { name: 'Jordan Demo', role: 'crew', crew_id: 'C03' };
@@ -388,7 +388,7 @@ test('nothing kept and no signal: the map says it needs signal the first time', 
 
 test('nothing kept and a reply that is not zones: the same message, and nothing is kept', async ({ page }) => {
   const calls = await openApp(page, fakeSnow(mapWorld()));
-  calls.ctl.rewrite = (b, reply) => (isSiteZones(b) ? { ok: true, zones: 'Z1', version: VERSION } : reply);
+  calls.ctl.rewrite = (b, reply) => (isSiteZones(b) ? { ok: true, zones: 'Z1', version: VERSION, action: b.action } : reply);
   await toMap(page, 'S1');
   await expect(page.locator('#mapnosignal')).toBeVisible();
   expect(await mapOpen(page)).toBe(false);
@@ -410,9 +410,9 @@ test('a kept copy and no signal: the map is drawn, quiet, and the copy is exactl
 
 // R9: a failed or malformed reply must never wipe the copy the map draws offline.
 for (const [label, bad] of [
-  ['an error reply', () => ({ ok: false, code: 'error', reason: 'boom', version: VERSION })],
-  ['an ok reply with no zones list', () => ({ ok: true, version: VERSION })],
-  ['an ok reply whose zones are not a list', () => ({ ok: true, zones: 'Z1', version: VERSION })],
+  ['an error reply', () => ({ ok: false, code: 'error', reason: 'boom', version: VERSION, action: 'getZones' })],
+  ['an ok reply with no zones list', () => ({ ok: true, version: VERSION, action: 'getZones' })],
+  ['an ok reply whose zones are not a list', () => ({ ok: true, zones: 'Z1', version: VERSION, action: 'getZones' })],
   ['an ok reply of zones that carry no outline (a slim reply)', (reply) => ({ ...reply, zones: reply.zones.map(({ ring: _ring, ...rest }) => rest) })],
 ]) {
   test('a kept copy survives ' + label, async ({ page }) => {
@@ -705,7 +705,7 @@ test('a session that expires while a kept-copy map is being built: the map is fr
   let asked = false; // the zones have been asked for: from here on the server says the session is over
   ctl.rewrite = (b, reply) => {
     if (isSiteZones(b)) asked = true;
-    return asked && b.action === 'getShiftLog' ? { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', version: VERSION } : reply;
+    return asked && b.action === 'getShiftLog' ? { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', version: VERSION, action: 'getShiftLog' } : reply;
   };
   const src = fs.readFileSync(path.resolve(__dirname, '..', 'vendor', 'maplibre-gl.js'), 'utf8');
   let letGo; const gate = new Promise((go) => { letGo = go; });

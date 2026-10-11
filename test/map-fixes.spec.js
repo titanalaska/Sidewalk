@@ -46,6 +46,9 @@ const mapWorld = () => ({
 // reply carries the rings and no `points` key. Since 10/9/26 (outlines on demand) the phone asks
 // for slim and expects outlines-1; against this backend it must still open its maps (the version
 // banner shows, nothing here asserts on it). The slim path is test/ui.spec.js's and test/outlines.spec.js's.
+// No `action` on these replies, on purpose: curbs-1 never sent one (outlines-1 does, on every POST reply, and the phone's
+// not-saved guard in lib/api.js refuses a reply from ITS OWN version without it). A reply from another version is not
+// checked, so every save in this file also shows that an older server is not refused.
 function fakeSnow(state) {
   return (body) => {
     const v = { version: 'curbs-1' }, role = TOKENS[body.token];

@@ -24,7 +24,9 @@ const SnowPoints = require('../lib/points.js');
 // rings in every reply, no `points` key. A phone that has updated must still work against it.
 function fakeSnow(state, opts = {}) {
   return (body) => {
-    const v = { version: opts.version || (opts.oldBackend ? 'curbs-1' : 'outlines-1') };
+    // Every POST reply carries `action`, the action it answers (outlines-1 on): the phone refuses a reply from its own version that
+    // does not (lib/api.js, the not-saved guard). A curbs-1 server (opts.oldBackend) has never sent one.
+    const v = { version: opts.version || (opts.oldBackend ? 'curbs-1' : 'outlines-1'), ...(opts.oldBackend ? {} : { action: body.action }) };
     // Outlines on demand (10/9/26, snow-app-script Code.js): `slim: true`, exactly true, and nothing else.
     const slim = body.slim === true && !opts.oldBackend;
     if (opts.expired && opts.expired.on) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
@@ -675,7 +677,7 @@ test('after a conflict the app reloads the latest, so the retry can save', async
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'outlines-1' };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'outlines-1', action: b.action };
     }
     return base(b);
   } });
@@ -3265,7 +3267,7 @@ test('every bootstrap asks for the slim reply: at sign-in, and the reload after 
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'outlines-1' };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'outlines-1', action: b.action };
     }
     return base(b);
   } });

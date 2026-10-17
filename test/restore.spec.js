@@ -292,6 +292,30 @@ async function editorOn(page) {
   await expect(page.locator('#edbar')).toBeVisible();
 }
 
+// Spanish (rebased onto the outlines release 10/16/26): the Archived lists came in with that release, after the Spanish pass
+// marked every place a person's words render. A name is data, never translated: each one must sit under data-no-es, or a
+// route called "N9" or a zone called "Old ramp" could come out half in Spanish on Matt's phone. Checked on the DOM itself,
+// so it holds whatever the dictionary happens to contain.
+const nameGuarded = (page, sel, name) => page.locator(sel).evaluate((root, n) => {
+  const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  for (let t = w.nextNode(); t; t = w.nextNode()) if (t.textContent.trim() === n) return !!t.parentElement.closest('[data-no-es]');
+  return 'name not found: ' + n;
+}, name);
+test('Spanish: the Archived lists keep site, route and zone names out of translation', async ({ page }) => {
+  const state = world();
+  const calls = await openApp(page, fakeSnow(state));
+  await sitesTab(page);
+  await page.click('#archivedSites summary');
+  expect(await nameGuarded(page, '#archivedSites', 'CLINIC-OLD')).toBe(true);
+  await routesTab(page);
+  await page.click('#archivedRoutes summary');
+  expect(await nameGuarded(page, '#archivedRoutes', 'N9')).toBe(true);
+  await editorOn(page);
+  await page.click('#ed_arch summary');
+  expect(await nameGuarded(page, '#ed_arch', 'Old ramp')).toBe(true);
+  expect(calls.errors).toEqual([]);
+});
+
 test('the editor lists the site\'s archived zones; the map does not draw them; Restore draws the zone and keeps its outline', async ({ page }) => {
   const state = world();
   const calls = await openApp(page, fakeSnow(state));

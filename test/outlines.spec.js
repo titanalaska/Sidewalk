@@ -758,3 +758,21 @@ test('without lib/outlines.js the app still opens a map from the reply, and sign
   await expect(page.locator('#signin')).toBeVisible();
   expect(calls.errors).toEqual([]);
 });
+// ---- Spanish ----
+test('Spanish: the loading line and the no-signal line read in Spanish', async ({ page }) => {
+  const calls = await openApp(page, fakeSnow(mapWorld()), { lang: 'es' });
+  const ctl = calls.ctl;
+  ctl.holdIf = (b) => isSiteZones(b) && b.site_id === 'S1';
+  ctl.abortIf = (b) => isSiteZones(b) && b.site_id === 'S2';
+  await toMap(page, 'S1');
+  await expect(page.locator('#maploading')).toBeVisible();
+  await expect(page.locator('#maploading')).toHaveText('Cargando mapa…');
+  await expect(page.getByText('Loading map…', { exact: true })).toHaveCount(0);
+  ctl.release();
+  await expectDrawn(page, [{ id: 'Z1', ring: Z1_RING }, { id: 'Z2', ring: Z2_RING }]);
+  await page.click('#mapback');
+  await toMap(page, 'S2');
+  await expect(page.locator('#mapnosignal')).toBeVisible();
+  await expect(page.locator('#mapnosignal')).toHaveText('Este mapa todavía no se ha abierto en este teléfono. La primera vez necesita señal.');
+  await expect(page.getByText("This map hasn't been opened on this phone yet.", { exact: false })).toHaveCount(0);
+});

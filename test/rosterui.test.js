@@ -59,3 +59,17 @@ test('cardFromForm: a picked picture is sent; a cleared one (null) is sent as nu
   const keys = Object.keys(R.cardFromForm({ photo_thumb: 'data:image/jpeg;base64,QUJD' })).sort();
   assert.deepEqual(keys, R.SELF_FIELDS.slice().sort());
 });
+
+// Who is waiting on Matt (10/19/26): the Roster tab's count is the two waiting lists' own rows, so the number and
+// the lists never disagree. Worked by hand: requests 9 and 10 are pending (1 is approved) = 2; cards: C04 pending
+// = 1 (C05 is pending but archived, C06 was added, C01 never pending) -> 3.
+test('waitingCount: pending requests plus pending cards; approved names, added and archived cards do not count', () => {
+  const S = { profiles: [{ id: 1, status: 'approved' }, { id: 9, status: 'pending' }, { id: 10, status: 'pending' }],
+    crew: [{ id: 'C01' }, { id: 'C04', pending: true }, { id: 'C05', pending: true, archived: true }, { id: 'C06', pending: false }] };
+  assert.equal(R.waitingCount(S), 3);
+  // The names not read yet (null): the cards still count.
+  assert.equal(R.waitingCount({ profiles: null, crew: [{ id: 'C04', pending: true }] }), 1);
+  assert.equal(R.waitingCount({ profiles: [], crew: [] }), 0);
+  // A rejected request is gone, not waiting.
+  assert.equal(R.waitingCount({ profiles: [{ id: 9, status: 'rejected' }], crew: [] }), 0);
+});

@@ -88,6 +88,11 @@ function fakeSnow(state, opts = {}) {
     // Pairings: the real backend's shapes (snow-app-script test/pairing.test.js).
     if (['getBoard', 'addMove', 'addGear', 'saveCallout', 'post'].includes(body.action) && role !== 'admin') return { ok: false, code: 'forbidden', reason: 'Only Matt can do that.', ...v };
     if (body.action === 'getPost') return { ok: true, post: state.posts.at(-1) || null, ...v };
+    // The real getCrew (Code.js: SNOW_ROSTER.crewFor): Matt gets every record whole, pending cards included; crew
+    // and leads the public fields of the live roster only.
+    if (body.action === 'getCrew') {
+      return { ok: true, crew: role === 'admin' ? state.crew : state.crew.filter((c) => c.pending !== true && c.archived !== true).map((c) => ({ id: c.id, name: c.name, phone: c.phone, photo_thumb: c.photo_thumb || null, is_lead: !!c.is_lead })), ...v };
+    }
     // The real getZones: Matt gets archived zones too, everyone else live ones; site_id narrows it.
     if (body.action === 'getZones') {
       const zones = (state.zones || []).filter((z) => role === 'admin' || z.archived !== true).filter((z) => !body.site_id || z.site_id === body.site_id);
@@ -318,7 +323,9 @@ const world = () => ({
 // delay: { action: ms } holds that action's reply; abortIf(body) drops a call
 // the way a lost signal does (the call is still recorded first); hangIf(body)
 // never answers it at all (Apps Script stuck, or a dead zone that never errors).
-async function open(page, { token, snow, inv, abortSnow, clockAt, delay, abortIf, hangIf } = {}) {
+// invDelay(p): ms to hold an Inventory reply. The reply is worked out when the call ARRIVES (what the server read
+// then), and only sent after the wait: a slow reply carries old news. calls.invAnswered counts the replies sent.
+async function open(page, { token, snow, inv, abortSnow, clockAt, delay, abortIf, hangIf, invDelay } = {}) {
   const calls = [];
   calls.inv = [];   // Inventory calls, apart (approve / reject carry Matt's token)
   // Shift choices depend on the wall clock: pin it, never trust the test's hour.
@@ -336,7 +343,11 @@ async function open(page, { token, snow, inv, abortSnow, clockAt, delay, abortIf
     const p = Object.fromEntries(new URL(route.request().url()).searchParams);
     calls.inv.push(p);
     const out = inv ? inv(p) : p.action === 'getProfiles' ? { profiles: PROFILES } : {};
-    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(out) });
+    const body = JSON.stringify(out);
+    const wait = invDelay ? invDelay(p) : 0;
+    if (wait) await new Promise((r) => setTimeout(r, wait));
+    await route.fulfill({ contentType: 'application/json', body });
+    calls.invAnswered = (calls.invAnswered || 0) + 1;
   });
   if (token) await page.addInitScript((t) => localStorage.setItem('titan-snow-token', t), token);
   await page.goto(PAGE);
@@ -5435,6 +5446,94 @@ test('self-service: Reject takes a second tap, then calls Inventory; one tap alo
   await expect(page.locator('#waitapprove')).toHaveCount(0);
 });
 
+// ---- who is waiting (Matt, 10/19/26: "when I have new people signing in, will I get a notification?") ----
+// Matt's Roster tab carries a count: requests from the sign-in screen (Inventory names still pending) plus cards
+// filled out and not added yet, the same rows as the two waiting lists. Read at sign-in, every 5 minutes while
+// the app is on screen, and whenever it comes back on screen. Only Matt's phone asks; crew phones never do.
+const rosterTab = (page) => page.locator('#tabs [data-tab="roster"]');
+const NINA_CARD = { id: 'C04', name: 'Nina Nursery', profile_id: '4', pending: true, rev: 1, phone: '555-0199' };
+
+test('roster count: the Roster tab counts who is waiting on Matt, and each decision takes one off', async ({ page }) => {
+  // Worked by hand: Pending Pat's request (PROFILES, pending) + Nina's card (pending, not added) = 2.
+  const w = world(); w.crew.push({ ...NINA_CARD });
+  await open(page, { token: 'tok-matt', snow: fakeSnow(w), inv: invWithRequests(PROFILES.map((p) => ({ ...p }))) });
+  await expect(rosterTab(page)).toHaveText('Roster 2'); // before the Roster tab was ever opened
+  await rosterTab(page).click();
+  await page.click('[data-approve="9"]');
+  await expect(page.locator('#toast')).toHaveText('Pending Pat can sign in now');
+  await expect(rosterTab(page)).toHaveText('Roster 1');
+  await page.click('[data-addcrew="C04"]');
+  await expect(rosterTab(page)).toHaveText('Roster');
+  await expect(page.locator('#tabs .tabcount')).toHaveCount(0); // nobody waiting: no count at all, never a 0
+});
+
+test('roster count: a request sent while the app is open shows within 5 minutes, and a new card at once when the app comes back on screen', async ({ page }) => {
+  const list = PROFILES.filter((p) => p.status !== 'pending').map((p) => ({ ...p })); // nobody waiting
+  const w = world();
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w), inv: invWithRequests(list), clockAt: STORM_CLOCK });
+  await expect.poll(() => calls.inv.filter((c) => c.action === 'getProfiles').length).toBe(1); // the sign-in check
+  await expect(rosterTab(page)).toHaveText('Roster');
+  list.push({ id: 12, name: 'Newbie Nate', status: 'pending', hasPin: true }); // asks from his own phone
+  await page.clock.fastForward('04:50');
+  expect(calls.inv.filter((c) => c.action === 'getProfiles')).toHaveLength(1); // not yet: 4 min 50 s
+  await page.clock.fastForward('00:15');
+  await expect(rosterTab(page)).toHaveText('Roster 1');
+  await rosterTab(page).click();
+  await expect(page.locator('#waitapprove')).toContainText('Newbie Nate');
+  await expect(page.locator('#waitadd')).toHaveCount(0);
+  // Nina fills out her card on her phone; Matt's phone comes back on screen, on the Roster tab: the list itself
+  // shows her, with no tap.
+  w.crew.push({ ...NINA_CARD });
+  await pollNow(page);
+  await expect(rosterTab(page)).toHaveText('Roster 2');
+  await expect(page.locator('#waitadd')).toContainText('Nina Nursery');
+  await expect(page.locator('#waitapprove')).toContainText('Newbie Nate');
+  expect(await page.locator('[data-addcrew]').count()).toBe(1); // Nina once, never twice
+});
+
+test('roster count: a check on its way when Matt approves never brings the request back', async ({ page }) => {
+  // The check reads Pat as pending; Matt approves before its reply lands. The newer ask (the one Approve makes)
+  // has already answered with Pat approved, so the old reply is thrown away.
+  const list = PROFILES.map((p) => ({ ...p }));
+  const slow = { next: false };
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: invWithRequests(list),
+    invDelay: (p) => (slow.next && p.action === 'getProfiles' ? ((slow.next = false), 2000) : 0) });
+  await rosterTab(page).click();
+  await expect(page.locator('#waitapprove')).toContainText('Pending Pat');
+  const asked = calls.inv.filter((c) => c.action === 'getProfiles').length;
+  slow.next = true;
+  await pollNow(page); // back on screen: the check asks, and its reply is held 2 s
+  await expect.poll(() => calls.inv.filter((c) => c.action === 'getProfiles').length).toBe(asked + 1);
+  await page.click('[data-approve="9"]');
+  await expect(page.locator('#toast')).toHaveText('Pending Pat can sign in now');
+  await expect(page.locator('#waitapprove')).toHaveCount(0);
+  await expect.poll(() => calls.invAnswered).toBe(calls.inv.length); // the held reply has landed
+  await page.waitForTimeout(300);
+  await expect(page.locator('#waitapprove')).toHaveCount(0);
+  await expect(rosterTab(page)).toHaveText('Roster');
+});
+
+test('roster count: crew phones never ask for the waiting lists', async ({ page }) => {
+  const calls = await open(page, { token: 'tok-jordan', snow: fakeSnow(world()), clockAt: STORM_CLOCK });
+  await expect(page.locator('#tabs [data-tab="tonight"]')).toBeVisible();
+  await page.clock.fastForward('05:01');
+  await pollNow(page);
+  await page.waitForTimeout(300);
+  expect(calls.filter((c) => c.body.action === 'getCrew')).toEqual([]);
+  expect(calls.inv.filter((c) => c.action === 'getProfiles')).toEqual([]);
+  await expect(page.locator('#tabs .tabcount')).toHaveCount(0);
+});
+
+test('bars: with 12 waiting, all six admin tabs still sit inside a 320 px screen', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  // Pending Pat + 11 more requests = 12.
+  const list = PROFILES.map((p) => ({ ...p })).concat(Array.from({ length: 11 }, (_, i) => ({ id: 20 + i, name: 'Request ' + i, status: 'pending', hasPin: true })));
+  await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: invWithRequests(list) });
+  await expect(rosterTab(page)).toHaveText('Roster 12');
+  const tabs = await page.locator('#tabs button').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return { t: e.textContent, l: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width) }; }));
+  for (const t of tabs) { expect(t.l, t.t).toBeGreaterThanOrEqual(0); expect(t.r, t.t).toBeLessThanOrEqual(320); expect(t.w, t.t).toBeGreaterThan(30); }
+});
+
 test('self-service: a pending card waits to be added, off the grid and off the Board; Add to crew saves it whole with pending false', async ({ page }) => {
   const w = world();
   w.crew.push({ id: 'C04', name: 'Nina Nursery', profile_id: '4', pending: true, rev: 1, phone: '555-0199', can_drive: true });
@@ -5750,7 +5849,11 @@ test('bars: all six admin tabs sit inside a 320 px screen, and the name badge ke
   await expect(page.locator('#tabs button')).toHaveCount(6);
   const tabs = await page.locator('#tabs button').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return { t: e.textContent, l: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width) }; }));
   for (const t of tabs) { expect(t.l, t.t).toBeGreaterThanOrEqual(0); expect(t.r, t.t).toBeLessThanOrEqual(320); expect(t.w, t.t).toBeGreaterThan(30); }
-  expect(tabs.map((t) => t.t)).toEqual(['Storm', 'Routes', 'Sites', 'Board', 'Log', 'Roster']);
+  // Pending Pat (PROFILES) is waiting: the Roster tab counts 1 (10/19/26). Read once the sign-in check lands.
+  await expect(page.locator('#tabs [data-tab="roster"]')).toHaveText('Roster 1');
+  const all = await page.locator('#tabs button').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return { t: e.textContent, l: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width) }; }));
+  for (const t of all) { expect(t.l, t.t).toBeGreaterThanOrEqual(0); expect(t.r, t.t).toBeLessThanOrEqual(320); expect(t.w, t.t).toBeGreaterThan(30); }
+  expect(all.map((t) => t.t)).toEqual(['Storm', 'Routes', 'Sites', 'Board', 'Log', 'Roster 1']);
   await page.click('#tabs [data-tab="roster"]');
   await expect(page.locator('#addWorker')).toBeVisible();
   // The top bar: the name badge is at least as wide as the words it holds minus the title's share; concretely, wider than a lone initial.

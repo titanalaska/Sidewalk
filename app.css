@@ -317,3 +317,5 @@ header #who{flex:1 1 auto;min-width:0;text-align:left}
 #zonesheet .zonewalk .walk{border-top:1px solid var(--line);margin-top:10px}
 .zonepick{display:flex;flex-direction:column;gap:8px;margin-top:8px}
 .zonepick button{min-height:52px;display:flex;align-items:center;text-align:left;font-weight:600}
+/* Who is waiting (10/19/26): the count on Matt's Roster tab. */
+.tabcount{display:inline-block;min-width:18px;padding:0 5px;margin-left:2px;border-radius:9px;background:var(--warn);color:var(--bg);font-size:12px;line-height:18px;font-weight:700;text-align:center}

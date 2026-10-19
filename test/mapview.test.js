@@ -40,6 +40,52 @@ test('marks: a curb zone takes its Curbs item\'s mark; a sidewalk its own', () =
   assert.strictEqual(markFor(zones[0], zones, states, null), '!');
 });
 
+// Map taps (Matt, 10/19/26): a done zone fades on the Storm tab's map, so what is left stands out. Done is the
+// tick's rule (markOf): cleared, treated and checked fade; a problem stays bright with its "!", and so does a
+// walk not started. A curb line fades with its Curbs item, as it takes the item's tick. Storage and no-touch
+// zones are never walked, so they never fade.
+const { doneIds, featureCollection } = require('../lib/mapview.js');
+test('fades: cleared, treated and checked walks fade; a problem, an untapped walk and an unwalked zone do not', () => {
+  const Log = require('../lib/shiftlog.js');
+  const zones = [{ id: 'Z1', site_id: 'S1', type: 'sidewalk', name: 'Main entry' },
+    { id: 'Z2', site_id: 'S1', type: 'heated', name: 'Heated walk' },
+    { id: 'Z4', site_id: 'S1', type: 'hand', name: 'Lot row' },
+    { id: 'Z5', site_id: 'S1', type: 'sidewalk', name: 'Back walk' },
+    { id: 'Z6', site_id: 'S1', type: 'hand', name: 'Curb - entry', area_sqft: 394 },
+    { id: 'Z3', site_id: 'S1', type: 'no_touch', name: 'Ski trail' }];
+  const states = { 'S1|Z1': { state: 'cleared' }, 'S1|Z2': { state: 'checked' }, 'S1|Z4': { state: 'problem' },
+    'S1|curbs-1': { state: 'treated' }, 'S1|Z3': { state: 'cleared' } }; // a stray row on Ski trail: it is not a walk
+  assert.deepStrictEqual(doneIds(zones, states, Log), { Z1: true, Z2: true, Z6: true });
+  // An undone walk ('none') is not done.
+  assert.deepStrictEqual(doneIds(zones, { 'S1|Z1': { state: 'none' } }, Log), {});
+  // No states at all (a map opened from the Sites tab): nothing fades.
+  assert.deepStrictEqual(doneIds(zones, {}, Log), {});
+});
+test('zones GeoJSON: done is true only for the zones named, false for the rest and when none are named', () => {
+  const zones = [{ id: 'Z1', type: 'sidewalk', ring: [[0, 0], [1, 0], [1, 1]] }, { id: 'Z2', type: 'hand', ring: [[2, 2], [3, 2], [3, 3]] }];
+  const fc = featureCollection(zones, { Z2: true });
+  assert.deepStrictEqual(fc.features.map((f) => f.properties), [{ id: 'Z1', type: 'sidewalk', done: false }, { id: 'Z2', type: 'hand', done: true }]);
+  assert.deepStrictEqual(fc.features[0].geometry.coordinates, [[[0, 0], [1, 0], [1, 1], [0, 0]]]); // the ring closed, as before
+  assert.deepStrictEqual(featureCollection(zones).features.map((f) => f.properties.done), [false, false]);
+});
+
+// The "Which zone?" list (Matt, 10/19/26: "Under the finger"): the zones right under the fingertip first, then the
+// rest; within each, smallest first (a curb strip before the walk it runs along), then by name. A zone with no
+// area_sqft goes after those with one. Worked by hand:
+//   under = [Z1]; areas Z1 3,229, Z6 394, Z7 394, Z9 (none), Z8 50,000  ->  Z1 | Z6, Z7 (394 each, by name:
+//   "Curb - entry" before "Curb - lot"), Z8, Z9  ->  ['Z1', 'Z6', 'Z7', 'Z8', 'Z9']
+//   under = [Z8, Z6] (a pile drawn over a curb): Z6 (394) before Z8 (50,000) | then Z7, Z1, Z9
+const { pickOrder } = require('../lib/mapview.js');
+test('Which zone?: the zones under the finger first, then the rest, each smallest first', () => {
+  const Z = (id, name, area) => ({ id, name, area_sqft: area });
+  const near = [Z('Z8', 'Snow pile 1', 50000), Z('Z9', 'Back walk'), Z('Z1', 'Main entry', 3229), Z('Z7', 'Curb - lot', 394), Z('Z6', 'Curb - entry', 394)];
+  const ids = (list) => list.map((z) => z.id);
+  assert.deepStrictEqual(ids(pickOrder(near, ['Z1'])), ['Z1', 'Z6', 'Z7', 'Z8', 'Z9']);
+  assert.deepStrictEqual(ids(pickOrder(near, ['Z8', 'Z6'])), ['Z6', 'Z8', 'Z7', 'Z1', 'Z9']);
+  assert.deepStrictEqual(ids(pickOrder(near, [])), ['Z6', 'Z7', 'Z1', 'Z8', 'Z9']); // nothing under it: smallest first
+  assert.deepStrictEqual(ids(near), ['Z8', 'Z9', 'Z1', 'Z7', 'Z6']); // the list it was given is not reordered in place
+});
+
 // Outlines on demand, ruling R5 (Matt 10/9/26): SnowMap.centroid (the priority star, the walk marks) is
 // lib/points.js's centroid, the one the server uses for a site's point, so the two can never disagree.
 // The arithmetic that was here took the corners as raw lng/lat. At -149.9 / 61.2 each cross product

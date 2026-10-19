@@ -3687,6 +3687,204 @@ test('a map opened from the Sites tab carries no walk marks', async ({ page }) =
   await expect(page.locator('.zone-mark')).toHaveCount(0);
 });
 
+// ---------------- map taps (Matt, 10/19/26) ----------------
+// On the Storm tab a crew member taps a zone ON THE SITE MAP and gets that walk's own buttons, drawn by the list's own
+// code, so a tap from the map IS the list's tap: the same tapZone body, the same Undo, Problem note and Retry. A tap
+// reaches a finger's width around itself (20 px each way); with more than one zone in reach the card asks "Which zone?"
+// and the crew pick. A done zone fades on the map; a problem and what is left stay bright. A map opened anywhere else
+// has no buttons and fades nothing.
+//
+// The ground, at zoom 18 at 61.22 N: 40,075,016 m x cos 61.2177 / (512 x 2^18) = 0.144 m a pixel, so 20 px = 2.9 m.
+//   Z1 Main entry   sidewalk  0-30 m east of PAC, 0-10 m north
+//   Z6 Curb - entry hand      0-30 m east, 10-11.22 m north: a 4-ft strip along Z1's north edge, 30 m x 1.2192 m =
+//                             36.58 m2 = 394 sq ft; / 4 ft = 98.5 ft, to the nearest 10: one item "Curbs (about 100 ft)"
+//   Z2 Heated walk  heated    0-20 m east, 33.4-38.4 m north;  Z3 Ski trail no_touch 32.3-42.3 m east, 0-30 m north
+// Every tap centres the map on its point first (a person pans to what they tap), so nothing is off the screen.
+//   MID      13.4 m east, 4.5 m north: in Z1. Its reach is 1.6-7.4 m north: Z1 only (the curb starts at 10 m)
+//   ON_CURB  13.4 m east, 10.6 m north: on the strip. Its reach is 7.7-13.5 m north: Z1 and Z6
+const NORTH_OF_PAC = (m) => PAC[1] + m / RE / DEGR;
+const MID = [PAC[0] + 0.00025, PAC[1] + 0.00004];
+const ON_CURB = [PAC[0] + 0.00025, NORTH_OF_PAC(10.6)];
+const ON_HEATED = [PAC[0] + 0.0001, PAC[1] + 0.00032];
+const ON_SKI = [PAC[0] + 0.00065, PAC[1] + 0.0001];
+const CURB_Z6 = { id: 'Z6', site_id: 'S1', type: 'hand', name: 'Curb - entry', priority: false, note: '', ring: ring(PAC[0], NORTH_OF_PAC(10), 30, 1.2192), area_sqft: 394, rev: 1 };
+const tapWorld = (extra) => { const w = stormWorld(); withView(w, 'S1', PAC); w.zones = mapWorld().zones.concat(extra || []); w.log = []; return w; };
+async function stormMap(page, w, o) {
+  await tiles(page);
+  await nws(page);
+  const calls = await openStorm(page, w, o);
+  await page.click('.shift-site [data-map="S1"]');
+  await zoneSource(page);
+  return calls;
+}
+const tapAt = async (page, [lng, lat]) => {
+  await mapInView(page);
+  const pt = await page.evaluate(([a, b]) => { const m = window.SnowMapView; m.jumpTo({ center: [a, b] }); const p = m.project([a, b]); const r = m.getCanvas().getBoundingClientRect(); return { x: r.left + p.x, y: r.top + p.y }; }, [lng, lat]);
+  await page.mouse.click(pt.x, pt.y);
+};
+const inSheet = (page, sel) => page.locator('#zonesheet ' + sel);
+// What the map's zones source says is done (the paint fades those), by zone id.
+const doneOf = (page) => page.evaluate(() => Object.fromEntries(window.SnowMapView.getSource('zones')._data.features.map((f) => [f.properties.id, f.properties.done])));
+
+test("map taps: on the Storm tab a zone on the map has the list's buttons, and its tap is the list's tap", async ({ page }) => {
+  const calls = await stormMap(page, tapWorld());
+  await tapAt(page, MID);
+  await expect(page.locator('#zonesheet')).toBeVisible();
+  await expect(inSheet(page, 'h2')).toContainText('Main entry');
+  await expect(inSheet(page, 'h2')).toContainText('★'); // the card is still the zone's own card
+  // Main entry is a sidewalk: Cleared / Treated / Problem, as in the list.
+  expect(await inSheet(page, '[data-walk="S1|Z1"]').evaluateAll((els) => els.map((e) => e.dataset.state))).toEqual(['cleared', 'treated', 'problem']);
+  await inSheet(page, '[data-walk="S1|Z1"][data-state="cleared"]').click();
+  await expect(inSheet(page, '[data-walkrow="S1|Z1"]')).toContainText('Cleared · Jordan Demo · 7:50 AM');
+  expect(tapCalls(calls)).toHaveLength(1);
+  const body = tapCalls(calls)[0].body;
+  expect(body).toMatchObject({ action: 'tapZone', site_id: 'S1', zone_id: 'Z1', state: 'cleared', note: '' });
+  for (const k of ['by_name', 'by_key', 'by_profile', 'at', 'shift_id', 'storm_id', 'seq']) expect(body).not.toHaveProperty(k);
+  await expect(inSheet(page, '[data-walk="S1|Z1"][data-state="cleared"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.zone-mark[data-zone="Z1"]')).toHaveText('✓');
+  // It fades: the fill from 0.35 to 0.12, the outline from 1 to 0.4. The others keep their strength.
+  await expect.poll(() => doneOf(page)).toEqual({ Z1: true, Z2: false, Z3: false });
+  const paint = await page.evaluate(() => [window.SnowMapView.getPaintProperty('zones-fill', 'fill-opacity'), window.SnowMapView.getPaintProperty('zones-line', 'line-opacity')]);
+  expect(paint).toEqual([['case', ['==', ['get', 'done'], true], 0.12, 0.35], ['case', ['==', ['get', 'done'], true], 0.4, 1]]);
+  // Back on the list it is the same walk, done.
+  await page.click('#mapback');
+  await expect(walkBtn(page, 'S1|Z1', 'cleared')).toHaveAttribute('aria-pressed', 'true');
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Cleared · Jordan Demo · 7:50 AM');
+});
+
+test('map taps: a heated walk offers Checked / Problem; a no-touch zone and a snow pile only show their card', async ({ page }) => {
+  const PILE = { id: 'Z5', site_id: 'S1', type: 'storage', name: 'Snow pile 1', priority: false, note: '', ring: ring(PAC[0] - 0.0004, PAC[1], 10, 10), area_sqft: 1076, rev: 1 };
+  await stormMap(page, tapWorld([PILE]));
+  await tapAt(page, ON_HEATED);
+  await expect(inSheet(page, 'h2')).toContainText('Heated walk');
+  expect(await inSheet(page, '[data-walk]').evaluateAll((els) => els.map((e) => e.dataset.walk + ' ' + e.dataset.state))).toEqual(['S1|Z2 checked', 'S1|Z2 problem']);
+  await tapAt(page, [PAC[0] - 0.0003, NORTH_OF_PAC(5)]); // the pile's middle: 16 m west, 5 m north
+  await expect(inSheet(page, 'h2')).toContainText('Snow pile 1');
+  await expect(inSheet(page, '[data-walkrow]')).toHaveCount(0);
+  await tapAt(page, ON_SKI);
+  await expect(inSheet(page, 'h2')).toContainText('Ski trail');
+  await expect(inSheet(page, '[data-walkrow]')).toHaveCount(0);
+});
+
+test('map taps: a tap near a walk and its curb asks which zone; the curb line marks its Curbs item', async ({ page }) => {
+  const calls = await stormMap(page, tapWorld([CURB_Z6]));
+  const picks = () => inSheet(page, '[data-pickzone]').evaluateAll((els) => els.map((e) => e.dataset.pickzone));
+  // Matt 10/19/26: the zone under the finger on top, then the rest smallest first. Just inside the walk's north
+  // edge (9.5 m north, its reach 6.6-12.4 m): under the finger is Main entry, the curb is in reach.
+  await tapAt(page, [MID[0], NORTH_OF_PAC(9.5)]);
+  await expect(inSheet(page, 'h2')).toHaveText('Which zone?');
+  expect(await picks()).toEqual(['Z1', 'Z6']);
+  // On the strip: under the finger is the curb, the walk is in reach.
+  await tapAt(page, ON_CURB);
+  await expect(inSheet(page, '[data-pickzone]').first()).toHaveAttribute('data-pickzone', 'Z6');
+  expect(await picks()).toEqual(['Z6', 'Z1']);
+  await expect(inSheet(page, '[data-walk]')).toHaveCount(0); // nothing to tap until a zone is picked
+  await inSheet(page, '[data-pickzone="Z6"]').click();
+  await expect(inSheet(page, 'h2')).toContainText('Curb - entry');
+  await expect(inSheet(page, '[data-walkrow="S1|curbs-1"]')).toContainText('Curbs (about 100 ft)');
+  await inSheet(page, '[data-walk="S1|curbs-1"][data-state="cleared"]').click();
+  await expect.poll(() => tapCalls(calls).length).toBe(1);
+  expect(tapCalls(calls)[0].body).toMatchObject({ action: 'tapZone', site_id: 'S1', zone_id: 'curbs-1', state: 'cleared' });
+  await expect.poll(() => doneOf(page)).toEqual({ Z1: false, Z2: false, Z3: false, Z6: true });
+  // In the walk's middle, out of the curb's reach, the walk opens straight away.
+  await tapAt(page, MID);
+  await expect(inSheet(page, 'h2')).toContainText('Main entry');
+  await expect(inSheet(page, '[data-pickzone]')).toHaveCount(0);
+  await expect(inSheet(page, '[data-walkrow="S1|Z1"]')).toBeVisible();
+});
+
+test('map taps: a Problem from the map needs its note, keeps what is typed through a poll, stays bright, and Undo works there', async ({ page }) => {
+  const w = tapWorld();
+  const calls = await stormMap(page, w);
+  await tapAt(page, MID);
+  await inSheet(page, '[data-walk="S1|Z1"][data-state="problem"]').click();
+  await expect(inSheet(page, '[data-note="S1|Z1"]')).toBeFocused();
+  await expect(inSheet(page, '[data-send="S1|Z1"]')).toBeDisabled();
+  expect(tapCalls(calls)).toHaveLength(0); // opening the box sent nothing
+  await page.keyboard.type('ice under');
+  await expect(inSheet(page, '[data-send="S1|Z1"]')).toBeEnabled();
+  // Alex checks the heated walk meanwhile, and the poll lands mid-sentence.
+  w.log.push(logRow(1, 'S1', 'Z2', 'checked', 'Alex Test', { at: at('07:40') }));
+  await pollNow(page);
+  await expect(page.locator('.zone-mark[data-zone="Z2"]')).toHaveText('✓');
+  await expect(inSheet(page, '[data-note="S1|Z1"]')).toHaveValue('ice under');
+  await expect(inSheet(page, '[data-note="S1|Z1"]')).toBeFocused();
+  await page.keyboard.type(' the mat');
+  await inSheet(page, '[data-send="S1|Z1"]').click();
+  await expect(inSheet(page, '[data-walkrow="S1|Z1"]')).toContainText('Problem · Jordan Demo · 7:50 AM');
+  expect(tapCalls(calls)).toHaveLength(1);
+  expect(tapCalls(calls)[0].body).toMatchObject({ site_id: 'S1', zone_id: 'Z1', state: 'problem', note: 'ice under the mat' });
+  await expect(page.locator('.zone-mark[data-zone="Z1"]')).toHaveText('!');
+  expect(await doneOf(page)).toEqual({ Z1: false, Z2: true, Z3: false }); // the problem stays bright; the checked walk fades
+  // Undo from the card: the walk goes back to not done, and its mark goes.
+  await inSheet(page, '[data-undo]').click();
+  await expect.poll(() => calls.filter((c) => c.body.action === 'undoTap').length).toBe(1);
+  await expect(page.locator('.zone-mark[data-zone="Z1"]')).toHaveCount(0);
+  await expect(inSheet(page, '[data-walk="S1|Z1"][data-state="problem"]')).toHaveAttribute('aria-pressed', 'false');
+});
+
+test('map taps: no signal in the card says not saved, and Retry there sends the same tap', async ({ page }) => {
+  const net = { down: true };
+  const calls = await stormMap(page, tapWorld(), { abortIf: (b) => net.down && b.action === 'tapZone' });
+  await tapAt(page, MID);
+  await inSheet(page, '[data-walk="S1|Z1"][data-state="treated"]').click();
+  await expect(inSheet(page, '[data-walkrow="S1|Z1"]')).toContainText('Not saved');
+  await expect(inSheet(page, '[data-retry="S1|Z1"]')).toBeVisible();
+  expect(await doneOf(page)).toEqual({ Z1: false, Z2: false, Z3: false }); // nothing is shown as done
+  net.down = false;
+  await inSheet(page, '[data-retry="S1|Z1"]').click();
+  await expect(inSheet(page, '[data-walkrow="S1|Z1"]')).toContainText('Treated · Jordan Demo · 7:50 AM');
+  await expect(inSheet(page, '[data-retry]')).toHaveCount(0);
+  expect(tapCalls(calls)).toHaveLength(2);
+  expect(tapCalls(calls)[1].body).toMatchObject({ site_id: 'S1', zone_id: 'Z1', state: 'treated', note: '' });
+  await expect.poll(() => doneOf(page)).toEqual({ Z1: true, Z2: false, Z3: false });
+});
+
+test('map taps: off the posted Board the card shows who did what, with no buttons', async ({ page }) => {
+  const w = tapWorld();
+  w.posts = [boardPost({ lead: 'C01' }, {})]; // Jordan is not on it
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test')];
+  await tiles(page);
+  await nws(page);
+  await openStorm(page, w);
+  await page.click('#otherRoutes');
+  await page.click('.shift-site [data-map="S1"]');
+  await zoneSource(page);
+  await tapAt(page, MID);
+  await expect(inSheet(page, 'h2')).toContainText('Main entry');
+  await expect(inSheet(page, '[data-walkrow="S1|Z1"]')).toContainText('Cleared · Alex Test');
+  await expect(inSheet(page, '[data-walk]')).toHaveCount(0);
+  await expect(inSheet(page, '[data-undo]')).toHaveCount(0);
+  await expect.poll(() => doneOf(page)).toEqual({ Z1: true, Z2: false, Z3: false }); // a Storm tab map still shows what is done
+});
+
+// The card works out read-only itself: Matt can re-post while a map is open, and the Storm tab's own list is not
+// drawn under a map, so nothing else would tell the card.
+test('map taps: a re-post that drops Jordan while his map is open takes the buttons off the card', async ({ page }) => {
+  const w = tapWorld();
+  await stormMap(page, w);
+  await tapAt(page, MID);
+  await expect(inSheet(page, '[data-walk="S1|Z1"]')).toHaveCount(3);
+  w.posts.push(boardPost({ lead: 'C01' }, {})); // the newest post: Alex leads N1, Jordan is on neither route
+  await pollNow(page); // back on screen: the post is read again
+  await expect(inSheet(page, '[data-walk]')).toHaveCount(0);
+  await expect(inSheet(page, 'h2')).toContainText('Main entry');
+});
+
+test('map taps: a map opened from the Sites tab has no walk buttons and fades nothing', async ({ page }) => {
+  const w = tapWorld();
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test')];
+  await tiles(page);
+  await openStorm(page, w, { token: 'tok-matt' });
+  await page.click('nav [data-tab="sites"]');
+  await page.click('[data-map="S1"]');
+  await zoneSource(page);
+  await tapAt(page, MID);
+  await expect(inSheet(page, 'h2')).toContainText('Main entry');
+  await expect(inSheet(page, '[data-walkrow]')).toHaveCount(0);
+  expect(await doneOf(page)).toEqual({ Z1: false, Z2: false, Z3: false });
+});
+
 // ---------------- final review fixes (10/3/26) ----------------
 // A post with Jordan (C03) as the member of one route only (Alex leads both, as in POST).
 const postWith = (id, shift, jordanOn) => ({ ...POST, id, shift, posted_at: '2026-10-03T15:00:00.000Z',

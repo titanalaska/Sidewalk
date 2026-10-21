@@ -6289,3 +6289,22 @@ test('Spanish: a three-digit PIN is refused in Spanish', async ({ page }) => {
   await page.click('#si_go');
   await expect(page.locator('#si_err')).toHaveText('El PIN tiene 4 dígitos.');
 });
+
+// Map taps (10/19/26) shipped after Spanish was built: its "Which zone?" list reads Spanish, and the zone names on
+// its buttons are Matt's words, never translated ("Sidewalk" is a dictionary row: Banqueta). Same tap as the map-taps
+// test: 9.5 m north, Main entry under the finger, the curb in reach, so the list is [Z1, Z6].
+test('Spanish: the map\'s "Which zone?" list reads Spanish and keeps the zone names as typed', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  const w = tapWorld([CURB_Z6]);
+  w.zones.filter((z) => z.id === 'Z1')[0].name = 'Sidewalk - front entry';
+  await stormMap(page, w);
+  await tapAt(page, [MID[0], NORTH_OF_PAC(9.5)]);
+  await expect(inSheet(page, 'h2')).toHaveText('¿Qué zona?');
+  await expect(page.getByText('Which zone?', { exact: true })).toHaveCount(0);
+  await expect(inSheet(page, '[data-pickzone="Z1"]')).toHaveText('Sidewalk - front entry');
+  await expect(inSheet(page, '[data-pickzone="Z6"]')).toHaveText('Curb - entry');
+  await expect(inSheet(page, '.zonepick').getByText('Banqueta')).toHaveCount(0);
+  await inSheet(page, '[data-pickzone="Z1"]').click();
+  await expect(inSheet(page, 'h2')).toContainText('Sidewalk - front entry');
+  await expect(inSheet(page, '[data-walk="S1|Z1"][data-state="cleared"]')).toHaveText('Despejado');
+});

@@ -381,7 +381,7 @@ test('Share is on the sign-in screen and sends the fixed app address, never this
   await expect.poll(() => page.evaluate(() => window.__shared.length)).toBe(1);
   const d = await page.evaluate(() => window.__shared[0]);
   expect(d.url).toBe(APP_URL);
-  expect(d.text).toContain('Request access');
+  expect(d.text).toContain('Type your name');
   expect(await page.evaluate(() => window.__copied.length)).toBe(0); // the sheet took it: nothing copied
 });
 
@@ -656,6 +656,151 @@ test('a first sign-in with no PIN yet claims one instead of spending a try', asy
   await page.click('nav [data-tab="routes"]');
   await expect(page.locator('.route-card[data-route="R1"]')).toBeVisible();
   expect(invCalls).not.toContain('verifyPin');
+});
+
+// ---------- a new person types their name (Matt, 10/20/26) ----------
+// First snow, four on the roster: a new crew member who has never used Titan Inventory is not on the name list.
+// They type their name (first AND last, Matt 10/20/26) and choose a PIN. That is Inventory's own requestProfile,
+// the endpoint the Inventory app's new hires use: it adds one 'pending' row, and the snow backend is never asked
+// (it never writes Inventory's Sheet). The request is one of Matt's Roster count, he taps Approve, and they sign
+// in with that name and PIN. Matt kept the name list for everyone already set up.
+// An Inventory fake that does what the real requestProfile does (titan-inventory-script Code.js): a name that
+// matches a row ignoring case and the ends' spaces is a duplicate, answered with that row's status; otherwise the
+// new row gets the highest id + 1, pending. The PIN is kept for verifyPin, never sent back by getProfiles.
+function invWithSignup(list) {
+  const pins = {};
+  return (p) => {
+    if (p.action === 'getProfiles') return { profiles: list.map((x) => ({ ...x })) };
+    if (p.action === 'requestProfile') {
+      const name = (p.name || '').trim();
+      const hit = list.find((x) => String(x.name).trim().toLowerCase() === name.toLowerCase());
+      if (hit) return { duplicate: true, id: hit.id, name: hit.name, status: hit.status, hasPin: hit.hasPin };
+      const id = Math.max(...list.map((x) => Number(x.id))) + 1;
+      list.push({ id, name, status: 'pending', hasPin: true });
+      pins[id] = p.pin;
+      return { id, name, position: p.position, status: 'pending' };
+    }
+    if (p.action === 'approveProfile') { const hit = list.find((x) => String(x.id) === p.id); if (hit) hit.status = 'approved'; return { success: !!hit }; }
+    if (p.action === 'verifyPin') {
+      const hit = list.find((x) => String(x.id) === p.id);
+      return hit && hit.status === 'approved' && pins[p.id] === p.pin ? { valid: true, success: true, id: hit.id, name: hit.name, status: 'approved', token: 'tok-nina' } : { valid: false, attemptsLeft: 4 };
+    }
+    return {};
+  };
+}
+const requests = (calls) => calls.inv.filter((c) => c.action === 'requestProfile');
+const ALREADY = "That name is already on the list. If it's you, go back and pick it. If not, add your second last name or a middle initial.";
+
+test('new person: types a first and last name and a PIN; Inventory gets one pending request; Matt counts it, approves it, and they sign in with it', async ({ page, browser }) => {
+  const list = PROFILES.map((p) => ({ ...p }));
+  const calls = await open(page, { snow: fakeSnow(world()), inv: invWithSignup(list) });
+  // The sign-in screen no longer tells a new person they need a Titan Inventory account.
+  await expect(page.locator('#si_who option')).toHaveCount(6);
+  await expect(page.locator('#signin')).not.toContainText('Same name and PIN as Titan Inventory');
+  await expect(page.locator('#signin')).toContainText('Not on the list?');
+  await expect(page.locator('#si_req')).toHaveText('Type your name');
+  await page.click('#si_req');
+  await expect(page.locator('#request h2')).toHaveText('Type your name');
+  await expect(page.locator('#request')).toContainText('Matt approves it here in Sidewalk');
+  await expect(page.locator('#request')).not.toContainText('Titan Inventory');
+  // Spaces at the ends and doubled inside are the phone keyboard's, not the name: "Rosa Mendez" is what is sent.
+  await page.fill('#rq_name', '  Rosa   Mendez ');
+  await page.fill('#rq_pin', '4821');
+  await page.click('#rq_go');
+  await expect(page.locator('#reqsent h2')).toHaveText('Request sent');
+  await expect(page.locator('#reqsent')).toContainText('Matt approves it in Sidewalk. Then come back, pick your name and sign in with your PIN.');
+  expect(requests(calls)).toEqual([{ action: 'requestProfile', name: 'Rosa Mendez', position: 'Sidewalk crew', pin: '4821' }]);
+  expect(calls.length).toBe(0); // the snow backend was never asked
+  // Back on the list they find their own name, waiting. The new row: ids 1, 3, 4, 6, 9 -> highest 9 + 1 = 10.
+  await page.click('#rq_back');
+  await expect(page.locator('#si_who option[value="10"]')).toHaveText('Rosa Mendez (waiting for approval)');
+  // Matt's phone: Pending Pat (9) + Rosa (10) = Roster 2. Approve Rosa.
+  const matt = await (await browser.newContext()).newPage(); // his own phone: his token never reaches Rosa's
+  const mc = await open(matt, { token: 'tok-matt', snow: fakeSnow(world()), inv: invWithSignup(list) });
+  await expect(matt.locator('#tabs [data-tab="roster"]')).toHaveText('Roster 2');
+  await matt.click('nav [data-tab="roster"]');
+  await matt.click('[data-approve="10"]');
+  await expect(matt.locator('#toast')).toHaveText('Rosa Mendez can sign in now');
+  expect(mc.inv.find((x) => x.action === 'approveProfile')).toMatchObject({ id: '10', token: 'tok-matt' });
+  // Rosa signs in with her name and the PIN she chose: verifyPin, never claimPin (her PIN is set).
+  await page.goto(PAGE);
+  await page.selectOption('#si_who', '10');
+  await page.fill('#si_pin', '4821');
+  await page.click('#si_go');
+  await expect(page.locator('#notroster')).toBeVisible(); // signed in; next is her own card (roster self-service)
+  expect(calls.inv.filter((c) => c.action === 'verifyPin' || c.action === 'claimPin').map((c) => [c.action, c.id, c.pin])).toEqual([['verifyPin', '10', '4821']]);
+});
+
+test('new person: a first name alone, a number for a last name, or nothing is refused on the phone, and nothing is sent', async ({ page }) => {
+  const calls = await open(page, { snow: fakeSnow(world()), inv: invWithSignup(PROFILES.map((p) => ({ ...p }))) });
+  await page.click('#si_req');
+  await page.fill('#rq_pin', '4821');
+  for (const [typed, said] of [['', 'Name is required.'], ['   ', 'Name is required.'], ['Rosa', 'Type your first and last name.'],
+    ['  Rosa  ', 'Type your first and last name.'], ['Rosa 2', 'Type your first and last name.']]) {
+    await page.fill('#rq_name', typed);
+    await page.click('#rq_go');
+    await expect(page.locator('#rq_err')).toHaveText(said);
+  }
+  // An initial is a name: "Rosa M." passes the name rule (the PIN rule comes next, and stops it here).
+  await page.fill('#rq_name', 'Rosa M.');
+  await page.fill('#rq_pin', '12');
+  await page.click('#rq_go');
+  await expect(page.locator('#rq_err')).toHaveText('PIN is 4 digits.');
+  expect(requests(calls)).toEqual([]);
+});
+
+test('new person: a name already on the list is caught on the phone, any case or spacing, approved or waiting', async ({ page }) => {
+  const calls = await open(page, { snow: fakeSnow(world()), inv: invWithSignup(PROFILES.map((p) => ({ ...p }))) });
+  await expect(page.locator('#si_who option')).toHaveCount(6); // the list is in: the phone checks against it
+  await page.click('#si_req');
+  await page.fill('#rq_pin', '4821');
+  for (const typed of ['jordan  demo', ' PENDING PAT ']) { // approved (3), waiting (9)
+    await page.fill('#rq_name', typed);
+    await page.click('#rq_go');
+    await expect(page.locator('#rq_err')).toHaveText(ALREADY);
+  }
+  expect(requests(calls)).toEqual([]);
+});
+
+test("new person: Inventory's own duplicate answer reads right for a name the phone could not see", async ({ page }) => {
+  // The phone's list leaves rejected people out (lib/api.js profiles), and a name can arrive after the list was read.
+  // Inventory still refuses both: a rejected name is not this person's to take; an approved or waiting one is on the list.
+  const inv = (p) => p.action === 'getProfiles' ? { profiles: PROFILES }
+    : p.name === 'Rex Rejected' ? { duplicate: true, id: 12, name: 'Rex Rejected', status: 'rejected' }
+    : p.name === 'Late Larry' ? { duplicate: true, id: 13, name: 'Late Larry', status: 'approved' }
+    : p.name === 'Late Lou' ? { duplicate: true, id: 14, name: 'Late Lou', status: 'pending' } : {};
+  await open(page, { snow: fakeSnow(world()), inv });
+  await page.click('#si_req');
+  await page.fill('#rq_pin', '4821');
+  for (const [typed, said] of [['Rex Rejected', 'That name was not approved. Talk to Matt.'], ['Late Larry', ALREADY], ['Late Lou', ALREADY]]) {
+    await page.fill('#rq_name', typed);
+    await page.click('#rq_go');
+    await expect(page.locator('#rq_err')).toHaveText(said);
+  }
+});
+
+test('new person: Send request is off while the request is on its way; a double tap sends one', async ({ page }) => {
+  const calls = await open(page, { snow: fakeSnow(world()), inv: invWithSignup(PROFILES.map((p) => ({ ...p }))),
+    invDelay: (p) => (p.action === 'requestProfile' ? 1500 : 0) });
+  await page.click('#si_req');
+  await page.fill('#rq_name', 'Rosa Mendez');
+  await page.fill('#rq_pin', '4821');
+  await page.click('#rq_go');
+  await expect(page.locator('#rq_go')).toBeDisabled();
+  await page.locator('#rq_go').click({ force: true });
+  await expect(page.locator('#reqsent')).toBeVisible();
+  expect(requests(calls)).toHaveLength(1);
+});
+
+test('new person: no signal on Send request says so, and the button comes back for another try', async ({ page }) => {
+  // Inventory unreachable: lib/api.js inv() gets nothing readable -> "Couldn't reach the server. Try again."
+  await open(page, { snow: fakeSnow(world()), inv: (p) => p.action === 'getProfiles' ? { profiles: PROFILES } : null });
+  await page.click('#si_req');
+  await page.fill('#rq_name', 'Rosa Mendez');
+  await page.fill('#rq_pin', '4821');
+  await page.click('#rq_go');
+  await expect(page.locator('#rq_err')).toHaveText("Couldn't reach the server. Try again.");
+  await expect(page.locator('#rq_go')).toBeEnabled();
 });
 
 test('a pending person is told they are waiting, without spending a try', async ({ page }) => {
@@ -6307,4 +6452,33 @@ test('Spanish: the map\'s "Which zone?" list reads Spanish and keeps the zone na
   await inSheet(page, '[data-pickzone="Z1"]').click();
   await expect(inSheet(page, 'h2')).toContainText('Sidewalk - front entry');
   await expect(inSheet(page, '[data-walk="S1|Z1"][data-state="cleared"]')).toHaveText('Despejado');
+});
+
+// A new person types their name (10/20/26): the sign-in line, the button, the form, the first-and-last rule, the
+// already-on-the-list line and Request sent all read Spanish; what is SENT is the name as typed, never translated.
+test('Spanish: a new person types their name in Spanish, and Inventory gets the name as typed', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  const calls = await open(page, { snow: fakeSnow(world()), inv: invWithSignup(PROFILES.map((p) => ({ ...p }))) });
+  await expect(page.locator('#si_who option')).toHaveCount(6);
+  await expect(page.locator('#signin')).toContainText('Elige tu nombre y luego tu PIN. Si usas Titan Inventory, es el mismo PIN.');
+  await expect(page.locator('#signin')).toContainText('¿No estás en la lista?');
+  await expect(page.locator('#si_req')).toHaveText('Escribe tu nombre');
+  await expect(page.getByText('Not on the list?', { exact: true })).toHaveCount(0);
+  await page.click('#si_req');
+  await expect(page.locator('#request h2')).toHaveText('Escribe tu nombre');
+  await expect(page.locator('#request')).toContainText('Escribe tu nombre y apellido y elige un PIN de 4 dígitos. Matt lo aprueba aquí en Sidewalk. Después inicia sesión con tu nombre y este PIN.');
+  await expect(page.locator('#request label').first()).toHaveText('Tu nombre y apellido');
+  await page.fill('#rq_pin', '4821');
+  await page.fill('#rq_name', 'Rosa');
+  await page.click('#rq_go');
+  await expect(page.locator('#rq_err')).toHaveText('Escribe tu nombre y apellido.');
+  await page.fill('#rq_name', 'jordan demo');
+  await page.click('#rq_go');
+  await expect(page.locator('#rq_err')).toHaveText('Ese nombre ya está en la lista. Si eres tú, regresa y elígelo. Si no, agrega tu segundo apellido o una inicial.');
+  await page.fill('#rq_name', 'Clear Snow'); // two dictionary words ("Clear", "Snow"): still sent exactly as typed
+  await page.click('#rq_go');
+  await expect(page.locator('#reqsent h2')).toHaveText('Solicitud enviada');
+  await expect(page.locator('#reqsent')).toContainText('Matt la aprueba en Sidewalk. Después regresa, elige tu nombre e inicia sesión con tu PIN.');
+  await expect(page.locator('#reqsent')).not.toContainText('Matt approves');
+  expect(requests(calls)).toEqual([{ action: 'requestProfile', name: 'Clear Snow', position: 'Sidewalk crew', pin: '4821' }]);
 });

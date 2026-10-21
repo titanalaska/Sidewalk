@@ -21,7 +21,7 @@ test('the address is the fixed app address, and the message says how to get in',
   assert.equal(SnowShare.APP_URL, URL);
   const m = SnowShare.message();
   assert.match(m, /Snow Crew/);
-  assert.match(m, /Request access/); // a new guy has no PIN yet
+  assert.match(m, /Type your name/); // a new guy is not on the name list (10/20/26)
   assert.ok(!m.includes('http'), 'the link travels as the url, not inside the text');
 });
 

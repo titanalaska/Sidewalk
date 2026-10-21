@@ -1,6 +1,6 @@
 {
-  "name": "Snow Crew",
-  "short_name": "Snow Crew",
+  "name": "Shovel Command",
+  "short_name": "Shovel Command",
   "description": "Titan Alaska's sidewalk snow crew: routes, sites and site maps. Sign in with your Titan Inventory PIN.",
   "start_url": "./",
   "scope": "./",

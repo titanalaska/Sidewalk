@@ -15,7 +15,7 @@ test('manifest: own scope, full screen, the name the crew see', () => {
   assert.strictEqual(m.start_url, './');
   assert.strictEqual(m.scope, './');
   assert.strictEqual(m.display, 'standalone');
-  assert.strictEqual(m.name, 'Snow Crew'); // matches the page title and header
+  assert.strictEqual(m.name, 'Shovel Command'); // matches the page title and header
 });
 
 test('manifest icons exist at the sizes they claim, one maskable', () => {
@@ -46,7 +46,7 @@ test('the shell caches the shift log files', () => {
   assert.ok(loaded.length > 10, 'found the page\'s script tags');
   for (const f of loaded) assert.ok(shell.includes(f), f + ' is loaded by index.html but not in the shell');
   // A new shell means a new cache name, or installed phones keep the old one.
-  assert.match(sw, /var CACHE_VERSION = 'titan-snow-shell-41';/);
+  assert.match(sw, /var CACHE_VERSION = 'titan-snow-shell-42';/);
 });
 
 // Outlines on demand (10/9/26): lib/points.js (the shared centroid and site point) and

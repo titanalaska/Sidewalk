@@ -63,7 +63,7 @@ test('final review: the rows and rules the crew screens were still missing', () 
     'Wrong PIN. 3 tries left.': 'PIN incorrecto. Quedan 3 intentos.',
     'Too many wrong PINs. Wait 5 minutes.': 'Demasiados PIN incorrectos. Espera 5 minutos.',
     ' (waiting for approval)': ' (esperando aprobación)',
-    'Type your first and last name and choose a 4-digit PIN. Matt approves it here in Sidewalk. Then sign in with your name and this PIN.':
+    'Type your first and last name and choose a 4-digit PIN. Matt approves it here in Shovel Command. Then sign in with your name and this PIN.':
       'Escribe tu nombre y apellido y elige un PIN de 4 dígitos. Matt lo aprueba aquí en Sidewalk. Después inicia sesión con tu nombre y este PIN.',
     "Can't reach the server. Trying again.": 'No se puede conectar con el servidor. Intentando de nuevo.',
     'Add minutes for Blower, or untick it': 'Agrega minutos para Sopladora, o desmárcala',

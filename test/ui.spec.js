@@ -436,6 +436,23 @@ test('the top bar still fits a small phone with Share in it (Matt signed in, the
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
 });
 
+// Renamed Shovel Command (Matt, 10/20/26: "we're about to create a new one ... plow command"). The name is 14 letters
+// where Snow Crew was 9. Signed in on a phone, the name badge takes the title's place; signed out, the title is
+// all the top bar says, so on the narrowest phone in use (320 px) it must read in full beside EN/ES and Share.
+test('sign-in screen at 320 px: "Shovel Command" reads in full and the top bar stays on screen', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await open(page, { snow: fakeSnow(world()) });
+  await expect(page.locator('#signin')).toBeVisible();
+  const h1 = page.locator('header h1');
+  await expect(h1).toBeVisible();
+  await expect(h1).toHaveText('Shovel Command');
+  const fit = await h1.evaluate((e) => ({ scroll: e.scrollWidth, client: e.clientWidth }));
+  expect(fit.scroll, 'title cut short with an ellipsis').toBeLessThanOrEqual(fit.client);
+  const hdr = await page.locator('header > *').evaluateAll((els) => els.filter((e) => e.offsetParent).map((e) => Math.round(e.getBoundingClientRect().right)));
+  for (const r of hdr) expect(r).toBeLessThanOrEqual(320);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+});
+
 test('signed out shows the sign-in screen; pending people can find their name', async ({ page }) => {
   await open(page, { snow: fakeSnow(world()) });
   await expect(page.locator('#signin')).toBeVisible();
@@ -701,14 +718,14 @@ test('new person: types a first and last name and a PIN; Inventory gets one pend
   await expect(page.locator('#si_req')).toHaveText('Type your name');
   await page.click('#si_req');
   await expect(page.locator('#request h2')).toHaveText('Type your name');
-  await expect(page.locator('#request')).toContainText('Matt approves it here in Sidewalk');
+  await expect(page.locator('#request')).toContainText('Matt approves it here in Shovel Command');
   await expect(page.locator('#request')).not.toContainText('Titan Inventory');
   // Spaces at the ends and doubled inside are the phone keyboard's, not the name: "Rosa Mendez" is what is sent.
   await page.fill('#rq_name', '  Rosa   Mendez ');
   await page.fill('#rq_pin', '4821');
   await page.click('#rq_go');
   await expect(page.locator('#reqsent h2')).toHaveText('Request sent');
-  await expect(page.locator('#reqsent')).toContainText('Matt approves it in Sidewalk. Then come back, pick your name and sign in with your PIN.');
+  await expect(page.locator('#reqsent')).toContainText('Matt approves it in Shovel Command. Then come back, pick your name and sign in with your PIN.');
   expect(requests(calls)).toEqual([{ action: 'requestProfile', name: 'Rosa Mendez', position: 'Sidewalk crew', pin: '4821' }]);
   expect(calls.length).toBe(0); // the snow backend was never asked
   // Back on the list they find their own name, waiting. The new row: ids 1, 3, 4, 6, 9 -> highest 9 + 1 = 10.

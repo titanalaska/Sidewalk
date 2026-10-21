@@ -6483,7 +6483,7 @@ test('Spanish: a new person types their name in Spanish, and Inventory gets the 
   await expect(page.getByText('Not on the list?', { exact: true })).toHaveCount(0);
   await page.click('#si_req');
   await expect(page.locator('#request h2')).toHaveText('Escribe tu nombre');
-  await expect(page.locator('#request')).toContainText('Escribe tu nombre y apellido y elige un PIN de 4 dígitos. Matt lo aprueba aquí en Sidewalk. Después inicia sesión con tu nombre y este PIN.');
+  await expect(page.locator('#request')).toContainText('Escribe tu nombre y apellido y elige un PIN de 4 dígitos. Matt lo aprueba aquí en Shovel Command. Después inicia sesión con tu nombre y este PIN.');
   await expect(page.locator('#request label').first()).toHaveText('Tu nombre y apellido');
   await page.fill('#rq_pin', '4821');
   await page.fill('#rq_name', 'Rosa');
@@ -6495,7 +6495,7 @@ test('Spanish: a new person types their name in Spanish, and Inventory gets the 
   await page.fill('#rq_name', 'Clear Snow'); // two dictionary words ("Clear", "Snow"): still sent exactly as typed
   await page.click('#rq_go');
   await expect(page.locator('#reqsent h2')).toHaveText('Solicitud enviada');
-  await expect(page.locator('#reqsent')).toContainText('Matt la aprueba en Sidewalk. Después regresa, elige tu nombre e inicia sesión con tu PIN.');
+  await expect(page.locator('#reqsent')).toContainText('Matt la aprueba en Shovel Command. Después regresa, elige tu nombre e inicia sesión con tu PIN.');
   await expect(page.locator('#reqsent')).not.toContainText('Matt approves');
   expect(requests(calls)).toEqual([{ action: 'requestProfile', name: 'Clear Snow', position: 'Sidewalk crew', pin: '4821' }]);
 });

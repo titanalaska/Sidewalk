@@ -516,7 +516,8 @@ test('a matching backend version shows no warning', async ({ page }) => {
 
 test('no network on load is said plainly, with a retry', async ({ page }) => {
   await open(page, { token: 'tok-jordan', abortSnow: true });
-  await expect(page.locator('main')).toContainText("Couldn't reach the server");
+  // The card comes after the load's three tries and their waits (1500 + 4000 ms, 10/24/26): about 5.6 s.
+  await expect(page.locator('main')).toContainText("Couldn't reach the server", { timeout: 20000 });
   await expect(page.locator('#retry')).toBeVisible();
 });
 

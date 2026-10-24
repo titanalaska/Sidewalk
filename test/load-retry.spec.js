@@ -4,7 +4,7 @@
 // Why: Google now and then fails a call in 0 s, before the script's code runs. The phone's fetch rejects (Google's error page
 // has no CORS header), which is exactly what route.abort() does here. Matt saw the app-open card with
 // "Couldn't reach the server. Not saved, try again." and a Try again button. See test/load-retry.test.js for the rules
-// (SnowApi.read: one try again after 1500 ms, only a fast network failure, never a write).
+// (SnowApi.read: up to two retries, after 1500 ms and then 4000 ms, only a fast network failure, never a write).
 //
 // This file has its own small fake backend (a spec exports nothing, and requiring another would run its tests twice). It
 // answers like the real server and no better: every POST reply names its `action` and the version the phone expects.
@@ -78,24 +78,38 @@ test('between the two tries the screen says Loading, not the card', async ({ pag
   await expect(page.locator('nav [data-tab="sites"]')).toBeVisible();
 });
 
-test('both loads lost: the card says Try again, never "Not saved", after exactly two tries', async ({ page }) => {
-  const calls = await openApp(page, { lostIf: () => true });
-  await expect(page.locator('#retry')).toBeVisible();
-  await expect(page.locator('main h2')).toHaveText("Couldn't reach the server");
-  await expect(page.locator('main p.muted')).toHaveText("Couldn't reach the server. Try again.");
+// The card comes after the three tries and their two waits: 1500 + 4000 ms, about 5.6 s. The expects below allow for it.
+const CARD_WITHIN = { timeout: 20000 };
+
+test('the first two loads are lost, the third answers: the app opens, and the card never comes (Matt: "sometimes you do it again")', async ({ page }) => {
+  // Worked on paper: bootstrap #1 and #2 lost, #3 answered; the waits are 1500 ms and 4000 ms.
+  const calls = await openApp(page, { lostIf: (n) => n <= 2 });
+  await expect(page.locator('nav [data-tab="sites"]')).toBeVisible(CARD_WITHIN);
+  expect(boots(calls).length).toBe(3);
+  await expect(page.locator('#retry')).toHaveCount(0);
+  await expect(page.locator('body')).not.toContainText("Couldn't reach the server");
   await expect(page.locator('body')).not.toContainText('Not saved');
-  expect(boots(calls).length).toBe(2);
   expect(calls.errors).toEqual([]);
 });
 
-test('Try again on the card loads once more, and the app opens when the server is back', async ({ page }) => {
-  // Loads 1 and 2 are lost (the card); the signal returns for load 3.
-  const calls = await openApp(page, { lostIf: (n) => n <= 2 });
-  await expect(page.locator('#retry')).toBeVisible();
-  expect(boots(calls).length).toBe(2);
+test('all three tries lost: the card says Try again, never "Not saved", after exactly three tries', async ({ page }) => {
+  const calls = await openApp(page, { lostIf: () => true });
+  await expect(page.locator('#retry')).toBeVisible(CARD_WITHIN);
+  await expect(page.locator('main h2')).toHaveText("Couldn't reach the server");
+  await expect(page.locator('main p.muted')).toHaveText("Couldn't reach the server. Try again.");
+  await expect(page.locator('body')).not.toContainText('Not saved');
+  expect(boots(calls).length).toBe(3);
+  expect(calls.errors).toEqual([]);
+});
+
+test('Try again on the card loads again, and the app opens when the server is back', async ({ page }) => {
+  // Loads 1, 2 and 3 are lost (the card); the signal returns for load 4, which the button sends.
+  const calls = await openApp(page, { lostIf: (n) => n <= 3 });
+  await expect(page.locator('#retry')).toBeVisible(CARD_WITHIN);
+  expect(boots(calls).length).toBe(3);
   await page.click('#retry');
   await expect(page.locator('nav [data-tab="sites"]')).toBeVisible();
-  expect(boots(calls).length).toBe(3);
+  expect(boots(calls).length).toBe(4);
   await expect(page.locator('#retry')).toHaveCount(0);
 });
 
@@ -109,7 +123,7 @@ test('an expired session is one request: the sign-in screen, no second try', asy
 test('in Spanish the card says it in Spanish and never "No se guardó"', async ({ page }) => {
   // lib/es.js has the row "Couldn't reach the server. Try again." -> "No se pudo conectar con el servidor. Intenta de nuevo."
   await openApp(page, { lostIf: () => true, lang: 'es' });
-  await expect(page.locator('#retry')).toBeVisible();
+  await expect(page.locator('#retry')).toBeVisible(CARD_WITHIN);
   await expect(page.locator('main h2')).toHaveText('No se pudo conectar con el servidor');
   await expect(page.locator('main p.muted')).toHaveText('No se pudo conectar con el servidor. Intenta de nuevo.');
   await expect(page.locator('body')).not.toContainText('No se guardó');

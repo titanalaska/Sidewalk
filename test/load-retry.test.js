@@ -12,9 +12,11 @@ const vm = require('node:vm');
 // load is a READ, nothing was being saved. And the same call a moment later answers.
 //
 // The rules, each worked out on paper below:
-//   SnowApi.read(action, body)  = a READ given one quiet second try, 1500 ms after a failure that came back FAST
-//                                 (under 10 s). Only code 'network'. A failure that took the 45 s limit is not tried
-//                                 again: the person has waited a minute, the card comes.
+//   SnowApi.read(action, body)  = a READ given up to TWO quiet retries (Matt, 10/24/26: "you retry, sometimes you do it
+//                                 again"): the first 1500 ms after the failure, the second 4000 ms after the next one, so
+//                                 at most three tries. Only code 'network', and only while the read has used under 10 s
+//                                 in all (waits included). A failure that took the 45 s limit is not tried again: the
+//                                 person has waited a minute, the card comes.
 //   SnowApi.call(action, body)  = unchanged, and NEVER retried: a write that failed may have landed (the 45 s abort), and
 //                                 its words stay "Not saved".
 //   A read's failure never says "Not saved": "Couldn't reach the server. Try again." (already in the Spanish rows).
@@ -48,7 +50,8 @@ function api(script) {
     },
     AbortController, URLSearchParams, JSON, Object, Promise,
     Date: { now: () => clock.t },
-    setTimeout: (fn, ms) => { waits.push(ms); if (ms < 10000) Promise.resolve().then(fn); return waits.length; },
+    // A wait between tries moves the fake clock by what it waited; the 45 s abort timer is recorded and never fired.
+    setTimeout: (fn, ms) => { waits.push(ms); if (ms < 10000) { clock.t += ms; Promise.resolve().then(fn); } return waits.length; },
     clearTimeout: () => {},
   };
   vm.createContext(sandbox);
@@ -71,12 +74,23 @@ test('a read that fails fast and then answers: the answer, after one wait of 150
   assert.deepEqual(calls[0].body, { slim: true, action: 'bootstrap', token: 'tok' });
 });
 
-test('two failures in a row: the failure stands, and it was ONE retry, never a loop', async () => {
-  const { SnowApi, calls } = api(['down', 'down']);
+test('fail, fail, then an answer: the answer on the third try, after waits of 1500 ms and then 4000 ms', async () => {
+  const { SnowApi, calls, retries } = api(['down', 'down', ok('bootstrap', { me: { name: 'Matthew' } })]);
+  const r = await SnowApi.read('bootstrap', { slim: true });
+  assert.equal(r.ok, true);
+  assert.equal(r.me.name, 'Matthew');
+  assert.equal(calls.length, 3);
+  assert.deepEqual(retries(), [1500, 4000]);
+});
+
+test('three failures in a row: the failure stands, after exactly two retries and never a loop', async () => {
+  // The script holds NO fourth entry: a fourth fetch would throw "ran out" and fail this test.
+  const { SnowApi, calls, retries } = api(['down', 'down', 'down']);
   const r = await SnowApi.read('bootstrap', { slim: true });
   assert.equal(r.ok, false);
   assert.equal(r.code, 'network');
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3);
+  assert.deepEqual(retries(), [1500, 4000]);
 });
 
 test('a read that answers the first time waits for nothing', async () => {
@@ -88,7 +102,7 @@ test('a read that answers the first time waits for nothing', async () => {
 });
 
 test('a read\'s failure never says "Not saved": it is a load, nothing was being saved', async () => {
-  const { SnowApi } = api(['down', 'down']);
+  const { SnowApi } = api(['down', 'down', 'down']);
   const r = await SnowApi.read('bootstrap', { slim: true });
   assert.equal(r.reason, READ_WORDS);
   assert.doesNotMatch(r.reason, /saved/i);
@@ -123,6 +137,21 @@ test('only a FAST failure is tried again: 9.999 s is, 10 s is not (the 45 s limi
   assert.deepEqual(slow.retries(), []);
 });
 
+test('the second retry needs the whole read under 10 s, waits included: 9.9 s is, 10.5 s is not', async () => {
+  // Worked on paper. Try 1 fails after 8000 ms (8000 < 10000: retry, wait 1500 -> 9500).
+  //   Try 2 fails after 400 ms  -> 9900 < 10000: a third try, after a wait of 4000.
+  //   Try 2 fails after 1000 ms -> 10500 >= 10000: no third try, the card.
+  const inside = api([{ down: true, took: 8000 }, { down: true, took: 400 }, ok('bootstrap')]);
+  assert.equal((await inside.SnowApi.read('bootstrap', { slim: true })).ok, true);
+  assert.equal(inside.calls.length, 3);
+  assert.deepEqual(inside.retries(), [1500, 4000]);
+  const past = api([{ down: true, took: 8000 }, { down: true, took: 1000 }, ok('bootstrap')]);
+  const r = await past.SnowApi.read('bootstrap', { slim: true });
+  assert.equal(r.ok, false);
+  assert.equal(past.calls.length, 2);
+  assert.deepEqual(past.retries(), [1500]);
+});
+
 test('a read that ran out the 45 s limit: no second try, the card comes with the honest words', async () => {
   const { SnowApi, calls } = api([{ down: true, took: 45000 }, ok('bootstrap')]);
   const r = await SnowApi.read('bootstrap', { slim: true });
@@ -135,11 +164,11 @@ test('an unreadable reply (not JSON) is a network failure too: tried again, and 
   const again = api(['html', ok('bootstrap')]);
   assert.equal((await again.SnowApi.read('bootstrap', { slim: true })).ok, true);
   assert.equal(again.calls.length, 2);
-  const twice = api(['html', 'html']);
-  const r = await twice.SnowApi.read('bootstrap', { slim: true });
+  const thrice = api(['html', 'html', 'html']);
+  const r = await thrice.SnowApi.read('bootstrap', { slim: true });
   assert.equal(r.code, 'network');
   assert.equal(r.reason, UNREADABLE); // already says nothing about saving: left alone
-  assert.equal(twice.calls.length, 2);
+  assert.equal(thrice.calls.length, 3);
 });
 
 test('the 10/10 hiccup, the health reply handed back for a POST, is "no signal" and is tried again on a read', async () => {

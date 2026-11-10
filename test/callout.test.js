@@ -389,3 +389,16 @@ test('outlook: snow too light to round to a tenth has no start (0 inches is a dr
   assert.deepEqual(o.rows, [{ site_id: 'S-a', inches: 0, starts: null, callout: 2, reaches: false }]);
   assert.equal(o.starts, null);
 });
+
+test('outlook: snow that ended before now is not when the snow tonight starts', () => {
+  // 3 PM-6 PM 10 mm (over as the window opens: none of it counts), 6 PM-midnight 0, midnight-6 AM 20.32 mm.
+  // Inside the window: 20.32 mm = 0.8 in, and the first snow is midnight (09:00 UTC), not 6 PM.
+  const earlier = [{ start: at('2026-11-10T00:00:00Z'), end: at('2026-11-10T03:00:00Z'), mm: 10 },
+    { start: at('2026-11-10T03:00:00Z'), end: at('2026-11-10T09:00:00Z'), mm: 0 },
+    { start: at('2026-11-10T09:00:00Z'), end: at('2026-11-10T15:00:00Z'), mm: 20.32 },
+    // ... and snow that only begins as the night ends is not tonight's either.
+    { start: at('2026-11-10T18:00:00Z'), end: at('2026-11-11T00:00:00Z'), mm: 50 }];
+  const o = lookOut({ siteIds: ['S-a'], seriesFor: () => earlier });
+  assert.deepEqual(o.rows, [{ site_id: 'S-a', inches: 0.8, starts: '2026-11-10T09:00:00.000Z', callout: 2, reaches: false }]);
+  assert.equal(o.starts, '2026-11-10T09:00:00.000Z');
+});

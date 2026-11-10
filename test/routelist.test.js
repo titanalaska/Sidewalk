@@ -200,6 +200,21 @@ test('every label goes through the translator and no data does', () => {
   assert.ok(!/Date|Lead|Crew|Materials|Notes|In:|Out:|walks|heated/.test(plain), plain);
 });
 
+// Everything from data is escaped, wherever it lands: route, site, address, materials, walk and crew names.
+// Each value carries a < and an & that would read as markup if it went through raw.
+test('page: every piece of data is escaped (route, site, address, materials, walk, crew)', () => {
+  const o = {
+    routes: [{ id: 'R1', name: 'N<2>&', site_ids: ['S1'] }],
+    sites: [{ id: 'S1', name: 'Site <b>', address: '5 A&B St', materials_needed: 'NO <SALT> & sand', notes: 'n<1>' }],
+    zones: [{ id: 'Z1', site_id: 'S1', type: 'sidewalk', name: 'Walk <1>' }],
+    crew: [{ id: 'C1', name: 'Lee <x>' }, { id: 'C2', name: 'Kai & Co' }],
+    moves: [{ id: 'M1', at: '2026-11-09T07:00:00Z', worker: 'C1', to_route: 'R1', role: 'lead' }, { id: 'M2', at: '2026-11-09T08:00:00Z', worker: 'C2', to_route: 'R1', role: 'member' }],
+  };
+  const h = RouteList.pageHtml(RouteList.pages(o)[0], (s) => s);
+  for (const d of ['N&lt;2&gt;&amp;', 'Site &lt;b&gt;', '5 A&amp;B St', 'NO &lt;SALT&gt; &amp; sand', 'n&lt;1&gt;', 'Walk &lt;1&gt;', 'Lee &lt;x&gt;', 'Kai &amp; Co']) assert.ok(h.includes(d), d);
+  assert.ok(!/<(2|SALT|1|x)>/.test(h) && !h.includes('Site <b>'), 'a data < became a tag');
+});
+
 test('css is a string of rules the view can scope', () => {
   assert.equal(typeof RouteList.css, 'string');
   assert.match(RouteList.css, /\.rl-page/);

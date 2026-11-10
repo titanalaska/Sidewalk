@@ -6899,10 +6899,11 @@ test('outlook: signing out forgets the outlook; the next sign-in starts with the
 // The Routes tab lists live routes by name, numbers as numbers: N2 then N10. So two pages, N2 first.
 //   N2: Alex Test is placed as lead (a move), PAC (S1): materials "NO SALT: fresh concrete", walks by name:
 //       "Heated walk" (heated) then "Main entry" -> two boxes.
-//   N10: nobody placed -> blanks; TUDOR-TRANSIT (S2) has no zones -> "No walks drawn yet.".
+//   N10: nobody placed -> blanks; "Lead Yard" (S2; "Lead" is a word the Spanish pass would change, so a site name
+//   that slipped out of data-no-es would show) has no zones -> "No walks drawn yet.".
 const rlWorld = () => {
   const w = world();
-  w.sites = [{ id: 'S1', name: 'PAC', address: '3 Test Way', materials_needed: 'NO SALT: fresh concrete', rev: 1 }, { id: 'S2', name: 'TUDOR-TRANSIT', rev: 1 }];
+  w.sites = [{ id: 'S1', name: 'PAC', address: '3 Test Way', materials_needed: 'NO SALT: fresh concrete', rev: 1 }, { id: 'S2', name: 'Lead Yard', rev: 1 }];
   w.routes = [{ id: 'R1', name: 'N10', rev: 1, site_ids: ['S2'] }, { id: 'R2', name: 'N2', rev: 1, site_ids: ['S1'] }, { id: 'R3', name: 'N1', rev: 1, site_ids: ['S1'], archived: true }];
   w.zones = [{ id: 'Z1', site_id: 'S1', type: 'sidewalk', name: 'Main entry', rev: 1 }, { id: 'Z2', site_id: 'S1', type: 'heated', name: 'Heated walk', rev: 1 }];
   w.moves = [{ id: 'M1', at: '2026-10-01T17:00:00.000-08:00', worker: 'C01', to_route: 'R2', role: 'lead' }];
@@ -7038,9 +7039,9 @@ test('route lists: in Spanish the labels are Spanish and the site name is not', 
   await expect(n10).toContainText('Todavía no hay recorridos dibujados.');
   // The English is gone from the labels; the data stays as typed.
   const body = await page.locator('#printsheets').innerText();
-  for (const en of ['Date:', 'Lead', 'Crew:', 'Materials', 'In:', 'Out:', 'No walks drawn yet', 'check only']) expect(body).not.toContain(en);
+  for (const en of ['Date:', 'Lead:', 'Crew:', 'Materials', 'In:', 'Out:', 'No walks drawn yet', 'check only']) expect(body).not.toContain(en);
   await expect(n2).toContainText('PAC');
-  await expect(n10).toContainText('TUDOR-TRANSIT');
+  await expect(n10).toContainText('Lead Yard');
   await expect(n2).toContainText('Heated walk');
 });
 

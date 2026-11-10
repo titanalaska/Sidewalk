@@ -386,16 +386,20 @@ test('fetchSnowfallMany: each distinct point is asked once and each distinct gri
 });
 
 test('fetchSnowfallMany: a point with no answer, a grid that fails and a grid off the NWS are null; the rest still answer', async () => {
-  stubFetch({
+  const EVIL = 'https://evil.example/gridpoints/ZZZ/2,2';
+  const seen = stubFetch({
     [P_A]: pointBody(GRID),
     // P_B: no route, the NWS answers 404.
-    [P_C]: pointBody('https://evil.example/gridpoints/ZZZ/2,2'),
+    // P_C's grid is off the NWS. It WOULD answer with snow if asked: it must never be asked.
+    [P_C]: pointBody(EVIL),
+    [EVIL]: gridBody([{ validTime: '2026-10-03T12:00:00+00:00/PT1H', value: 99 }]),
     'https://api.weather.gov/points/61.2,-149.9': pointBody(GRID_2),
     [GRID]: gridBody([{ validTime: '2026-10-03T12:00:00+00:00/PT1H', value: 7 }]),
     [GRID_2]: new Error('offline'),
   });
   const out = await SnowWeather.fetchSnowfallMany([[61.34, -149.51], [61.35, -149.52], [61.1, -149.8], [61.2, -149.9]]);
   assert.deepEqual(out, { '61.34,-149.51': [{ start: T0, end: T0 + 3600000, mm: 7 }], '61.35,-149.52': null, '61.1,-149.8': null, '61.2,-149.9': null });
+  assert.equal(seen.includes(EVIL), false);
 });
 
 test('fetchSnowfallMany: no points, no requests', async () => {

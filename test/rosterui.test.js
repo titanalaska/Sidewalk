@@ -73,3 +73,21 @@ test('waitingCount: pending requests plus pending cards; approved names, added a
   // A rejected request is gone, not waiting.
   assert.equal(R.waitingCount({ profiles: [{ id: 9, status: 'rejected' }], crew: [] }), 0);
 });
+
+// The dispatcher mark (Matt, 11/9/26; Plow Command's rule of 10/21/26): nobody changes their own mark, so the editor
+// locks the row on one's own card. A dispatcher signs in as an admin WITH a crew id; Matt has none and is on no card.
+test('ownCard: a dispatcher is on their own card and on no other; Matt (no crew id) is on none, new worker included', () => {
+  const dee = { role: 'admin', crew_id: 'C05' }, matt = { role: 'admin', crew_id: null };
+  assert.equal(R.ownCard(dee, { id: 'C05' }), true);
+  assert.equal(R.ownCard(dee, { id: 'C03' }), false);
+  assert.equal(R.ownCard(dee, { id: 'C50' }), false);          // C05 is not a prefix match
+  // "Add worker" opens a record with no id yet: it is nobody's own card, for Matt and for a dispatcher alike.
+  assert.equal(R.ownCard(dee, { name: '' }), false);
+  assert.equal(R.ownCard(matt, { name: '' }), false);          // undefined must never equal a missing crew id
+  assert.equal(R.ownCard({ role: 'admin' }, { name: '' }), false);
+  assert.equal(R.ownCard(matt, { id: 'C05' }), false);
+  assert.equal(R.ownCard(matt, { id: null }), false);          // null === null would read true without the crew id check
+  assert.equal(R.ownCard(null, { id: 'C05' }), false);
+  assert.equal(R.ownCard(dee, null), false);
+  assert.equal(R.ownCard(dee, undefined), false);
+});

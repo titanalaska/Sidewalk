@@ -59,11 +59,16 @@ function fakeSnow(state, opts = {}) {
       if (mine && mine.pending) return { ok: false, code: 'pending_card', name: 'Nina Nursery', reason: 'Your card is in. Matt will add you to the crew.', card: selfView(mine), ...v };
       if (!mine) return { ok: false, code: 'not_on_roster', name: 'Nina Nursery', reason: "You're signed in, but not on the snow crew yet. Ask Matt to add you.", ...v };
     }
-    const role = body.token === 'tok-nina' ? 'crew' : TOKENS[body.token];
-    if (!role) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
+    const base = body.token === 'tok-nina' ? 'crew' : TOKENS[body.token];
+    if (!base) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     // Matt is not on the roster; Alex (C01) is the lead on the roster, Jordan (C03) crew.
+    const baseId = base === 'admin' ? null : base === 'lead' ? 'C01' : 'C03';
+    // The dispatcher mark (snow-app-script auth.js, 11/9/26): a live roster record marked dispatch (the literal true)
+    // signs in as an admin WITH its crew id; Matt stays admin by name with none.
+    const marked = body.token !== 'tok-nina' && state.crew.some((c) => c.id === baseId && c.dispatch === true && c.pending !== true && !c.archived);
+    const role = marked ? 'admin' : base;
     const me = body.token === 'tok-nina' ? { name: 'Nina Nursery', role: 'crew', crew_id: nina().id }
-      : { name: role === 'admin' ? 'Matthew' : role === 'lead' ? 'Alex Test' : 'Jordan Demo', role, crew_id: role === 'admin' ? null : role === 'lead' ? 'C01' : 'C03' };
+      : { name: base === 'admin' ? 'Matthew' : base === 'lead' ? 'Alex Test' : 'Jordan Demo', role, crew_id: baseId };
     state.moves = state.moves || []; state.callouts = state.callouts || []; state.gear = state.gear || []; state.posts = state.posts || [];
     const own = () => state.crew.find((c) => c.id === me.crew_id) || { id: me.crew_id, name: me.name };
     if (body.action === 'saveMyCard') {
@@ -6040,7 +6045,7 @@ test('roster-3: Your card asks where you live, blank until chosen; Valley is sen
   const calls = await open(page, { token: 'tok-jordan', snow: fakeSnow(world()) });
   await page.click('#yourCard');
   await expect(page.locator('#s_home_area')).toHaveValue('');
-  await expect(page.locator('#dlgIn')).toContainText('Only Matt sees where you live.');
+  await expect(page.locator('#dlgIn')).toContainText('Only the dispatcher and Matt see where you live.');   // 11/9/26: a dispatcher sees it too
   await page.selectOption('#s_home_area', 'valley');
   await page.click('#s_save');
   await expect(page.locator('#dlg')).toBeHidden();
@@ -6499,4 +6504,126 @@ test('Spanish: a new person types their name in Spanish, and Inventory gets the 
   await expect(page.locator('#reqsent')).toContainText('Matt la aprueba en Shovel Command. Después regresa, elige tu nombre e inicia sesión con tu PIN.');
   await expect(page.locator('#reqsent')).not.toContainText('Matt approves');
   expect(requests(calls)).toEqual([{ action: 'requestProfile', name: 'Clear Snow', position: 'Sidewalk crew', pin: '4821' }]);
+});
+
+// ---------- The dispatcher mark (Matt, 11/9/26; Plow Command's mark of 10/21/26) ----------
+// Someone other than Matt runs the board some nights (Ben is the first). Matt marks a roster card "Dispatcher: yes"
+// and that sign-in is an admin for the whole app (snow-app-script auth.js). Nobody changes their own mark: the server
+// refuses it and the editor locks the row on one's own card. The crew's own card now says who sees their private
+// answers: the dispatcher and Matt (Matt's ruling, 11/9/26).
+const dispatchSaves = (calls) => calls.filter((c) => c.body && c.body.action === 'saveCrew');
+
+test("dispatcher mark: Matt's editor has the row, not set until he says; yes is sent as true and the card reads it back", async ({ page }) => {
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
+  await page.click('nav [data-tab="roster"]');
+  await page.click('[data-open="C03"]');
+  // The card: its own row, "not set" on a card nobody has answered for (never a guessed "no").
+  const row = page.locator('#dlgIn tr', { has: page.locator('th', { hasText: /^Dispatcher$/ }) });
+  await expect(row.locator('td')).toHaveText('not set');
+  await page.click('#w_edit');
+  await expect(page.locator('#f_dispatch')).toBeVisible();
+  await expect(page.locator('#f_dispatch')).toBeEnabled();
+  await expect(page.locator('#f_dispatch')).toHaveValue('');
+  await expect(page.locator('#dlgIn')).not.toContainText('your own card');
+  await page.selectOption('#f_dispatch', 'yes');
+  await page.click('#f_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  // What went to the server: a real true, on Jordan's record, at the revision Matt opened.
+  expect(dispatchSaves(calls).at(-1).body.record).toMatchObject({ id: 'C03', rev: 1, dispatch: true });
+  await page.click('[data-open="C03"]');
+  await expect(row.locator('td')).toHaveText('yes');
+  // And he takes it back: "no" is sent as false (an answer), never dropped from the record.
+  await page.click('#w_edit');
+  await expect(page.locator('#f_dispatch')).toHaveValue('yes');
+  await page.selectOption('#f_dispatch', 'no');
+  await page.click('#f_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(dispatchSaves(calls).at(-1).body.record.dispatch).toBe(false);
+  await page.click('[data-open="C03"]');
+  await expect(row.locator('td')).toHaveText('no');
+});
+
+test('dispatcher mark: an edit that never touches the row sends the mark back as it came (yes stays yes, blank stays null)', async ({ page }) => {
+  const w = world();
+  w.crew = w.crew.map((c) => (c.id === 'C03' ? { ...c, dispatch: true } : c));
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
+  await page.click('nav [data-tab="roster"]');
+  // Jordan carries the mark: a phone-number fix must not cost him the board.
+  await page.click('[data-open="C03"]');
+  await page.click('#w_edit');
+  await page.fill('#f_phone', '555-0142');
+  await page.click('#f_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(dispatchSaves(calls).at(-1).body.record).toMatchObject({ id: 'C03', phone: '555-0142', dispatch: true });
+  // Alex was never answered for: the same kind of edit sends null (not set), never false and never true.
+  await page.click('[data-open="C01"]');
+  await page.click('#w_edit');
+  await page.fill('#f_phone', '555-0143');
+  await page.click('#f_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(dispatchSaves(calls).at(-1).body.record).toMatchObject({ id: 'C01', phone: '555-0143', dispatch: null });
+});
+
+test("dispatcher mark: a dispatcher gets Matt's screens; on their own card the row is locked and goes back as it is", async ({ page }) => {
+  const w = world();
+  w.crew = w.crew.map((c) => (c.id === 'C03' ? { ...c, dispatch: true } : c));
+  const calls = await open(page, { token: 'tok-jordan', snow: fakeSnow(w) });
+  // Jordan is crew on the roster and an admin by the mark: the header says so and the tabs are Matt's.
+  await expect(page.locator('#who')).toHaveText('Jordan Demo · admin');
+  await expect(page.locator('#tabs [data-tab="board"]')).toBeVisible();
+  await expect(page.locator('#tabs [data-tab="roster"]')).toBeVisible();
+  // The Storm tab is Matt's too: with no storm open, Start storm is his to tap, and there is no crew Tonight tab.
+  await page.click('#tabs [data-tab="storm"]');
+  await expect(page.locator('[data-storm="start"]')).toBeVisible();
+  await expect(page.locator('#tabs [data-tab="tonight"]')).toHaveCount(0);
+  await page.click('#tabs [data-tab="roster"]');
+  // His own card: the row is there, locked, and says why.
+  await page.click('[data-open="C03"]');
+  await page.click('#w_edit');
+  await expect(page.locator('#f_dispatch')).toBeDisabled();
+  await expect(page.locator('#f_dispatch')).toHaveValue('yes');
+  await expect(page.locator('#dlgIn')).toContainText('Dispatcher (your own card)');
+  // The rest of his card is his to fix like anyone's, and the mark goes back exactly as it came.
+  await page.fill('#f_phone', '555-0144');
+  await page.click('#f_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(dispatchSaves(calls).at(-1).body.record).toMatchObject({ id: 'C03', phone: '555-0144', dispatch: true });
+  // Someone else's card: the row is open to him, on and off, like it is to Matt.
+  await page.click('[data-open="C01"]');
+  await page.click('#w_edit');
+  await expect(page.locator('#f_dispatch')).toBeEnabled();
+  await expect(page.locator('#dlgIn')).not.toContainText('your own card');
+  await page.selectOption('#f_dispatch', 'yes');
+  await page.click('#f_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(dispatchSaves(calls).at(-1).body.record).toMatchObject({ id: 'C01', dispatch: true });
+  // A brand-new worker is nobody's own card: open, and blank.
+  await page.click('#addWorker');
+  await expect(page.locator('#f_dispatch')).toBeEnabled();
+  await expect(page.locator('#f_dispatch')).toHaveValue('');
+});
+
+test('dispatcher mark: a crew phone never draws the row, and Your card says who sees the private answers', async ({ page }) => {
+  await open(page, { token: 'tok-jordan', snow: fakeSnow(world()) });
+  await expect(page.locator('#who')).toHaveText('Jordan Demo');
+  await expect(page.locator('#tabs [data-tab="roster"]')).toHaveCount(0);
+  await page.click('#yourCard');
+  await expect(page.locator('#s_home_area')).toBeVisible();
+  await expect(page.locator('#f_dispatch')).toHaveCount(0);
+  await expect(page.locator('#dlgIn')).not.toContainText('Dispatcher');
+  // The promise on the form, word for word, is the one that is now true.
+  await expect(page.locator('#dlgIn')).toContainText('Only the dispatcher and Matt see where you live.');
+  await expect(page.locator('#dlgIn')).toContainText('Only the dispatcher and Matt see your emergency contact.');
+  await expect(page.locator('#dlgIn')).not.toContainText('Only Matt sees');
+});
+
+test('dispatcher mark, Spanish: Your card makes the same promise in Spanish and the English is gone', async ({ page }) => {
+  await page.addInitScript(() => { try { localStorage.setItem('snow-lang', 'es'); } catch (e) { /* no storage */ } });
+  await open(page, { token: 'tok-jordan', snow: fakeSnow(world()) });
+  await page.click('#yourCard');
+  await expect(page.locator('#s_home_area')).toBeVisible();
+  await expect(page.locator('#dlgIn')).toContainText('Solo el despachador y Matt ven dónde vives.');
+  await expect(page.locator('#dlgIn')).toContainText('Solo el despachador y Matt ven tu contacto de emergencia.');
+  await expect(page.locator('#dlgIn')).not.toContainText('Only the dispatcher');
+  await expect(page.locator('#dlgIn')).not.toContainText('Solo Matt ve');
 });

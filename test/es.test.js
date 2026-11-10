@@ -84,3 +84,11 @@ test('final review: the rows and rules the crew screens were still missing', () 
   };
   for (const [en, es] of Object.entries(cases)) assert.equal(Es.translateString(en), es, en);
 });
+
+// The dispatcher mark (Matt, 11/9/26): the crew's own card says who sees their private answers. The rows are Plow
+// Command's, word for word (its crew read them 10/21/26); the two "Only Matt sees" rows are gone with their sentences.
+test('the privacy promise on Your card names the dispatcher and Matt; the old Matt-only rows are gone', () => {
+  assert.equal(Es.translateString('Only the dispatcher and Matt see where you live.'), 'Solo el despachador y Matt ven dónde vives.');
+  assert.equal(Es.translateString('Only the dispatcher and Matt see your emergency contact.'), 'Solo el despachador y Matt ven tu contacto de emergencia.');
+  for (const old of ['Only Matt sees where you live.', 'Only Matt sees your emergency contact.']) assert.equal(Es.translateString(old), old, old);
+});

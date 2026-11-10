@@ -7508,20 +7508,24 @@ test('snow map: once the forecast has coloured them the dots are still on their 
   await expect(page.locator('.snowdot')).toHaveCount(2);
   await expect(page.locator('.snowdot[data-site="S1"] .snowdot-label')).toHaveText('~1.8"');   // the forecast is in: every dot has been recoloured
   await expect(page.locator('.snowdot[data-site="S2"]')).toHaveClass(/\bnofc\b/);
-  const at = await page.evaluate(() => {
-    const box = document.querySelector('#snowmapbox .maplibregl-canvas').getBoundingClientRect();
-    const tip = (id) => {
-      const el = document.querySelector('.snowdot[data-site="' + id + '"]');
-      const pin = el.querySelector('.snowdot-pin').getBoundingClientRect();
-      return { x: pin.left + pin.width / 2 - box.left, y: el.getBoundingClientRect().top - box.top, position: getComputedStyle(el).position };
-    };
-    return { w: box.width, h: box.height, s1: tip('S1'), s2: tip('S2') };
-  });
-  expect(Math.abs((at.s1.x + at.s2.x) / 2 - at.w / 2)).toBeLessThanOrEqual(2);
-  expect(Math.abs((at.s1.y + at.s2.y) / 2 - at.h / 2)).toBeLessThanOrEqual(2);
-  expect(at.s2.y).toBeGreaterThan(at.s1.y);   // south is down
-  expect(at.s2.x).toBeLessThan(at.s1.x);      // west is left
-  expect([at.s1.position, at.s2.position]).toEqual(['absolute', 'absolute']);   // held by the map, not laid out like lines of text
+  // Measured until it holds (up to 5 s): the map moves its markers on its next drawn frame, and on a loaded
+  // machine the label can be in before that frame is. With the dots loose it never holds, so this still fails.
+  await expect(async () => {
+    const at = await page.evaluate(() => {
+      const box = document.querySelector('#snowmapbox .maplibregl-canvas').getBoundingClientRect();
+      const tip = (id) => {
+        const el = document.querySelector('.snowdot[data-site="' + id + '"]');
+        const pin = el.querySelector('.snowdot-pin').getBoundingClientRect();
+        return { x: pin.left + pin.width / 2 - box.left, y: el.getBoundingClientRect().top - box.top, position: getComputedStyle(el).position };
+      };
+      return { w: box.width, h: box.height, s1: tip('S1'), s2: tip('S2') };
+    });
+    expect(Math.abs((at.s1.x + at.s2.x) / 2 - at.w / 2)).toBeLessThanOrEqual(2);
+    expect(Math.abs((at.s1.y + at.s2.y) / 2 - at.h / 2)).toBeLessThanOrEqual(2);
+    expect(at.s2.y).toBeGreaterThan(at.s1.y);   // south is down
+    expect(at.s2.x).toBeLessThan(at.s1.x);      // west is left
+    expect([at.s1.position, at.s2.position]).toEqual(['absolute', 'absolute']);   // held by the map, not laid out like lines of text
+  }).toPass({ timeout: 5000 });
 });
 
 test('snow map: open by default on a wide screen; a measured depth rings the dot and the label follows the crews, poll by poll', async ({ page }) => {

@@ -16,7 +16,7 @@ const STORM_FIELDS = require('./storm-fields.js');
 const PAGE = url.pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href;
 const isSnow = (u) => u.href.includes('AKfycbwc7dcfmJFa1TAspzBZVprJRwBNvCP6q2bqOH5uoS_hU6ScZOnr9Kn');
 const isInv = (u) => u.href.includes('AKfycbyudFaJ0dsSYMo');
-const VERSION = 'outlines-1'; // lib/config.js EXPECTED_BACKEND: a different one would show the version banner
+const VERSION = 'dispatch-1'; // lib/config.js EXPECTED_BACKEND: a different one would show the version banner
 
 // 7:30 AM Alaska on 10/3: the night shift of 10/2 (before the 9 AM cutover), a storm open since 6 AM.
 const STORM_CLOCK = '2026-10-03T07:30:00-08:00';

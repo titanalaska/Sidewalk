@@ -21,7 +21,7 @@ const SnowPoints = require('../lib/points.js');
 const PAGE = url.pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href;
 const isSnow = (u) => u.href.includes('AKfycbwc7dcfmJFa1TAspzBZVprJRwBNvCP6q2bqOH5uoS_hU6ScZOnr9Kn');
 const isInv = (u) => u.href.includes('AKfycbyudFaJ0dsSYMo');
-const VERSION = 'outlines-1'; // lib/config.js EXPECTED_BACKEND
+const VERSION = 'dispatch-1'; // lib/config.js EXPECTED_BACKEND
 const NO_SIGNAL = "Couldn't reach the server. Not saved, try again.";
 const STALE = 'Someone changed this since you opened it. Reload and try again.';
 

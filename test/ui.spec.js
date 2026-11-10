@@ -7027,9 +7027,13 @@ test('route lists: Back and the phone Back both close the view and take their st
 test('route lists: in Spanish the labels are Spanish and the site name is not', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
   await stubPrint(page);
+  // What the paper would say: the pages' text at the very moment the phone's print is asked for, before any later pass.
+  await page.addInitScript(() => { const real = window.print; window.print = () => { window.__textAtPrint = document.getElementById('printsheets').innerText; real(); }; });
   await openStorm(page, rlWorld(), { token: 'tok-matt' });
   await expect(page.locator('#printRouteLists')).toHaveText('Imprimir listas de rutas');
   await page.click('#printRouteLists');
+  await expect.poll(() => page.evaluate(() => window.__textAtPrint || '')).toContain('Fecha:');
+  expect(await page.evaluate(() => window.__textAtPrint)).not.toContain('Date:');
   await expect(page.locator('#printbar')).toContainText('2 listas de rutas');
   const n2 = page.locator('#printsheets .rl-page').nth(0), n10 = page.locator('#printsheets .rl-page').nth(1);
   await expect(n2.locator('.rl-date')).toContainText('Fecha:');

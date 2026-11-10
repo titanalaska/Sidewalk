@@ -444,3 +444,110 @@ test('onClick: a refusal reason reaches the toast', async () => {
   await later();
   assert.deepEqual(ctx.toasts, ['Snow alerts are not set up yet.']);
 });
+
+// ---------- fix round 1 ----------
+const within = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('hung: no answer in ' + ms + ' ms')), ms))]);
+
+test('refresh: an EMPTY server list while the browser has a subscription reads off (known is membership, not "any ids")', async () => {
+  const p = phone({ permission: 'granted', sub: { endpoint: ENDPOINT } });
+  const S = S0([]);
+  assert.equal(await SnowPush.refresh(S, p.env), 'off');
+});
+
+test('turnOff: unsubscribe rejecting still sends dropPush, answers ok, state off', async () => {
+  const p = phone({ permission: 'granted', sub: { endpoint: ENDPOINT } });
+  p.current().unsubscribe = () => Promise.reject(new Error('InvalidState'));
+  const S = S0([fp(ENDPOINT)], KEY, 'on');
+  const ctx = ctxFor(S, { dropPush: { ok: true, push_ids: [] } });
+  const r = await SnowPush.turnOff(ctx, p.env);
+  assert.deepEqual(ctx.sent, [{ action: 'dropPush', body: { endpoint: ENDPOINT } }]);
+  assert.equal(r.ok, true);
+  assert.deepEqual(S.push.ids, []);
+});
+
+test('overlapping refreshes resolving out of order leave the NEWER answer in S.push.state', async () => {
+  const slow = phone({ permission: 'granted', sub: { endpoint: ENDPOINT } });
+  const held = slow.current();
+  let release;
+  slow.reg.pushManager.getSubscription = () => new Promise((r) => { release = () => r(held); });
+  const S = S0([fp(ENDPOINT)]);
+  const older = SnowPush.refresh(S, slow.env);           // would read 'on', lands last
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(await SnowPush.refresh(S, phone({ permission: 'denied' }).env), 'blocked');   // newer, lands first
+  release();
+  await older;
+  assert.equal(S.push.state, 'blocked');
+});
+
+test('a refresh answers the push object it started with: a replaced S.push is not written by the old refresh', async () => {
+  const slow = phone({ permission: 'granted', sub: { endpoint: ENDPOINT } });
+  const held = slow.current();
+  let release;
+  slow.reg.pushManager.getSubscription = () => new Promise((r) => { release = () => r(held); });
+  const S = S0([fp(ENDPOINT)]);
+  const oldObj = S.push;
+  const older = SnowPush.refresh(S, slow.env);
+  await new Promise((r) => setTimeout(r, 5));
+  S.push = { key: KEY, ids: [], state: 'off' };           // a newer bootstrap replaced it
+  release();
+  await older;
+  assert.equal(S.push.state, 'off');
+  assert.equal(oldObj.state, 'on');
+});
+
+test('turnOn learns the answer from a callback-style requestPermission (old Safari: returns undefined)', async () => {
+  for (const [answer, ok, state] of [['granted', true, 'on'], ['denied', false, 'blocked']]) {
+    for (const when of ['sync', 'later']) {
+      const p = phone();
+      let n = 0;
+      p.env.Notification.requestPermission = function (cb) {
+        n++; p.calls.push('requestPermission');
+        if (when === 'sync') cb(answer); else setTimeout(() => cb(answer), 5);
+        return undefined;
+      };
+      const perm = { v: 'default' };
+      Object.defineProperty(p.env.Notification, 'permission', { get: () => perm.v });
+      const origCb = p.env.Notification.requestPermission;
+      p.env.Notification.requestPermission = function (cb) { return origCb.call(this, (a) => { perm.v = a; cb(a); }); };
+      const ctx = ctxFor(S0([]), { savePush: { ok: true, push_ids: [fp(ENDPOINT)] } });
+      const pending = SnowPush.turnOn(ctx, p.env);
+      assert.deepEqual(p.calls, ['requestPermission'], 'first and only synchronous call');
+      const r = await within(pending, 1000);
+      assert.equal(n, 1, 'asked exactly once');
+      assert.equal(r.ok, ok, answer + ' ' + when);
+      assert.equal(r.state, state);
+    }
+  }
+});
+
+test('turnOn with a promise-style requestPermission that never calls the callback still works, and asks once', async () => {
+  const p = phone();
+  let n = 0;
+  const inner = p.env.Notification.requestPermission;
+  p.env.Notification.requestPermission = function () { n++; return inner.call(this); };   // ignores the callback argument
+  const ctx = ctxFor(S0([]), { savePush: { ok: true, push_ids: [fp(ENDPOINT)] } });
+  const r = await within(SnowPush.turnOn(ctx, p.env), 1000);
+  assert.equal(r.ok, true);
+  assert.equal(n, 1);
+});
+
+test('no service worker registration (file://, first load): turnOn and turnOff finish and never wait on ready', async () => {
+  function noReg(over) {
+    const p = phone(over);
+    p.env.navigator.serviceWorker = { getRegistration() { p.calls.push('getRegistration'); return Promise.resolve(undefined); }, get ready() { throw new Error('ready must not be read'); } };
+    return p;
+  }
+  const on = noReg();
+  const ctxOn = ctxFor(S0([], KEY, 'off'), {});
+  const r = await within(SnowPush.turnOn(ctxOn, on.env), 1000);
+  assert.deepEqual(r, { ok: false, state: 'off', reason: 'Not saved: try again' });
+  assert.equal(on.calls[0], 'requestPermission');
+  assert.equal(ctxOn.sent.length, 0);
+  const never = phone({ permission: 'granted' });
+  never.env.navigator.serviceWorker = { getRegistration: () => Promise.resolve(undefined), ready: new Promise(() => {}) };
+  const ctxOff = ctxFor(S0([], KEY, 'off'), {});
+  assert.deepEqual(await within(SnowPush.turnOff(ctxOff, never.env), 1000), { ok: true, state: 'off' });
+  const never2 = phone();
+  never2.env.navigator.serviceWorker = { getRegistration: () => Promise.resolve(undefined), ready: new Promise(() => {}) };
+  assert.equal((await within(SnowPush.turnOn(ctxFor(S0([], KEY, 'off'), {}), never2.env), 1000)).reason, 'Not saved: try again');
+});

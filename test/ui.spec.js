@@ -12647,6 +12647,129 @@ test('crew curbs: ticking the box on the Sites tab brings the curbs back to the 
   await expect(page.locator('#dlg')).toBeHidden();
   await page.click('nav [data-tab="storm"]');
   await expect(page.locator('[data-livesite="S1"] .live-status')).toHaveText('Touched');
+// ---------- push wiring (crew notifications, Task 7): what app.js does with push_key / push_ids ----------
+// lib/push.js is node-tested on its own; these pin the app's side: both bootstrap sites hand the server's key and ids to
+// SnowPush.refresh, the state already known carries over, and a refresh that finds a DIFFERENT state renders once more.
+// SnowPush.refresh is replaced by a spy AFTER the scripts load and BEFORE sign-in. No card is drawn here (Task 8).
+const PUSH_INV = (p) => p.action === 'getProfiles' ? { profiles: PROFILES }
+  : p.action === 'verifyPin' && p.id === '1' && p.pin === '1111' ? { valid: true, success: true, id: 1, name: 'Matthew', status: 'approved', token: 'tok-matt' }
+  : { valid: false, attemptsLeft: 4 };
+
+async function pushSpy(page) {
+  await page.evaluate(() => {
+    window.__seen = []; window.__pending = [];
+    // renders = batches that rewrote the tab bar (render() sets #tabs.innerHTML every time)
+    window.__renders = 0;
+    new MutationObserver((ms) => { window.__renders += ms.filter((m) => m.addedNodes.length).length; }).observe(document.getElementById('tabs'), { childList: true });
+    window.SnowPush.refresh = (S) => {
+      const mine = S.push;
+      window.__seen.push({ key: mine.key, ids: mine.ids.slice(), state: mine.state });
+      return new Promise((res) => window.__pending.push((state) => { if (state) mine.state = state; res(mine.state); }));
+    };
+  });
+}
+const seen = (page) => page.evaluate(() => window.__seen);
+const renders = (page) => page.evaluate(() => window.__renders);
+async function signInMatt(page) {
+  await page.selectOption('#si_who', '1');
+  await page.fill('#si_pin', '1111');
+  await page.click('#si_go');
+  await expect(page.locator('nav [data-tab="storm"]')).toBeVisible();
+}
+// The server's reply carries a key and a (changeable) list of ids; the first saveSite conflicts so the app re-bootstraps.
+function pushWorld(box) {
+  const state = world(), base = fakeSnow(state);
+  let first = true;
+  return (b) => {
+    if (b.action === 'saveSite' && first) {
+      first = false;
+      state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'dispatch-1', action: b.action };
+    }
+    const r = base(b);
+    if (b.action === 'bootstrap' && r.ok && box.withPush) Object.assign(r, { push_key: box.key, push_ids: box.ids });
+    return r;
+  };
+}
+async function reBootstrap(page) {
+  await page.click('nav [data-tab="sites"]');
+  await page.click('[data-edit="site:S1"]');
+  await page.click('#s_save');
+  await expect(page.locator('#s_err')).toContainText('Someone changed this');
+}
+
+test('push wiring: both bootstrap sites hand the reply push_key and push_ids to SnowPush.refresh', async ({ page }) => {
+  const box = { withPush: true, key: 'BKey-fake_pushKey123', ids: ['1111aaaa2222bbbb', '3333cccc4444dddd'] };
+  const calls = await open(page, { snow: pushWorld(box), inv: PUSH_INV });
+  await pushSpy(page);
+  await signInMatt(page);
+  await expect.poll(async () => (await seen(page)).length).toBe(1);
+  expect((await seen(page))[0]).toEqual({ key: 'BKey-fake_pushKey123', ids: ['1111aaaa2222bbbb', '3333cccc4444dddd'], state: 'unsupported' });
+  box.ids = ['5555eeee6666ffff'];
+  await reBootstrap(page);
+  await expect.poll(() => boots(calls).length).toBe(2);
+  await expect.poll(async () => (await seen(page)).length).toBe(2);
+  expect((await seen(page))[1].ids).toEqual(['5555eeee6666ffff']);
+  expect((await seen(page))[1].key).toBe('BKey-fake_pushKey123');
+});
+
+test('push wiring: an old backend (no push fields at all) gives key null, ids [], and no error', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  await open(page, { snow: pushWorld({ withPush: false }), inv: PUSH_INV });
+  await pushSpy(page);
+  await signInMatt(page);
+  await expect.poll(async () => (await seen(page)).length).toBe(1);
+  expect((await seen(page))[0]).toEqual({ key: null, ids: [], state: 'unsupported' });
+  expect(errors).toEqual([]);
+});
+
+test('push wiring: a refresh that finds the same state renders nothing extra', async ({ page }) => {
+  const box = { withPush: true, key: 'BKey-fake_pushKey123', ids: ['1111aaaa2222bbbb'] };
+  await open(page, { snow: pushWorld(box), inv: PUSH_INV });
+  await pushSpy(page);
+  await signInMatt(page);
+  await expect.poll(async () => (await seen(page)).length).toBe(1);
+  const r0 = await renders(page);
+  await page.evaluate(() => window.__pending[0]());                 // answers 'unsupported' again: the same
+  await page.waitForTimeout(250);
+  expect(await renders(page)).toBe(r0);
+});
+
+test('push wiring: a different state renders once; the next bootstrap starts from it and the same answer is quiet', async ({ page }) => {
+  const box = { withPush: true, key: 'BKey-fake_pushKey123', ids: ['1111aaaa2222bbbb'] };
+  await open(page, { snow: pushWorld(box), inv: PUSH_INV });
+  await pushSpy(page);
+  await signInMatt(page);
+  await expect.poll(async () => (await seen(page)).length).toBe(1);
+  let r0 = await renders(page);
+  await page.evaluate(() => window.__pending[0]('off'));
+  await expect.poll(() => renders(page)).toBe(r0 + 1);
+  await page.waitForTimeout(250);
+  expect(await renders(page)).toBe(r0 + 1);                          // once, not twice
+  await reBootstrap(page);
+  await expect.poll(async () => (await seen(page)).length).toBe(2);
+  expect((await seen(page))[1].state).toBe('off');                   // carried over, not reset to unsupported
+  r0 = await renders(page);
+  await page.evaluate(() => window.__pending[1]('off'));            // the same as before this bootstrap
+  await page.waitForTimeout(250);
+  expect(await renders(page)).toBe(r0);
+});
+
+test('push wiring: an older refresh that lands after a newer bootstrap is ignored', async ({ page }) => {
+  const box = { withPush: true, key: 'BKey-fake_pushKey123', ids: ['1111aaaa2222bbbb'] };
+  await open(page, { snow: pushWorld(box), inv: PUSH_INV });
+  await pushSpy(page);
+  await signInMatt(page);
+  await expect.poll(async () => (await seen(page)).length).toBe(1);
+  await reBootstrap(page);                                           // refresh 1 is still unanswered
+  await expect.poll(async () => (await seen(page)).length).toBe(2);
+  const r0 = await renders(page);
+  await page.evaluate(() => window.__pending[0]('on'));             // the stale one lands: draws nothing
+  await page.waitForTimeout(250);
+  expect(await renders(page)).toBe(r0);
+  await page.evaluate(() => window.__pending[1]('off'));            // the current one lands: draws
+  await expect.poll(() => renders(page)).toBe(r0 + 1);
 });
 
 // Directions, the Next site bar (Matt, 11/20/26): the one-site drill-in from the handoff card draws no bar. On paper: LEFT-RANK-1 (S4, 1 walk,

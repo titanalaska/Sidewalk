@@ -551,3 +551,84 @@ test('no service worker registration (file://, first load): turnOn and turnOff f
   never2.env.navigator.serviceWorker = { getRegistration: () => Promise.resolve(undefined), ready: new Promise(() => {}) };
   assert.equal((await within(SnowPush.turnOn(ctxFor(S0([], KEY, 'off'), {}), never2.env), 1000)).reason, 'Not saved: try again');
 });
+
+// ---------- fix round 2: after a failed save the state is a fresh reading, never a remembered one ----------
+// Rule used for every expected value (stateOf): permission granted + NOT subscribed -> off; granted + subscribed + listed
+// by the server -> on; granted + subscribed + not listed -> off; denied -> blocked.
+test('failed save, previous state on: the subscription is unsubscribed, so the phone reads off (granted, not subscribed)', async () => {
+  const p = phone({ permission: 'granted', sub: { endpoint: ENDPOINT } });
+  const S = S0([fp(ENDPOINT)], KEY, 'on');
+  const ctx = ctxFor(S, { savePush: { ok: false, code: 'bad', reason: 'no' } });
+  const r = await SnowPush.turnOn(ctx, p.env);
+  assert.deepEqual(r, { ok: false, state: 'off', reason: 'Not saved: try again' });
+  assert.equal(S.push.state, 'off');
+  assert.equal(p.current(), null);
+});
+
+test('failed save, previous state blocked but permission is now granted: off, not blocked', async () => {
+  const p = phone({ permission: 'default', askResult: 'granted' });
+  const S = S0([], KEY, 'blocked');
+  const ctx = ctxFor(S, { savePush: { ok: false, code: 'bad', reason: 'no' } });
+  const r = await SnowPush.turnOn(ctx, p.env);
+  assert.deepEqual(r, { ok: false, state: 'off', reason: 'Not saved: try again' });
+  assert.equal(S.push.state, 'off');
+});
+
+test('failed save and the unsubscribe REJECTS, the server still lists the endpoint: the truth is on (granted + subscribed + listed)', async () => {
+  const p = phone({ permission: 'granted', sub: { endpoint: ENDPOINT } });
+  p.current().unsubscribe = () => Promise.reject(new Error('InvalidState'));
+  const S = S0([fp(OTHER), fp(ENDPOINT)], KEY, 'on');
+  const ctx = ctxFor(S, { savePush: { ok: false, code: 'bad', reason: 'no' } });
+  const r = await SnowPush.turnOn(ctx, p.env);
+  assert.deepEqual(r, { ok: false, state: 'on', reason: 'Not saved: try again' });
+  assert.equal(S.push.state, 'on');
+});
+
+test('failed save and the unsubscribe rejects, the server does NOT list the endpoint: off (subscribed but not listed)', async () => {
+  const p = phone({ permission: 'granted', sub: { endpoint: ENDPOINT } });
+  p.current().unsubscribe = () => Promise.reject(new Error('InvalidState'));
+  const S = S0([fp(OTHER)], KEY, 'off');
+  const ctx = ctxFor(S, { savePush: { ok: false, code: 'bad', reason: 'no' } });
+  const r = await SnowPush.turnOn(ctx, p.env);
+  assert.deepEqual(r, { ok: false, state: 'off', reason: 'Not saved: try again' });
+});
+
+test('no registration with a stale previous state on: the answer is the fresh reading off (granted, not subscribed)', async () => {
+  const p = phone({ permission: 'granted' });
+  p.env.navigator.serviceWorker = { getRegistration: () => Promise.resolve(undefined), ready: new Promise(() => {}) };
+  const S = S0([fp(ENDPOINT)], KEY, 'on');
+  const r = await within(SnowPush.turnOn(ctxFor(S, {}), p.env), 1000);
+  assert.deepEqual(r, { ok: false, state: 'off', reason: 'Not saved: try again' });
+  assert.equal(S.push.state, 'off');
+});
+
+test('subscribe failing twice with a stale previous state on: fresh reading off', async () => {
+  const p = phone({ permission: 'granted', subscribeFails: 5 });
+  const S = S0([fp(ENDPOINT)], KEY, 'on');
+  const r = await SnowPush.turnOn(ctxFor(S, {}), p.env);
+  assert.deepEqual(r, { ok: false, state: 'off', reason: 'Not saved: try again' });
+  assert.equal(S.push.state, 'off');
+});
+
+test('a bootstrap replacing S.push during turnOn: the NEW object gets the save reply ids and reads on', async () => {
+  // new object starts with an EMPTY list; the reply lists the new endpoint -> granted + subscribed + listed = on
+  const p = phone();
+  const S = S0([]);
+  const old = S.push;
+  const ctx = ctxFor(S, { savePush: () => { S.push = { key: KEY, ids: [fp(OTHER)], state: 'off' }; return { ok: true, push_ids: [fp(OTHER), fp(ENDPOINT)] }; } });
+  const r = await SnowPush.turnOn(ctx, p.env);
+  assert.deepEqual(r, { ok: true, state: 'on' });
+  assert.notEqual(S.push, old);
+  assert.deepEqual(S.push.ids, [fp(OTHER), fp(ENDPOINT)]);
+  assert.equal(S.push.state, 'on');
+});
+
+test('a bootstrap replacing S.push during turnOff: the NEW object gets the dropPush reply ids and reads off', async () => {
+  const p = phone({ permission: 'granted', sub: { endpoint: ENDPOINT } });
+  const S = S0([fp(ENDPOINT)], KEY, 'on');
+  const ctx = ctxFor(S, { dropPush: () => { S.push = { key: KEY, ids: [fp(ENDPOINT)], state: 'on' }; return { ok: true, push_ids: [fp(OTHER)] }; } });
+  const r = await SnowPush.turnOff(ctx, p.env);
+  assert.deepEqual(r, { ok: true, state: 'off' });
+  assert.deepEqual(S.push.ids, [fp(OTHER)]);
+  assert.equal(S.push.state, 'off');
+});

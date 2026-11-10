@@ -6893,3 +6893,181 @@ test('outlook: signing out forgets the outlook; the next sign-in starts with the
   await page.evaluate(() => SnowShiftUI.reset({}));
   expect(await page.evaluate(() => SnowShiftUI.state().outlookAt)).toBe(0);
 });
+
+// ---------------- Print route lists (Matt, 11/10/26): the plan on paper, one page per live route ----------------
+// rlWorld, by hand: NO storm at all. Routes given N10 (R1, site S2), N2 (R2, site S1), N1 (R3, archived).
+// The Routes tab lists live routes by name, numbers as numbers: N2 then N10. So two pages, N2 first.
+//   N2: Alex Test is placed as lead (a move), PAC (S1): materials "NO SALT: fresh concrete", walks by name:
+//       "Heated walk" (heated) then "Main entry" -> two boxes.
+//   N10: nobody placed -> blanks; TUDOR-TRANSIT (S2) has no zones -> "No walks drawn yet.".
+const rlWorld = () => {
+  const w = world();
+  w.sites = [{ id: 'S1', name: 'PAC', address: '3 Test Way', materials_needed: 'NO SALT: fresh concrete', rev: 1 }, { id: 'S2', name: 'TUDOR-TRANSIT', rev: 1 }];
+  w.routes = [{ id: 'R1', name: 'N10', rev: 1, site_ids: ['S2'] }, { id: 'R2', name: 'N2', rev: 1, site_ids: ['S1'] }, { id: 'R3', name: 'N1', rev: 1, site_ids: ['S1'], archived: true }];
+  w.zones = [{ id: 'Z1', site_id: 'S1', type: 'sidewalk', name: 'Main entry', rev: 1 }, { id: 'Z2', site_id: 'S1', type: 'heated', name: 'Heated walk', rev: 1 }];
+  w.moves = [{ id: 'M1', at: '2026-10-01T17:00:00.000-08:00', worker: 'C01', to_route: 'R2', role: 'lead' }];
+  w.storms = [];
+  return w;
+};
+
+test('route lists: an admin with no storm sees Print route lists and no Print sheets; it opens one page per live route', async ({ page }) => {
+  await stubPrint(page);
+  await openStorm(page, rlWorld(), { token: 'tok-matt' });
+  await expect(page.locator('#printRouteLists')).toBeVisible();
+  await expect(page.locator('#printRouteLists')).toHaveText('Print route lists');
+  await expect(page.locator('#printSheets')).toHaveCount(0);
+  await page.click('#printRouteLists');
+  await expect(page.locator('#printview')).toBeVisible();
+  await expect(page.locator('#printbar')).toContainText('2 route lists');
+  const pages = page.locator('#printsheets .rl-page');
+  await expect(pages).toHaveCount(2);
+  await expect(pages.nth(0).locator('h1')).toHaveText('N2');
+  await expect(pages.nth(1).locator('h1')).toHaveText('N10');
+  await expect(pages.nth(0)).toContainText('Lead: Alex Test');
+  await expect(pages.nth(1)).toContainText('Lead: ____________________');
+  await expect(pages.nth(1)).toContainText('No walks drawn yet.');
+  await expect(pages.nth(0).locator('.rl-box')).toHaveCount(2);
+  expect(await page.locator('#printsheets h1').allInnerTexts()).toEqual(['N2', 'N10']); // exactly the two live routes: the archived N1 is not there
+  // A break after every page but the last.
+  expect(await pages.nth(0).evaluate((e) => getComputedStyle(e).breakAfter)).toBe('page');
+  expect(await pages.nth(1).evaluate((e) => getComputedStyle(e).breakAfter)).toBe('auto');
+  // The phone's print is asked for once on open, and again from Print.
+  await expect.poll(() => page.evaluate(() => window.__printed)).toBe(1);
+  await page.click('#printNow');
+  await expect.poll(() => page.evaluate(() => window.__printed)).toBe(2);
+  // The list's own style does not leak into the app.
+  expect(await page.evaluate(() => getComputedStyle(document.querySelector('header h1')).fontFamily)).not.toMatch(/Arial/);
+});
+
+test('route lists: one route reads "1 route list"; no live route reads "No routes yet." and the phone is not asked to print', async ({ page, browser }) => {
+  const w = rlWorld();
+  w.routes = [w.routes[1]];
+  await stubPrint(page);
+  await openStorm(page, w, { token: 'tok-matt' });
+  await page.click('#printRouteLists');
+  await expect(page.locator('#printbar')).toContainText('1 route list');
+  await expect(page.locator('#printbar')).not.toContainText('route lists');
+  await expect.poll(() => page.evaluate(() => window.__printed)).toBe(1);
+  // Now none live.
+  const w2 = rlWorld();
+  w2.routes = [w2.routes[2]];
+  const c = await browser.newContext({ timezoneId: 'America/Anchorage', viewport: { width: 390, height: 844 } }); // as playwright.config.js
+  try {
+    const p2 = await c.newPage();
+    await stubPrint(p2);
+    await openStorm(p2, w2, { token: 'tok-matt' });
+    await p2.click('#printRouteLists');
+    await expect(p2.locator('#printview')).toBeVisible();
+    await expect(p2.locator('#printsheets')).toHaveText('No routes yet.');
+    await expect(p2.locator('#printbar')).toContainText('0 route lists');
+    await p2.waitForTimeout(300);
+    expect(await p2.evaluate(() => window.__printed)).toBe(0);
+  } finally { await c.close(); }
+});
+
+test('route lists: a crew member and a lead never see the button; an admin does in the same world', async ({ page, browser }) => {
+  const w = rlWorld();
+  await openStorm(page, w, { token: 'tok-jordan' });
+  await expect(page.locator('#stormhead')).toBeVisible(); // the tab drew
+  await expect(page.locator('#printRouteLists')).toHaveCount(0);
+  const ctxOpts = { timezoneId: 'America/Anchorage', viewport: { width: 390, height: 844 } }; // as playwright.config.js
+  for (const [token, want] of [['tok-alex', 0], ['tok-matt', 1]]) {
+    const c = await browser.newContext(ctxOpts);
+    try {
+      const p = await c.newPage();
+      await openStorm(p, w, { token });
+      await expect(p.locator('#stormhead')).toBeVisible();
+      if (want) await expect(p.locator('#printRouteLists')).toBeVisible(); else await expect(p.locator('#printRouteLists')).toHaveCount(0);
+    } finally { await c.close(); }
+  }
+});
+
+test('route lists: the NO SALT line is on its site page, bold; a heated walk says check only', async ({ page }) => {
+  await stubPrint(page);
+  await openStorm(page, rlWorld(), { token: 'tok-matt' });
+  await page.click('#printRouteLists');
+  const n2 = page.locator('#printsheets .rl-page').nth(0);
+  await expect(n2.locator('.rl-materials')).toBeVisible();
+  await expect(n2.locator('.rl-materials')).toContainText('NO SALT: fresh concrete');
+  expect(await n2.locator('.rl-materials b[data-no-es]').evaluate((e) => Number(getComputedStyle(e).fontWeight))).toBeGreaterThanOrEqual(700);
+  await expect(n2.locator('.rl-walk').filter({ hasText: 'Heated walk' })).toContainText('(heated: check only)');
+  await expect(n2.locator('.rl-walk').filter({ hasText: 'Main entry' })).not.toContainText('heated');
+  await expect(n2).toContainText('3 Test Way');
+  await expect(page.locator('#printsheets .rl-page').nth(1)).not.toContainText('NO SALT');
+});
+
+test('route lists: Back and the phone Back both close the view and take their step with them', async ({ page }) => {
+  await stubPrint(page);
+  await openStorm(page, rlWorld(), { token: 'tok-matt' });
+  await page.click('#printRouteLists');
+  await expect(page.locator('#printview')).toBeVisible();
+  await expect.poll(() => backSteps(page)).toEqual(['print']);
+  await page.goBack(); // the phone's Back
+  await expect(page.locator('#printview')).toBeHidden();
+  await expect(page.locator('#printRouteLists')).toBeVisible(); // still in the app
+  expect(page.url()).toContain('index.html');
+  expect(await backSteps(page)).toEqual([]);
+  await page.click('#printRouteLists');
+  await expect(page.locator('#printview')).toBeVisible();
+  await page.click('#printBack');
+  await expect(page.locator('#printview')).toBeHidden();
+  await expect.poll(() => backSteps(page)).toEqual([]);
+  await page.click('#printRouteLists');
+  await expect(page.locator('#printview')).toBeVisible();
+  await page.goBack();
+  await expect(page.locator('#printview')).toBeHidden();
+  expect(page.url()).toContain('index.html');
+});
+
+test('route lists: in Spanish the labels are Spanish and the site name is not', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await stubPrint(page);
+  await openStorm(page, rlWorld(), { token: 'tok-matt' });
+  await expect(page.locator('#printRouteLists')).toHaveText('Imprimir listas de rutas');
+  await page.click('#printRouteLists');
+  await expect(page.locator('#printbar')).toContainText('2 listas de rutas');
+  const n2 = page.locator('#printsheets .rl-page').nth(0), n10 = page.locator('#printsheets .rl-page').nth(1);
+  await expect(n2.locator('.rl-date')).toContainText('Fecha:');
+  await expect(n2).toContainText('Líder: Alex Test');
+  await expect(n2).toContainText('Materiales: NO SALT: fresh concrete');
+  await expect(n2.locator('.rl-walk').filter({ hasText: 'Heated walk' })).toContainText('(con calefacción: solo revisar)');
+  await expect(n2.locator('.rl-used')).toContainText('Materiales usados');
+  await expect(n2.locator('.rl-used')).toContainText('Entrada:');
+  await expect(n2.locator('.rl-used')).toContainText('Salida:');
+  await expect(n10).toContainText('Cuadrilla:');
+  await expect(n10).toContainText('Todavía no hay recorridos dibujados.');
+  // The English is gone from the labels; the data stays as typed.
+  const body = await page.locator('#printsheets').innerText();
+  for (const en of ['Date:', 'Lead', 'Crew:', 'Materials', 'In:', 'Out:', 'No walks drawn yet', 'check only']) expect(body).not.toContain(en);
+  await expect(n2).toContainText('PAC');
+  await expect(n10).toContainText('TUDOR-TRANSIT');
+  await expect(n2).toContainText('Heated walk');
+});
+
+test('route lists: with Print sheets open the route lists cannot open a second view, and the other way round', async ({ page }) => {
+  await stubPrint(page);
+  // liveWorld has a tap and a posted crew (the Print sheets test above), so Print sheets has pages to print: 2 sheets.
+  // Its three live routes (N1, N10, N2) are the route lists: 3 pages.
+  const w = liveWorld();
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: at('06:30') })];
+  w.posts = [postOf()];
+  await openStorm(page, w, { token: 'tok-matt' });
+  await expect(page.locator('#printRouteLists')).toBeVisible();
+  await expect(page.locator('#printSheets')).toBeVisible();
+  await page.click('#printSheets');
+  await expect(page.locator('#printview')).toBeVisible();
+  // The overlay covers the buttons: tap the one underneath the way a stray tap would reach it.
+  await page.evaluate(() => document.getElementById('printRouteLists').click());
+  await expect(page.locator('#printview')).toHaveCount(1);
+  await expect(page.locator('#printsheets .rl-page')).toHaveCount(0);
+  expect(await page.evaluate(() => window.__printed)).toBe(1);
+  await page.click('#printBack');
+  await expect(page.locator('#printview')).toBeHidden();
+  await page.click('#printRouteLists');
+  await expect(page.locator('#printsheets .rl-page')).toHaveCount(3);
+  await page.evaluate(() => document.getElementById('printSheets').click());
+  await expect(page.locator('#printview')).toHaveCount(1);
+  await expect(page.locator('#printsheets .rl-page')).toHaveCount(3);
+  await expect(page.locator('#printsheets .sheet')).toHaveCount(0);
+  expect(await page.evaluate(() => window.__printed)).toBe(2);
+});

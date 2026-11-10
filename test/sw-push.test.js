@@ -89,8 +89,8 @@ test('the words never come from the push body', async () => {
   assert.equal(env.shown[0].title, 'Shovel Command');
 });
 
-test('es in the prefs cache gives the Spanish body, same title, same tag; a trailing newline is fine', async () => {
-  for (const stored of ['es', 'es\n']) {
+test('es in the prefs cache gives the Spanish body, same title, same tag; a trailing newline or a space each side is fine', async () => {
+  for (const stored of ['es', 'es\n', ' es ']) {
     // an unrelated cache sits beside the prefs cache and holds a different answer under the same key
     const env = load({ stored: { 'titan-snow-shell-46': { './prefs/lang': 'en' }, 'titan-snow-prefs': { './prefs/lang': stored } } });
     await fire(env, 'push')[0];

@@ -1,0 +1,446 @@
+// What this phone can do about snow alerts (lib/push.js). Every browser part is an injected fake that
+// records its calls in order, so nothing here touches a real browser, and the ORDER of the calls is
+// itself under test: an iPhone refuses a permission request that does not start inside the tap.
+//
+// Fixtures are deliberately untidy: a long endpoint with ':' '/' '-' '_' and mixed case, a key whose
+// base64url form contains '-' and '_', a server list that names other phones' ids before ours.
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
+const SnowPush = require('../lib/push.js');
+
+const ENDPOINT = 'https://fcm.googleapis.com/fcm/send/AbC-123_xYz:APA91b-fake_Qq9ZzZ-LoNg_Tail-0aB';
+const OTHER = 'https://web.push.apple.com/QGfake-endpoint_Zz9';
+// Worked on paper: the backend's id is the FIRST 8 BYTES (16 hex characters) of SHA-256 of the UTF-8 endpoint.
+function fp(endpoint) { return crypto.createHash('sha256').update(endpoint, 'utf8').digest('hex').slice(0, 16); }
+
+// A 65-byte "public key" (0x04 then 64 bytes) whose base64url text uses '-' or '_' and has no '=' padding.
+const KEY_BYTES = Buffer.alloc(65); KEY_BYTES[0] = 4;
+for (let i = 1; i < 65; i++) KEY_BYTES[i] = (i * 37 + 251) % 256;
+KEY_BYTES[5] = 0xfb; KEY_BYTES[6] = 0xff; KEY_BYTES[7] = 0xbe;
+const KEY = KEY_BYTES.toString('base64url');
+const OTHER_KEY = Buffer.from(KEY_BYTES.map((b) => b ^ 0x55)).toString('base64url');
+
+test('fixture guard: the key text has - or _ and 65 bytes behind it', () => {
+  assert.ok(KEY.includes('-') || KEY.includes('_'));
+  assert.equal(Buffer.from(KEY, 'base64url').length, 65);
+});
+
+const PIXEL = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/126 Mobile Safari/537.36';
+const IPHONE = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148';
+
+// The fake phone. o: { ua, platform, touch, standaloneNav, standaloneMedia, sw, push, notif, permission,
+// askResult, sub (an existing subscription's {endpoint, key}), subscribeFails (how many subscribes reject),
+// newEndpoint, lang }.
+function phone(o) {
+  o = Object.assign({ ua: PIXEL, platform: 'Linux armv81', touch: 5, sw: true, push: true, notif: true,
+    permission: 'default', askResult: 'granted', sub: null, subscribeFails: 0, lang: 'en' }, o || {});
+  const calls = [];
+  let current = null;
+  function mkSub(endpoint, keyB64) {
+    const bytes = Buffer.from(keyB64, 'base64url');
+    const ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length);
+    const s = { endpoint: endpoint, options: { applicationServerKey: ab },
+      unsubscribe() { calls.push('unsubscribe'); if (current === s) current = null; return Promise.resolve(true); } };
+    return s;
+  }
+  if (o.sub) current = mkSub(o.sub.endpoint, o.sub.key || KEY);
+  const permission = { value: o.permission };
+  const reg = { pushManager: {
+    getSubscription() { calls.push('getSubscription'); return Promise.resolve(current); },
+    subscribe(opts) {
+      calls.push('subscribe');
+      reg.lastSubscribe = opts;
+      if (o.subscribeFails > 0) { o.subscribeFails--; return Promise.reject(new Error('InvalidStateError')); }
+      current = mkSub(o.newEndpoint || ENDPOINT, Buffer.from(opts.applicationServerKey).toString('base64url'));
+      return Promise.resolve(current);
+    } } };
+  const env = {
+    navigator: { userAgent: o.ua, platform: o.platform, maxTouchPoints: o.touch, standalone: o.standaloneNav,
+      serviceWorker: o.sw ? {
+        getRegistration() { calls.push('getRegistration'); return Promise.resolve(reg); },
+        ready: Promise.resolve(reg) } : undefined },
+    PushManager: o.push ? function PushManager() {} : undefined,
+    Notification: o.notif ? { get permission() { return permission.value; },
+      requestPermission() { calls.push('requestPermission'); permission.value = o.askResult; return Promise.resolve(o.askResult); } } : undefined,
+    matchMedia(q) { return { matches: !!o.standaloneMedia && q === '(display-mode: standalone)' }; },
+    lang() { return o.lang; }
+  };
+  return { env, calls, reg, current: () => current };
+}
+
+// A ctx whose call() records and answers from a script.
+function ctxFor(S, answers) {
+  const sent = [];
+  return { sent, S, toasts: [], toast(t) { this.toasts.push(t); }, render() { this.rendered = (this.rendered || 0) + 1; },
+    call(action, body) {
+      sent.push({ action, body });
+      const a = answers[action];
+      return Promise.resolve(typeof a === 'function' ? a(body) : a);
+    } };
+}
+const S0 = (ids, key, state) => ({ push: { key: key === undefined ? KEY : key, ids: ids || [], state: state || 'off' } });
+
+// ---------- stateOf: the spec's table, row by row ----------
+const FULL = { sw: true, push: true, notif: true, ios: false, standalone: false, permission: 'default', subscribed: false, known: false };
+function f(over) { return Object.assign({}, FULL, over); }
+
+test('stateOf: every row of the table', () => {
+  const rows = [
+    [f({}), 'off'],                                                                          // can do it, not on yet
+    [f({ permission: 'granted' }), 'off'],                                                   // granted, nothing subscribed
+    [f({ permission: 'granted', subscribed: true, known: true }), 'on'],
+    [f({ permission: 'granted', subscribed: true, known: false }), 'off'],                   // the server does not list this endpoint
+    [f({ permission: 'granted', subscribed: false, known: true }), 'off'],                   // listed, but the browser has no subscription
+    [f({ permission: 'default', subscribed: true, known: true }), 'off'],                    // permission not granted
+    [f({ permission: 'denied' }), 'blocked'],
+    [f({ permission: 'denied', subscribed: true, known: true }), 'blocked'],
+    [f({ push: false }), 'unsupported'],                                                     // desktop without PushManager
+    [f({ sw: false }), 'unsupported'],
+    [f({ notif: false }), 'unsupported'],
+    [f({ push: false, ios: true, standalone: false }), 'install'],                           // iPhone in a tab: no PushManager
+    [f({ sw: false, ios: true }), 'install'],
+    [f({ notif: false, ios: true }), 'install'],
+    [f({ push: false, ios: true, standalone: true }), 'unsupported'],                        // home-screen iPhone that still cannot (old iOS)
+    [f({ ios: true, standalone: false }), 'off'],                                            // iPhone in a tab that DOES have all three
+    [f({ push: false, ios: false, standalone: true }), 'unsupported'],
+    [f({ push: false, permission: 'denied' }), 'unsupported'],                               // cannot at all beats blocked
+    [f({ push: false, ios: true, permission: 'denied' }), 'install']
+  ];
+  rows.forEach(([flags, want], i) => assert.equal(SnowPush.stateOf(flags), want, 'row ' + i + ' ' + JSON.stringify(flags)));
+});
+
+// ---------- fingerprint ----------
+test('fingerprint is the first 8 bytes of SHA-256 of the endpoint, 16 lowercase hex', async () => {
+  for (const e of [ENDPOINT, OTHER, 'é' + ENDPOINT]) {
+    const got = await SnowPush.fingerprint(e);
+    assert.match(got, /^[0-9a-f]{16}$/);
+    assert.equal(got, fp(e));
+  }
+  assert.notEqual(await SnowPush.fingerprint(ENDPOINT), await SnowPush.fingerprint(OTHER));
+});
+
+// ---------- refresh ----------
+test('refresh: subscribed but the server does not list the endpoint reads off', async () => {
+  const p = phone({ permission: 'granted', sub: { endpoint: ENDPOINT } });
+  const S = S0([fp(OTHER)]);
+  assert.equal(await SnowPush.refresh(S, p.env), 'off');
+  assert.equal(S.push.state, 'off');
+});
+
+test('refresh: granted + subscribed + listed (among other ids) reads on', async () => {
+  const p = phone({ permission: 'granted', sub: { endpoint: ENDPOINT } });
+  const S = S0([fp(OTHER), fp(ENDPOINT)]);
+  assert.equal(await SnowPush.refresh(S, p.env), 'on');
+  assert.equal(S.push.state, 'on');
+});
+
+test('refresh: denied is blocked; default permission with a listed subscription is off', async () => {
+  const S = S0([fp(ENDPOINT)]);
+  assert.equal(await SnowPush.refresh(S, phone({ permission: 'denied' }).env), 'blocked');
+  assert.equal(await SnowPush.refresh(S, phone({ permission: 'default', sub: { endpoint: ENDPOINT } }).env), 'off');
+});
+
+test('refresh: an iPhone in a tab with no PushManager is install; a desktop with none is unsupported', async () => {
+  const S = S0();
+  assert.equal(await SnowPush.refresh(S, phone({ ua: IPHONE, push: false, sw: true }).env), 'install');
+  assert.equal(await SnowPush.refresh(S, phone({ ua: 'Mozilla/5.0 (Windows NT 10.0) Chrome/126', platform: 'Win32', touch: 0, push: false }).env), 'unsupported');
+});
+
+test('refresh: iPadOS reports as a Mac with touch points; a real Mac (no touch) is not an iPad', async () => {
+  const S = S0();
+  const ipad = { ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Safari/605.1.15', platform: 'MacIntel', push: false };
+  assert.equal(await SnowPush.refresh(S, phone(Object.assign({}, ipad, { touch: 5 })).env), 'install');
+  assert.equal(await SnowPush.refresh(S, phone(Object.assign({}, ipad, { touch: 0 })).env), 'unsupported');
+  assert.equal(await SnowPush.refresh(S, phone(Object.assign({}, ipad, { touch: 1 })).env), 'unsupported');
+});
+
+test('refresh: home-screen mode by navigator.standalone or by the display-mode media query', async () => {
+  const S = S0();
+  assert.equal(await SnowPush.refresh(S, phone({ ua: IPHONE, push: false, standaloneNav: true }).env), 'unsupported');
+  assert.equal(await SnowPush.refresh(S, phone({ ua: IPHONE, push: false, standaloneMedia: true }).env), 'unsupported');
+  assert.equal(await SnowPush.refresh(S, phone({ ua: IPHONE, push: false, standaloneNav: false, standaloneMedia: false }).env), 'install');
+});
+
+test('refresh never rejects: a registration lookup that throws reads off, not an error', async () => {
+  const p = phone({ permission: 'granted' });
+  p.env.navigator.serviceWorker.getRegistration = () => Promise.reject(new Error('boom'));
+  const S = S0();
+  assert.equal(await SnowPush.refresh(S, p.env), 'off');
+});
+
+// ---------- turnOn ----------
+test('turnOn asks for permission FIRST and synchronously, before anything async', async () => {
+  const p = phone();
+  const ctx = ctxFor(S0([]), { savePush: { ok: true, push_ids: [fp(ENDPOINT)] } });
+  const pending = SnowPush.turnOn(ctx, p.env);
+  // Nothing has been awaited yet: the call log right now is what ran inside the tap.
+  assert.deepEqual(p.calls, ['requestPermission']);
+  assert.equal(ctx.sent.length, 0);
+  assert.ok(typeof pending.then === 'function');
+  await pending;
+});
+
+test('turnOn success: subscribe gets the key bytes, savePush gets the endpoint and lang, ids replaced, state on', async () => {
+  const p = phone({ lang: 'en' });
+  const S = S0([fp(OTHER)]);
+  const ctx = ctxFor(S, { savePush: { ok: true, push_ids: [fp(OTHER), fp(ENDPOINT)] } });
+  const r = await SnowPush.turnOn(ctx, p.env);
+  assert.deepEqual(r, { ok: true, state: 'on' });
+  assert.equal(p.reg.lastSubscribe.userVisibleOnly, true);
+  assert.ok(p.reg.lastSubscribe.applicationServerKey instanceof Uint8Array);
+  assert.deepEqual(Array.from(p.reg.lastSubscribe.applicationServerKey), Array.from(KEY_BYTES));
+  assert.deepEqual(ctx.sent, [{ action: 'savePush', body: { endpoint: ENDPOINT, lang: 'en' } }]);
+  assert.deepEqual(S.push.ids, [fp(OTHER), fp(ENDPOINT)]);
+  assert.equal(S.push.state, 'on');
+});
+
+test('turnOn sends lang es only when the app is in Spanish; anything else is en', async () => {
+  for (const [lang, want] of [['es', 'es'], ['en', 'en'], ['fr', 'en'], [undefined, 'en']]) {
+    const p = phone({ lang });
+    const ctx = ctxFor(S0([]), { savePush: { ok: true, push_ids: [fp(ENDPOINT)] } });
+    await SnowPush.turnOn(ctx, p.env);
+    assert.equal(ctx.sent[0].body.lang, want, String(lang));
+  }
+});
+
+test('turnOn with no push_key (backend not set up): no permission prompt at all, words given, nothing saved', async () => {
+  const p = phone({ permission: 'default' });
+  const S = S0([], null, 'off');
+  const ctx = ctxFor(S, {});
+  const r = await SnowPush.turnOn(ctx, p.env);
+  assert.deepEqual(r, { ok: false, state: 'off', reason: 'Snow alerts are not set up yet.' });
+  assert.ok(!p.calls.includes('requestPermission'));
+  assert.deepEqual(p.calls, []);
+  assert.equal(ctx.sent.length, 0);
+});
+
+test('turnOn denied: nothing saved, nothing subscribed, state blocked', async () => {
+  const p = phone({ askResult: 'denied' });
+  const S = S0([]);
+  const ctx = ctxFor(S, {});
+  const r = await SnowPush.turnOn(ctx, p.env);
+  assert.equal(r.ok, false);
+  assert.equal(r.state, 'blocked');
+  assert.equal(S.push.state, 'blocked');
+  assert.equal(ctx.sent.length, 0);
+  assert.ok(!p.calls.includes('subscribe'));
+});
+
+test('turnOn dismissed (default): nothing saved, state stays off', async () => {
+  const p = phone({ askResult: 'default' });
+  const ctx = ctxFor(S0([]), {});
+  const r = await SnowPush.turnOn(ctx, p.env);
+  assert.equal(r.ok, false);
+  assert.equal(r.state, 'off');
+  assert.equal(ctx.sent.length, 0);
+  assert.ok(!p.calls.includes('subscribe'));
+});
+
+test('turnOn: a save the server refuses unsubscribes and says Not saved: try again', async () => {
+  const p = phone();
+  const S = S0([fp(OTHER)]);
+  const ctx = ctxFor(S, { savePush: { ok: false, code: 'bad', reason: 'no' } });
+  const r = await SnowPush.turnOn(ctx, p.env);
+  assert.deepEqual(r, { ok: false, state: 'off', reason: 'Not saved: try again' });
+  assert.ok(p.calls.includes('unsubscribe'));
+  assert.equal(p.current(), null);
+  assert.deepEqual(S.push.ids, [fp(OTHER)]);   // ids untouched on a refusal
+  assert.equal(S.push.state, 'off');
+});
+
+test('turnOn: a save that throws (offline) is the same: unsubscribe and Not saved', async () => {
+  const p = phone();
+  const ctx = ctxFor(S0([]), { savePush: () => { throw new Error('offline'); } });
+  const r = await SnowPush.turnOn(ctx, p.env);
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'Not saved: try again');
+  assert.ok(p.calls.includes('unsubscribe'));
+});
+
+test('turnOn: a browser endpoint the server does not list is saved as the new endpoint (existing sub, same key, reused)', async () => {
+  const p = phone({ permission: 'granted', sub: { endpoint: ENDPOINT, key: KEY } });
+  const S = S0([fp(OTHER)]);
+  assert.equal(await SnowPush.refresh(S, p.env), 'off');
+  const ctx = ctxFor(S, { savePush: { ok: true, push_ids: [fp(OTHER), fp(ENDPOINT)] } });
+  const r = await SnowPush.turnOn(ctx, p.env);
+  assert.equal(r.ok, true);
+  assert.ok(!p.calls.includes('subscribe'), 'the matching subscription is reused, not replaced');
+  assert.deepEqual(ctx.sent, [{ action: 'savePush', body: { endpoint: ENDPOINT, lang: 'en' } }]);
+  assert.equal(S.push.state, 'on');
+});
+
+test('turnOn: an existing subscription made with another key is not reused; a fresh one is made and saved', async () => {
+  const p = phone({ permission: 'granted', sub: { endpoint: OTHER, key: OTHER_KEY }, newEndpoint: ENDPOINT });
+  const ctx = ctxFor(S0([]), { savePush: { ok: true, push_ids: [fp(ENDPOINT)] } });
+  const r = await SnowPush.turnOn(ctx, p.env);
+  assert.equal(r.ok, true);
+  assert.ok(p.calls.includes('subscribe'));
+  assert.equal(ctx.sent[0].body.endpoint, ENDPOINT);
+});
+
+test('turnOn: subscribe rejects once (old key): unsubscribe the old one, try subscribe once more, then save', async () => {
+  const p = phone({ permission: 'granted', sub: { endpoint: OTHER, key: OTHER_KEY }, subscribeFails: 1, newEndpoint: ENDPOINT });
+  const ctx = ctxFor(S0([]), { savePush: { ok: true, push_ids: [fp(ENDPOINT)] } });
+  const r = await SnowPush.turnOn(ctx, p.env);
+  assert.equal(r.ok, true);
+  assert.equal(p.calls.filter((c) => c === 'subscribe').length, 2);
+  assert.ok(p.calls.indexOf('unsubscribe') > p.calls.indexOf('subscribe'), 'old one dropped after the first failure');
+  assert.equal(ctx.sent[0].body.endpoint, ENDPOINT);
+});
+
+test('turnOn: subscribe rejecting twice gives up with Not saved: try again and saves nothing', async () => {
+  const p = phone({ subscribeFails: 5 });
+  const ctx = ctxFor(S0([]), {});
+  const r = await SnowPush.turnOn(ctx, p.env);
+  assert.deepEqual(r, { ok: false, state: 'off', reason: 'Not saved: try again' });
+  assert.equal(p.calls.filter((c) => c === 'subscribe').length, 2);
+  assert.equal(ctx.sent.length, 0);
+});
+
+// ---------- turnOff ----------
+test('turnOff unsubscribes locally BEFORE dropPush, sends the endpoint, replaces ids with the reply', async () => {
+  const p = phone({ permission: 'granted', sub: { endpoint: ENDPOINT } });
+  const S = S0([fp(OTHER), fp(ENDPOINT)], KEY, 'on');
+  const order = [];
+  const ctx = ctxFor(S, { dropPush: () => { order.push('dropPush'); return { ok: true, push_ids: [fp(OTHER)] }; } });
+  const sub = p.current();
+  const origUn = sub.unsubscribe;
+  sub.unsubscribe = function () { order.push('unsubscribe'); return origUn.call(this); };
+  const r = await SnowPush.turnOff(ctx, p.env);
+  assert.deepEqual(order, ['unsubscribe', 'dropPush']);
+  assert.deepEqual(ctx.sent, [{ action: 'dropPush', body: { endpoint: ENDPOINT } }]);
+  assert.deepEqual(r, { ok: true, state: 'off' });
+  assert.deepEqual(S.push.ids, [fp(OTHER)]);
+  assert.equal(S.push.state, 'off');
+});
+
+test('turnOff: dropPush failing (refused, or thrown) is still ok and the phone is unsubscribed', async () => {
+  for (const answer of [{ ok: false, code: 'x', reason: 'y' }, () => { throw new Error('offline'); }]) {
+    const p = phone({ permission: 'granted', sub: { endpoint: ENDPOINT } });
+    const S = S0([fp(ENDPOINT)], KEY, 'on');
+    const ctx = ctxFor(S, { dropPush: answer });
+    const r = await SnowPush.turnOff(ctx, p.env);
+    assert.deepEqual(r, { ok: true, state: 'off' });
+    assert.ok(p.calls.includes('unsubscribe'));
+    assert.equal(p.current(), null);
+  }
+});
+
+test('turnOff with no subscription in the browser: ok, nothing to drop', async () => {
+  const p = phone({ permission: 'granted' });
+  const ctx = ctxFor(S0([fp(OTHER)], KEY, 'off'), {});
+  const r = await SnowPush.turnOff(ctx, p.env);
+  assert.deepEqual(r, { ok: true, state: 'off' });
+  assert.equal(ctx.sent.length, 0);
+});
+
+// ---------- rememberLang ----------
+function fakeCaches() {
+  const log = { opened: [], puts: [] };
+  return { log, api: { open(name) { log.opened.push(name); return Promise.resolve({
+    put(key, res) { return res.text().then((t) => { log.puts.push({ cache: name, key: typeof key === 'string' ? key : key.url, text: t }); }); } }); } } };
+}
+
+test('rememberLang writes exactly en or es to ./prefs/lang in titan-snow-prefs', async () => {
+  for (const [given, want] of [['es', 'es'], ['en', 'en'], ['fr', 'en'], [undefined, 'en']]) {
+    const c = fakeCaches();
+    await SnowPush.rememberLang(given, { caches: c.api, Response: Response });
+    assert.deepEqual(c.log.opened, ['titan-snow-prefs']);
+    assert.deepEqual(c.log.puts, [{ cache: 'titan-snow-prefs', key: './prefs/lang', text: want }]);
+  }
+});
+
+test('rememberLang never throws or rejects: no Cache API, open rejects, put throws', async () => {
+  await SnowPush.rememberLang('es', { caches: undefined, Response: Response });
+  await SnowPush.rememberLang('es', { caches: { open: () => Promise.reject(new Error('private mode')) }, Response: Response });
+  await SnowPush.rememberLang('es', { caches: { open: () => { throw new Error('sync'); } }, Response: Response });
+  await SnowPush.rememberLang('es', { caches: { open: () => Promise.resolve({ put: () => { throw new Error('quota'); } }) }, Response: Response });
+});
+
+// ---------- the words ----------
+const ctxState = (state) => ({ S: { push: { key: KEY, ids: [], state } }, esc: (s) => String(s) });
+const INSTALL = 'To get snow alerts on an iPhone, add Shovel Command to your home screen first: Share, then Add to Home Screen.';
+const BLOCKED = "Notifications are blocked for Shovel Command in this phone's settings.";
+
+test('cardHtml: off has the heading and the Turn on notifications button', () => {
+  const h = SnowPush.cardHtml(ctxState('off'));
+  assert.ok(h.includes('id="pushcard"'));
+  assert.ok(h.includes('Get snow alerts on this phone'));
+  assert.match(h, /<button[^>]*id="pushOn"[^>]*>Turn on notifications<\/button>/);
+  assert.ok(!h.includes('data-no-es'));
+});
+
+test('cardHtml: install has the sentence and NO button; blocked has the sentence and NO button', () => {
+  const i = SnowPush.cardHtml(ctxState('install'));
+  assert.ok(i.includes(INSTALL));
+  assert.ok(!i.includes('<button') && !i.includes('pushOn'));
+  assert.ok(!i.includes('Get snow alerts on this phone'));
+  const b = SnowPush.cardHtml(ctxState('blocked'));
+  assert.ok(b.includes(BLOCKED));
+  assert.ok(!b.includes('<button') && !b.includes('pushOn'));
+  assert.ok(!b.includes(INSTALL));
+});
+
+test('cardHtml: unsupported and on draw no card at all', () => {
+  assert.equal(SnowPush.cardHtml(ctxState('unsupported')), '');
+  assert.equal(SnowPush.cardHtml(ctxState('on')), '');
+  assert.equal(SnowPush.cardHtml({ S: {}, esc: String }), '');
+});
+
+test('rowHtml: on shows Turn off; off shows Turn on; install and blocked show the sentence, no button; unsupported empty', () => {
+  const on = SnowPush.rowHtml(ctxState('on'));
+  assert.ok(on.includes('id="pushrow"'));
+  assert.ok(on.includes('Snow alerts on this phone: on'));
+  assert.match(on, /<button[^>]*id="pushOff"[^>]*>Turn off<\/button>/);
+  assert.ok(!on.includes('pushOn'));
+  const off = SnowPush.rowHtml(ctxState('off'));
+  assert.ok(off.includes('Snow alerts on this phone: off'));
+  assert.match(off, /<button[^>]*id="pushOn"[^>]*>Turn on<\/button>/);
+  assert.ok(!off.includes('pushOff'));
+  const inst = SnowPush.rowHtml(ctxState('install'));
+  assert.ok(inst.includes(INSTALL));
+  assert.ok(!inst.includes('<button'));
+  const blk = SnowPush.rowHtml(ctxState('blocked'));
+  assert.ok(blk.includes(BLOCKED));
+  assert.ok(!blk.includes('<button'));
+  assert.equal(SnowPush.rowHtml(ctxState('unsupported')), '');
+});
+
+// ---------- onClick ----------
+function click(id) {
+  return { target: { closest(sel) { return sel === '#' + id ? { id: id } : null; } } };
+}
+const later = () => new Promise((r) => setTimeout(r, 20));
+
+test('onClick: #pushOn starts turnOn (permission asked inside the click) and returns true', async () => {
+  const p = phone();
+  const ctx = ctxFor(S0([]), { savePush: { ok: true, push_ids: [fp(ENDPOINT)] } });
+  const handled = SnowPush.onClick(click('pushOn'), ctx, p.env);
+  assert.equal(handled, true);
+  assert.deepEqual(p.calls, ['requestPermission']);
+  await later();
+  assert.equal(ctx.sent[0].action, 'savePush');
+});
+
+test('onClick: #pushOff starts turnOff and returns true; anything else returns false and does nothing', async () => {
+  const p = phone({ permission: 'granted', sub: { endpoint: ENDPOINT } });
+  const ctx = ctxFor(S0([fp(ENDPOINT)], KEY, 'on'), { dropPush: { ok: true, push_ids: [] } });
+  assert.equal(SnowPush.onClick(click('pushOff'), ctx, p.env), true);
+  await later();
+  assert.equal(ctx.sent[0].action, 'dropPush');
+  const p2 = phone();
+  const ctx2 = ctxFor(S0([]), {});
+  assert.equal(SnowPush.onClick(click('somethingElse'), ctx2, p2.env), false);
+  assert.equal(SnowPush.onClick({ target: {} }, ctx2, p2.env), false);
+  assert.equal(SnowPush.onClick({}, ctx2, p2.env), false);
+  assert.deepEqual(p2.calls, []);
+});
+
+test('onClick: a refusal reason reaches the toast', async () => {
+  const p = phone();
+  const ctx = ctxFor(S0([], null), {});
+  SnowPush.onClick(click('pushOn'), ctx, p.env);
+  await later();
+  assert.deepEqual(ctx.toasts, ['Snow alerts are not set up yet.']);
+});

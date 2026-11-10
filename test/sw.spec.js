@@ -148,3 +148,42 @@ test('aerial photo tiles pass straight through and are never cached', async ({ p
   });
   expect(tiles).toEqual([]);
 });
+
+test('rememberLang writes the entry the worker reads: same absolute URL, es then en', async ({ page }) => {
+  // The page stores ./prefs/lang in titan-snow-prefs; sw.js reads './prefs/lang' from the same cache. Both relative
+  // keys must resolve to ONE absolute URL, or the worker never sees the language. Checked on a real page and a real
+  // Cache API, reading back by the URL the WORKER resolves (new URL('./prefs/lang', <the sw.js URL>)).
+  await page.route((u) => u.href.includes('script.google.com'), (route) =>
+    route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: false, code: 'signin', reason: 'Sign in', version: 'pairings-1' }) }));
+  await page.goto('http://localhost:' + PORT + '/index.html');
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  const swUrl = await page.evaluate(async () => (await navigator.serviceWorker.getRegistration()).active.scriptURL);
+  expect(swUrl).toBe('http://localhost:' + PORT + '/sw.js');
+  const workerKey = new URL('./prefs/lang', swUrl).href;
+  const readBack = (key) => page.evaluate(async (k) => {
+    const hit = await (await caches.open('titan-snow-prefs')).match(k);
+    return hit ? await hit.text() : null;
+  }, key);
+  await page.evaluate(() => window.SnowPush.rememberLang('es'));
+  expect(await readBack(workerKey)).toBe('es');
+  await page.evaluate(() => window.SnowPush.rememberLang('en'));
+  expect(await readBack(workerKey)).toBe('en');          // overwritten in place, not appended
+  const keys = await page.evaluate(async () => (await (await caches.open('titan-snow-prefs')).keys()).map((r) => r.url));
+  expect(keys).toEqual([workerKey]);
+});
+
+test('the app opens with its language already remembered, and a language switch is remembered', async ({ page }) => {
+  await page.route((u) => u.href.includes('script.google.com'), (route) =>
+    route.fulfill({ contentType: 'application/json', body: JSON.stringify({ ok: false, code: 'signin', reason: 'Sign in', version: 'pairings-1' }) }));
+  await page.goto('http://localhost:' + PORT + '/index.html');
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  const read = () => page.evaluate(async () => {
+    const hit = await (await caches.open('titan-snow-prefs')).match('./prefs/lang');
+    return hit ? await hit.text() : null;
+  });
+  await expect.poll(read).toBe('en');
+  await page.evaluate(() => window.SnowEs.setLang('es'));
+  await expect.poll(read).toBe('es');
+  await page.evaluate(() => window.SnowEs.setLang('en'));
+  await expect.poll(read).toBe('en');
+});

@@ -6967,7 +6967,10 @@ test('route lists: one route reads "1 route list"; no live route reads "No route
 });
 
 test('route lists: a crew member and a lead never see the button; an admin does in the same world', async ({ page, browser }) => {
-  const w = rlWorld();
+  // The storm world of the Sheets-are-Matt's-alone test, storm closed: Alex (lead) draws the storm controls there
+  // (#stormctl), so the button's absence on his phone is the admin gate and not a tab that never got as far.
+  const w = stormWorld();
+  w.storms = [START_ROW, { id: 'ST-2', seq: 2, kind: 'end', storm_id: 'ST-1', at: at('08:00'), by_name: 'Matthew' }];
   await openStorm(page, w, { token: 'tok-jordan' });
   await expect(page.locator('#stormhead')).toBeVisible(); // the tab drew
   await expect(page.locator('#printRouteLists')).toHaveCount(0);
@@ -6978,6 +6981,7 @@ test('route lists: a crew member and a lead never see the button; an admin does 
       const p = await c.newPage();
       await openStorm(p, w, { token });
       await expect(p.locator('#stormhead')).toBeVisible();
+      if (token === 'tok-alex') await expect(p.locator('#stormctl')).toBeVisible(); // the lead's storm controls drew, so the button's absence is the gate and not a tab that never reached it
       if (want) await expect(p.locator('#printRouteLists')).toBeVisible(); else await expect(p.locator('#printRouteLists')).toHaveCount(0);
     } finally { await c.close(); }
   }

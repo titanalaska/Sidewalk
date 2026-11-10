@@ -38,8 +38,15 @@ function load(opts) {
     claim: function () { return Promise.resolve(); },
     list: opts.clients || [],
     opened: [],
-    matchAll: function (o) { clientsApi.matchArgs = o; return Promise.resolve(clientsApi.list); },
-    openWindow: function (u) { clientsApi.opened.push(u); return Promise.resolve({}); }
+    log: [],
+    matchAll: function (o) {
+      clientsApi.log.push('matchAll'); clientsApi.matchArgs = o;
+      return opts.matchFail ? Promise.reject(new Error('matchAll failed')) : Promise.resolve(clientsApi.list);
+    },
+    openWindow: function (u) {
+      clientsApi.log.push('openWindow'); clientsApi.opened.push(u);
+      return opts.openFail ? Promise.reject(new Error('openWindow failed')) : new Promise(function (r) { setTimeout(function () { clientsApi.openDone = true; r({}); }, 5); });
+    }
   };
   var self = {
     location: { origin: 'https://example.test' },
@@ -99,6 +106,9 @@ test('anything but es is English: fr, empty, uppercase, wrong key, missing entry
     { 'titan-snow-prefs': { './prefs/lang': 'fr' } },
     { 'titan-snow-prefs': { './prefs/lang': '' } },
     { 'titan-snow-prefs': { './prefs/lang': 'ES' } },
+    { 'titan-snow-prefs': { './prefs/lang': 'es-MX' } },
+    { 'titan-snow-prefs': { './prefs/lang': 'esp' } },
+    { 'titan-snow-prefs': { './prefs/lang': 'yes' } },
     { 'titan-snow-prefs': { './prefs/other': 'es' } },
     { 'titan-snow-prefs': {} },
     { 'titan-snow-shell-46': { './prefs/lang': 'es' } }
@@ -159,4 +169,67 @@ test('activation deletes the old shell 45 but leaves the prefs cache and other a
   assert.deepEqual(env.deleted, ['titan-snow-shell-45']);
   assert.ok(env.stored['titan-snow-prefs'], 'prefs survive activation');
   assert.ok(env.stored['titan-snow-shell-46'], 'the live shell survives');
+});
+
+// Fixture for the tap tests: close() is logged beside the clients' own calls so order can be asserted.
+function tap(env) {
+  var state = { closed: 0 };
+  var waited = fire(env, 'notificationclick', { notification: { close: function () { state.closed++; env.clients.log.push('close'); } } });
+  return { state: state, waited: waited };
+}
+
+test('a matchAll that rejects is treated as no windows: openWindow(./) once, and the event settles', async () => {
+  const env = load({ matchFail: true });
+  const t = tap(env);
+  await t.waited[0];
+  assert.equal(t.state.closed, 1);
+  assert.deepEqual(env.clients.opened, ['./']);
+});
+
+test('a focus() that rejects, or throws, falls through to openWindow(./) once; close still came first', async () => {
+  const makers = {
+    rejects: function () { return Promise.reject(new Error('focus failed')); },
+    throws: function () { throw new Error('focus threw'); }
+  };
+  for (const how of Object.keys(makers)) {
+    // the first window cannot focus, the second fails to, the third would work but is never reached
+    const env = load({ clients: [{ url: 'a' }, { url: 'b', focus: makers[how] }, { url: 'c', focus: function () { return Promise.resolve(); } }] });
+    const t = tap(env);
+    await t.waited[0];
+    assert.equal(t.state.closed, 1, how);
+    assert.deepEqual(env.clients.opened, ['./'], how);
+    assert.equal(env.clients.log[0], 'close', how);
+  }
+});
+
+test('if openWindow also rejects after a failed focus, that is the only thing that may reject', async () => {
+  const env = load({ openFail: true, clients: [{ url: 'b', focus: function () { return Promise.reject(new Error('x')); } }] });
+  const t = tap(env);
+  await assert.rejects(t.waited[0], /openWindow failed/);
+  assert.deepEqual(env.clients.opened, ['./']);
+});
+
+test('the work of a tap is inside waitUntil: nothing has happened when the listener returns, awaiting it finishes the job', async () => {
+  const state = { focusCalled: false, focusDone: false };
+  const win = { url: 'b', focus: function () { state.focusCalled = true; return new Promise(function (r) { setTimeout(function () { state.focusDone = true; r(); }, 5); }); } };
+  const env = load({ clients: [win] });
+  const t = tap(env);
+  assert.equal(t.waited.length, 1, 'waitUntil called once, synchronously');
+  assert.equal(state.focusDone, false, 'focus has not finished at return');
+  assert.equal(env.clients.openDone, undefined);
+  await t.waited[0];
+  assert.equal(state.focusCalled, true);
+  assert.equal(state.focusDone, true, 'the promise handed to waitUntil outlives the focus');
+  const env2 = load({ clients: [] });
+  const t2 = tap(env2);
+  assert.equal(env2.clients.openDone, undefined);
+  await t2.waited[0];
+  assert.equal(env2.clients.openDone, true, 'and outlives openWindow');
+});
+
+test('close() is called before the windows are asked for', async () => {
+  const env = load({ clients: [] });
+  const t = tap(env);
+  await t.waited[0];
+  assert.deepEqual(env.clients.log, ['close', 'matchAll', 'openWindow']);
 });

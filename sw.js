@@ -50,11 +50,14 @@ self.addEventListener('push', function (e) {
 
 self.addEventListener('notificationclick', function (e) {
   e.notification.close();
-  e.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
+  e.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).catch(function () { return []; }).then(function (list) {
+    var win = null;
     for (var i = 0; i < list.length; i++) {
-      if (typeof list[i].focus === 'function') return list[i].focus();
+      if (typeof list[i].focus === 'function') { win = list[i]; break; }
     }
-    return clients.openWindow('./');
+    // A window that cannot be focused, or one whose focus fails, must not leave the tap doing nothing.
+    return new Promise(function (resolve) { resolve(win ? win.focus() : Promise.reject(new Error('no window'))); })
+      .catch(function () { return clients.openWindow('./'); });
   }));
 });
 

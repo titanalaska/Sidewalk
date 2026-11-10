@@ -120,3 +120,35 @@ test('siteStatus: Done, Problem, Touched, k of n walks, Not started (Touched: Ma
   assert.equal(words([r(2, 'Z1', 'cleared'), r(5, 'curbs-1', 'cleared')]), 'Done');
   assert.equal(words([r(5, 'curbs-1', 'cleared')]), '1 of 2 walks');                       // curbs first, sidewalk open
 });
+
+// Recolouring a dot (Matt, 11/10/26: the dots came off their sites and stacked in a column). The dot is also the
+// map library's marker, and the library keeps its own names on the same element: they are what hold it in place.
+// The rule, worked by hand below: a recolour leaves every name that is not ours, shows exactly one colour step, and
+// shows the ring only while the depth is measured. The stand-in keeps one class string, as the browser does.
+function fakeDot(cls) {
+  const el = { className: cls, dataset: {}, label: { textContent: '' }, querySelector: () => el.label };
+  const names = () => el.className.split(/\s+/).filter(Boolean);
+  el.classList = {
+    add: (...n) => { el.className = names().concat(n.filter((c) => !names().includes(c))).join(' '); },
+    remove: (...n) => { el.className = names().filter((c) => !n.includes(c)).join(' '); },
+    toggle: (c, on) => (on ? el.classList.add(c) : el.classList.remove(c)),
+    contains: (c) => names().includes(c),
+  };
+  return el;
+}
+
+test("setDots: a recolour changes the colour and the ring and leaves the map library's own names on the dot", () => {
+  const el = fakeDot('snowdot nofc maplibregl-marker maplibregl-marker-anchor-top');
+  const map = { _dots: { S1: { el } } };
+  const names = () => el.className.split(' ').sort();
+  M.setDots(map, { S1: { step: 'mid', label: '~1.8"', measured: true, words: 'PAC' } });
+  assert.deepEqual(names(), ['maplibregl-marker', 'maplibregl-marker-anchor-top', 'measured', 'mid', 'snowdot']);
+  assert.equal(el.label.textContent, '~1.8"');
+  // A lighter forecast and the reading gone: the old colour and the ring go, one colour stays.
+  M.setDots(map, { S1: { step: 'light', label: '~0.4"', measured: false, words: '' } });
+  assert.deepEqual(names(), ['light', 'maplibregl-marker', 'maplibregl-marker-anchor-top', 'snowdot']);
+  // No forecast for the site any more: grey, and still the library's marker.
+  M.setDots(map, {});
+  assert.deepEqual(names(), ['maplibregl-marker', 'maplibregl-marker-anchor-top', 'nofc', 'snowdot']);
+  assert.equal(el.label.textContent, '?');
+});

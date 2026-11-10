@@ -219,6 +219,7 @@ body.has-ref.ref-min #mapbox{height:62vh}
 .callouts ul{list-style:none;margin:0;padding:0}
 .callouts li{padding:8px 0;border-top:1px solid var(--line)}
 .callouts li:first-child{border-top:0}
+.callouts h3{font-size:15px;margin:10px 0 4px}
 .callout-row{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
 .live-open{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;text-align:left;border:0;padding:0;background:none;min-height:44px}
 .live-count{font-weight:600}

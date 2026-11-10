@@ -356,3 +356,69 @@ test('fetchSnowfall: a shared grid request that fails is null for both, and the 
   stubFetch(gridRoutes(good));
   assert.deepEqual(await SnowWeather.fetchSnowfall(61.34, -149.51), [{ start: T0, end: T0 + 3600000, mm: 7 }]);
 });
+
+// ---------------- fetchSnowfallMany (storm watch, Matt 11/9/26) ----------------
+// The outlook asks about every site at once. Sites round to a few dozen points, and those sit in far fewer NWS grid
+// squares; the grid is the big download. So: every distinct point is looked up once (a few at a time), then every
+// distinct grid is downloaded once, and each point gets its grid's series.
+const P_A = 'https://api.weather.gov/points/61.34,-149.51';
+const P_B = 'https://api.weather.gov/points/61.35,-149.52';
+const P_C = 'https://api.weather.gov/points/61.1,-149.8';
+const GRID_2 = 'https://api.weather.gov/gridpoints/ZZZ/2,2';
+const gridBody = (values) => ({ body: { properties: { snowfallAmount: { uom: 'wmoUnit:mm', values } } } });
+const pointBody = (grid) => ({ body: { properties: { forecastGridData: grid } } });
+
+test('fetchSnowfallMany: each distinct point is asked once and each distinct grid downloaded once', async () => {
+  const seen = stubFetch({
+    [P_A]: pointBody(GRID), [P_B]: pointBody(GRID), [P_C]: pointBody(GRID_2),
+    [GRID]: gridBody([{ validTime: '2026-10-03T12:00:00+00:00/PT1H', value: 7 }]),
+    [GRID_2]: gridBody([{ validTime: '2026-10-03T12:00:00+00:00/PT2H', value: 3 }]),
+  });
+  // Five entries: A twice, B, C, and one that is not a point at all.
+  const out = await SnowWeather.fetchSnowfallMany([[61.34, -149.51], [61.35, -149.52], [61.34, -149.51], [61.1, -149.8], ['x', null]]);
+  assert.deepEqual(out, {
+    '61.34,-149.51': [{ start: T0, end: T0 + 3600000, mm: 7 }],
+    '61.35,-149.52': [{ start: T0, end: T0 + 3600000, mm: 7 }],
+    '61.1,-149.8': [{ start: T0, end: T0 + 2 * 3600000, mm: 3 }],
+  });
+  // Three point lookups (A once), then two grids (the one A and B share, once).
+  assert.deepEqual(seen.slice().sort(), [GRID, GRID_2, P_A, P_B, P_C].sort());
+});
+
+test('fetchSnowfallMany: a point with no answer, a grid that fails and a grid off the NWS are null; the rest still answer', async () => {
+  stubFetch({
+    [P_A]: pointBody(GRID),
+    // P_B: no route, the NWS answers 404.
+    [P_C]: pointBody('https://evil.example/gridpoints/ZZZ/2,2'),
+    'https://api.weather.gov/points/61.2,-149.9': pointBody(GRID_2),
+    [GRID]: gridBody([{ validTime: '2026-10-03T12:00:00+00:00/PT1H', value: 7 }]),
+    [GRID_2]: new Error('offline'),
+  });
+  const out = await SnowWeather.fetchSnowfallMany([[61.34, -149.51], [61.35, -149.52], [61.1, -149.8], [61.2, -149.9]]);
+  assert.deepEqual(out, { '61.34,-149.51': [{ start: T0, end: T0 + 3600000, mm: 7 }], '61.35,-149.52': null, '61.1,-149.8': null, '61.2,-149.9': null });
+});
+
+test('fetchSnowfallMany: no points, no requests', async () => {
+  const seen = stubFetch({});
+  assert.deepEqual(await SnowWeather.fetchSnowfallMany([]), {});
+  assert.deepEqual(await SnowWeather.fetchSnowfallMany(null), {});
+  assert.deepEqual(seen, []);
+});
+
+test('fetchSnowfallMany: never more than four point lookups on their way at once', async () => {
+  // Ten points, each answered a tick later. The most in flight at any moment is counted by the stub itself.
+  let flying = 0, most = 0;
+  const pts = Array.from({ length: 10 }, (_, i) => [61 + i / 100, -149.5]);
+  global.fetch = async (u) => {
+    const isPoint = String(u).indexOf('/points/') !== -1;
+    if (isPoint) { flying++; most = Math.max(most, flying); }
+    await new Promise((r) => setTimeout(r, 5));
+    if (isPoint) { flying--; return { ok: true, status: 200, json: async () => ({ properties: { forecastGridData: GRID } }) }; }
+    return { ok: true, status: 200, json: async () => ({ properties: { snowfallAmount: { uom: 'wmoUnit:mm', values: [] } } }) };
+  };
+  const out = await SnowWeather.fetchSnowfallMany(pts);
+  assert.equal(Object.keys(out).length, 10);
+  for (const k of Object.keys(out)) assert.deepEqual(out[k], [], k);
+  // Four, and it really did run four abreast (a pool of one would also be "at most four").
+  assert.equal(most, 4);
+});

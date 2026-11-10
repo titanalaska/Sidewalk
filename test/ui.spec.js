@@ -6627,3 +6627,234 @@ test('dispatcher mark, Spanish: Your card makes the same promise in Spanish and 
   await expect(page.locator('#dlgIn')).not.toContainText('Only the dispatcher');
   await expect(page.locator('#dlgIn')).not.toContainText('Solo Matt ve');
 });
+
+// ---------- Storm watch: tonight's outlook (Matt, 11/9/26) ----------
+// A card at the top of the Storm tab for Matt and the dispatcher. One tap asks the National Weather Service about
+// every live site and shows, from now to the end of the night (the 9 AM cutover): the most snow anywhere and when it
+// starts, the sites whose forecast reaches their callout depth, how many sites have no depth set, and how many have
+// no forecast. Nothing is asked until the tap. The arithmetic is lib/callout.js outlook (test/callout.test.js works
+// it on paper); these are the same two series:
+//   SERIES A  3 PM-9 PM 15.24 mm | 9 PM-3 AM 25.4 | 3 AM-9 AM 43.18 | 9 AM-3 PM 99   -> 6 PM to 9 AM = 76.2 mm = 3 in, snowing now
+//   SERIES B  6 PM-midnight 0    | midnight-6 AM 20.32 | 6 AM-noon 30.48             -> 6 PM to 9 AM = 35.56 mm = 1.4 in, from midnight
+// The clock is 6 PM on 11/9/2026 on THIS machine's wall clock, and the periods are built from the same wall clock,
+// so the test reads the same in any time zone.
+const OUT_CLOCK = new Date(2026, 10, 9, 18, 0, 0);
+const outAt = (day, hour) => new Date(2026, 10, day, hour, 0, 0).toISOString();
+const six = (day, hour, mm) => ({ validTime: outAt(day, hour) + '/PT6H', value: mm });
+const GRID_A = [six(9, 15, 15.24), six(9, 21, 25.4), six(10, 3, 43.18), six(10, 9, 99)];
+const GRID_B = [six(9, 18, 0), six(10, 0, 20.32), six(10, 6, 30.48)];
+const GRID_DRY = [six(9, 18, 0), six(10, 0, 0), six(10, 6, 0)];
+const OUT_G1 = 'https://api.weather.gov/gridpoints/ZZZ/1,1', OUT_G2 = 'https://api.weather.gov/gridpoints/ZZZ/2,2';
+// Map centres (lng, lat as the map saves them) and the rounded points that go to the NWS.
+const OUT_PTS = { A: [[-149.5149, 61.3351], '61.34,-149.51'], B: [[-149.5212, 61.3489], '61.35,-149.52'], C: [[-149.8011, 61.1042], '61.1,-149.8'],
+  C2: [[-149.8188, 61.1123], '61.11,-149.82'], D: [[-149.9, 61.2], '61.2,-149.9'], X: [[-149.7, 61.5], '61.5,-149.7'] };
+// Seven sites, named so that neither the alphabet nor the ids give the order on the card:
+//   S1 PAC            point A  -> grid 1 (A)   callout 2      3 in    reaches
+//   S2 TUDOR-TRANSIT  point B  -> grid 1 (A)   callout 4      3 in    under its depth        (shares S1's grid)
+//   S3 Fire 12        point C  -> grid 2 (B)   callout 1.4    1.4 in  reaches, AT its depth
+//   S4 Blood Bank     point C2 -> grid 2 (B)   no callout     1.4 in  not set                (shares S3's grid)
+//   S5 Hillside lot   point D  -> the NWS answers 404         callout 1     no forecast
+//   S6 No map yet     no saved view, no outline: no point     no callout    no forecast AND not set
+//   S7 Old site       archived, point X, callout 0.1: never looked at, never asked about
+const outlookWorld = () => {
+  const w = world();
+  const view = (k) => ({ center: OUT_PTS[k][0], zoom: 18 });
+  w.sites = [
+    { id: 'S1', name: 'PAC', rev: 1, map: view('A'), callout_in: 2 },
+    { id: 'S2', name: 'TUDOR-TRANSIT', rev: 1, map: view('B'), callout_in: 4 },
+    { id: 'S3', name: 'Fire 12', rev: 1, map: view('C'), callout_in: 1.4 },
+    { id: 'S4', name: 'Blood Bank', rev: 1, map: view('C2'), callout_in: null },
+    { id: 'S5', name: 'Hillside lot', rev: 1, map: view('D'), callout_in: 1 },
+    { id: 'S6', name: 'No map yet', rev: 1 },
+    { id: 'S7', name: 'Old site', rev: 1, archived: true, map: view('X'), callout_in: 0.1 }];
+  w.routes = [{ id: 'R1', name: 'N1', rev: 1, site_ids: ['S1', 'S2', 'S3', 'S4', 'S5', 'S6'] }];
+  return w;
+};
+// The NWS for several points. grids: { url: values | 'fail' }; points: { 'lat,lon': grid url } (a point not listed
+// answers 404). Returns every URL asked, in order. o.down: nothing answers at all.
+async function nwsMany(page, o = {}) {
+  const seen = [];
+  const cors = { 'access-control-allow-origin': '*' };
+  const points = o.points || { [OUT_PTS.A[1]]: OUT_G1, [OUT_PTS.B[1]]: OUT_G1, [OUT_PTS.C[1]]: OUT_G2, [OUT_PTS.C2[1]]: OUT_G2 };
+  const grids = o.grids || { [OUT_G1]: GRID_A, [OUT_G2]: GRID_B };
+  await page.route((u) => u.hostname === 'api.weather.gov', (route) => {
+    const u = route.request().url();
+    seen.push(u);
+    if (o.down && o.down.on) return route.abort();
+    const pt = /\/points\/(.+)$/.exec(u);
+    if (pt && points[pt[1]]) return route.fulfill({ contentType: 'application/geo+json', headers: cors, body: JSON.stringify({ properties: { forecastHourly: points[pt[1]] + '/forecast/hourly', forecastGridData: points[pt[1]] } }) });
+    if (grids[u] && grids[u] !== 'fail') return route.fulfill({ contentType: 'application/geo+json', headers: cors, body: JSON.stringify({ properties: { snowfallAmount: { uom: 'wmoUnit:mm', values: grids[u] } } }) });
+    if (/\/forecast\/hourly$/.test(u)) return route.fulfill({ contentType: 'application/geo+json', headers: cors, body: JSON.stringify({ properties: { periods: [] } }) });
+    return route.fulfill({ status: 404, headers: cors, body: '{}' });
+  });
+  return seen;
+}
+const openOutlook = async (page, w, o = {}) => {
+  const calls = await open(page, { token: o.token || 'tok-matt', snow: fakeSnow(w), clockAt: OUT_CLOCK });
+  await page.click('nav [data-tab="storm"]');
+  return calls;
+};
+const gridAsks = (seen) => seen.filter((u) => /\/gridpoints\/ZZZ\/\d+,\d+$/.test(u));
+const pointAsks = (seen) => seen.filter((u) => u.includes('/points/')).map((u) => u.split('/points/')[1]);
+
+test('outlook: one tap shows the most snow by 9 AM, the sites that reach their callout depth, and what is not known', async ({ page }) => {
+  const seen = await nwsMany(page);
+  await openOutlook(page, outlookWorld());
+  // Before the tap: the card and its button, no figures, and no grid has been asked for.
+  await expect(page.locator('#outlook h2')).toHaveText("Tonight's outlook");
+  await expect(page.locator('#outlookCheck')).toHaveText('Check outlook');
+  await expect(page.locator('#outlookSum')).toHaveCount(0);
+  await page.waitForTimeout(400);
+  expect(gridAsks(seen)).toEqual([]);
+  await page.click('#outlookCheck');
+  // 3 in at PAC is the most anywhere, and series A is already under snow at 6 PM.
+  await expect(page.locator('#outlookSum')).toHaveText('Up to 3" by 9 AM · snow now');
+  await expect(page.locator('#outlookAt')).toHaveText(/^as of 6:0[0-9] PM$/);   // the clock runs on from 6:00 while the page loads
+  // Reaches: PAC (3 against 2) and Fire 12 (1.4 against 1.4: AT the depth counts), deepest first. TUDOR-TRANSIT has
+  // 3 in against a 4 in depth and is not listed; Blood Bank has no depth and is not listed.
+  await expect(page.locator('#outlookReach li')).toHaveText(['PAC · ~3" · callout 2"', 'Fire 12 · ~1.4" · callout 1.4"']);
+  await expect(page.locator('#outlook h3')).toHaveText('Would reach callout depth (2)');
+  await expect(page.locator('#outlookNone')).toHaveCount(0);
+  // Blood Bank and No map yet have no depth; Hillside lot (404) and No map yet (no point) have no forecast.
+  await expect(page.locator('#outlookUnset')).toBeVisible();
+  await expect(page.locator('#outlookUnset')).toHaveText('2 sites have no callout depth set.');
+  await expect(page.locator('#outlookMissing')).toBeVisible();
+  await expect(page.locator('#outlookMissing')).toHaveText('No forecast for 2 sites.');
+  await expect(page.locator('#outlookCheck')).toHaveText('Check again');
+  // The archived site is nowhere on the card, and its point was never asked about.
+  await expect(page.locator('#outlook')).not.toContainText('Old site');
+  expect(pointAsks(seen)).not.toContain(OUT_PTS.X[1]);
+  // Five live sites have a point: each looked up for its grid (PAC's was also asked once by the hint, before the
+  // tap), and the two grids downloaded ONCE each though two sites sit in each.
+  const asked = pointAsks(seen);
+  for (const k of ['B', 'C', 'C2', 'D']) expect(asked.filter((p) => p === OUT_PTS[k][1]), k).toHaveLength(1);
+  expect(gridAsks(seen).sort()).toEqual([OUT_G1, OUT_G2]);
+});
+
+test('outlook: snow that reaches no callout depth says so; a dry night says no snow and lists nothing', async ({ page }) => {
+  // Every depth is above the forecast: PAC and TUDOR-TRANSIT get 3 in against 4.
+  const w = outlookWorld();
+  w.sites = w.sites.filter((s) => ['S1', 'S2'].includes(s.id)).map((s) => ({ ...s, callout_in: 4 }));
+  w.routes = [{ id: 'R1', name: 'N1', rev: 1, site_ids: ['S1', 'S2'] }];
+  const grids = { [OUT_G1]: GRID_A };
+  await nwsMany(page, { grids });
+  await openOutlook(page, w);
+  await page.click('#outlookCheck');
+  await expect(page.locator('#outlookSum')).toHaveText('Up to 3" by 9 AM · snow now');
+  await expect(page.locator('#outlookNone')).toBeVisible();
+  await expect(page.locator('#outlookNone')).toHaveText('No site reaches its callout depth.');
+  await expect(page.locator('#outlookReach')).toHaveCount(0);
+  // Every site has a depth and a forecast: neither note is drawn.
+  await expect(page.locator('#outlookUnset')).toHaveCount(0);
+  await expect(page.locator('#outlookMissing')).toHaveCount(0);
+  // The forecast turns dry; Check again asks again and the card follows.
+  grids[OUT_G1] = GRID_DRY;
+  await page.click('#outlookCheck');
+  await expect(page.locator('#outlookSum')).toHaveText('No snow expected by 9 AM.');
+  await expect(page.locator('#outlookNone')).toHaveCount(0);
+  await expect(page.locator('#outlookReach')).toHaveCount(0);
+});
+
+test('outlook: snow later in the night says when it starts; one site not set and one without a forecast read in the singular', async ({ page }) => {
+  // Fire 12 and Blood Bank only (series B: 1.4 in, from midnight), plus Hillside lot (no forecast).
+  const w = outlookWorld();
+  w.sites = w.sites.filter((s) => ['S3', 'S4', 'S5'].includes(s.id));
+  w.routes = [{ id: 'R1', name: 'N1', rev: 1, site_ids: ['S3', 'S4', 'S5'] }];
+  await nwsMany(page);
+  await openOutlook(page, w);
+  await page.click('#outlookCheck');
+  await expect(page.locator('#outlookSum')).toHaveText('Up to 1.4" by 9 AM · snow from 12:00 AM');
+  await expect(page.locator('#outlookReach li')).toHaveText(['Fire 12 · ~1.4" · callout 1.4"']);
+  await expect(page.locator('#outlook h3')).toHaveText('Would reach callout depth (1)');
+  await expect(page.locator('#outlookUnset')).toHaveText('1 site has no callout depth set.');
+  await expect(page.locator('#outlookMissing')).toHaveText('No forecast for 1 site.');
+});
+
+test('outlook: the weather service down says the forecast could not be fetched, never "no snow"; Check again asks again', async ({ page }) => {
+  const down = { on: true };
+  const seen = await nwsMany(page, { down });
+  await openOutlook(page, outlookWorld());
+  await page.click('#outlookCheck');
+  await expect(page.locator('#outlookSum')).toHaveText('The forecast could not be fetched. Try again.');
+  await expect(page.locator('#outlookSum')).not.toContainText('No snow');
+  await expect(page.locator('#outlookReach')).toHaveCount(0);
+  await expect(page.locator('#outlookNone')).toHaveCount(0);
+  await expect(page.locator('#outlookCheck')).toHaveText('Check again');
+  // The service comes back: the same button gets the real answer.
+  down.on = false;
+  const before = pointAsks(seen).length;
+  await page.click('#outlookCheck');
+  await expect(page.locator('#outlookSum')).toHaveText('Up to 3" by 9 AM · snow now');
+  expect(pointAsks(seen).length).toBeGreaterThan(before);
+});
+
+test('outlook: while it is checking the button is off, and a second tap asks nothing more', async ({ page }) => {
+  const seen = await nwsMany(page);
+  // Hold every grid download so the check stays in flight.
+  let release;
+  const held = new Promise((r) => { release = r; });
+  await page.route((u) => /\/gridpoints\/ZZZ\/\d+,\d+$/.test(u.href), async (route) => { await held; await route.fallback(); });
+  await openOutlook(page, outlookWorld());
+  await page.click('#outlookCheck');
+  await expect(page.locator('#outlookCheck')).toBeDisabled();
+  await expect(page.locator('#outlookCheck')).toHaveText('Checking…');
+  await page.locator('#outlookCheck').click({ force: true });
+  await page.waitForTimeout(300);
+  release();
+  await expect(page.locator('#outlookSum')).toHaveText('Up to 3" by 9 AM · snow now');
+  await expect(page.locator('#outlookCheck')).toBeEnabled();
+  // One check's worth: point B looked up once, each grid once.
+  expect(pointAsks(seen).filter((p) => p === OUT_PTS.B[1])).toHaveLength(1);
+  expect(gridAsks(seen).sort()).toEqual([OUT_G1, OUT_G2]);
+});
+
+test('outlook: a dispatcher has the card and its figures', async ({ page }) => {
+  // The dispatcher: Jordan, crew on the roster, an admin by the mark.
+  const seenD = await nwsMany(page);
+  const wd = outlookWorld();
+  wd.crew = wd.crew.map((c) => (c.id === 'C03' ? { ...c, dispatch: true } : c));
+  await openOutlook(page, wd, { token: 'tok-jordan' });
+  await expect(page.locator('#who')).toHaveText('Jordan Demo · admin');
+  await expect(page.locator('#outlook')).toBeVisible();
+  await page.click('#outlookCheck');
+  await expect(page.locator('#outlookSum')).toHaveText('Up to 3" by 9 AM · snow now');
+  expect(gridAsks(seenD).length).toBe(2);
+});
+
+test('outlook: a crew phone never sees the card', async ({ page }) => {
+  const seen = await nwsMany(page);
+  await openOutlook(page, outlookWorld(), { token: 'tok-jordan' });
+  await expect(page.locator('#stormhead')).toBeVisible();
+  await expect(page.locator('#outlook')).toHaveCount(0);
+  await expect(page.locator('#outlookCheck')).toHaveCount(0);
+  await page.waitForTimeout(400);
+  expect(gridAsks(seen)).toEqual([]);
+});
+
+test('outlook: a Board lead has the live view and still no outlook card', async ({ page }) => {
+  // Alex leads N1 on the post (stormWorld): he runs the storm from the live view, but the outlook is the dispatcher's.
+  await nwsMany(page);
+  await openStorm(page, stormWorld(), { token: 'tok-alex' });
+  await expect(page.locator('[data-openroute="R1"]')).toBeVisible();   // the live view, proof he is past the crew screen
+  await expect(page.locator('#outlook')).toHaveCount(0);
+});
+
+test('outlook: with a route opened from the live view the card steps aside, and comes back with the live view', async ({ page }) => {
+  await nwsMany(page);
+  await openOutlook(page, outlookWorld());
+  await expect(page.locator('#outlook')).toBeVisible();
+  await openRoute(page, 'R1');
+  await expect(page.locator('#outlook')).toHaveCount(0);
+  await page.click('#liveBack');
+  await expect(page.locator('#outlook')).toBeVisible();
+});
+
+test('outlook: signing out forgets the outlook; the next sign-in starts with the button, not the last answer', async ({ page }) => {
+  await nwsMany(page);
+  await openOutlook(page, outlookWorld());
+  await page.click('#outlookCheck');
+  await expect(page.locator('#outlookSum')).toHaveText('Up to 3" by 9 AM · snow now');
+  expect(await page.evaluate(() => SnowShiftUI.state().outlookAt > 0)).toBe(true);
+  await page.evaluate(() => SnowShiftUI.reset({}));
+  expect(await page.evaluate(() => SnowShiftUI.state().outlookAt)).toBe(0);
+});

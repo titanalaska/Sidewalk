@@ -278,3 +278,114 @@ test('calloutList: ranking applies only to sites that are listed', () => {
   const siteById = { a: { id: 'a', callout_in: 1 }, b: { id: 'b', callout_in: 1, day_rank: 1 }, c: { id: 'c', callout_in: 1, day_rank: 1 } };
   assert.deepEqual(run({ log, siteById, siteIds: ['a', 'b', 'c'], isDay: true }).map((x) => x.site_id), ['b', 'a']);
 });
+
+// ---------------- outlook (storm watch, Matt 11/9/26) ----------------
+// What the forecast adds at each site between now and the end of the night, against the site's callout depth.
+// The same arithmetic as the estimate above, pointed forward. Worked on paper, 25.4 mm to the inch:
+//
+//   now 6 PM, until 9 AM the next morning (15 hours). Times below are UTC; only the instants matter.
+//
+//   SERIES_A (six-hour periods):  3 PM-9 PM 15.24 mm | 9 PM-3 AM 25.4 mm | 3 AM-9 AM 43.18 mm | 9 AM-3 PM 99 mm
+//     3 PM-9 PM is half inside the window (6 PM-9 PM): 15.24 / 2 = 7.62 mm
+//     9 PM-3 AM and 3 AM-9 AM are whole:               25.4 + 43.18 = 68.58 mm
+//     9 AM-3 PM starts as the window ends:             0
+//     7.62 + 68.58 = 76.2 mm = 3.0 in.  Snow is already falling at 6 PM: it "starts" now.
+//
+//   SERIES_B:  6 PM-midnight 0 mm | midnight-6 AM 20.32 mm | 6 AM-noon 30.48 mm
+//     midnight-6 AM is whole:                  20.32 mm
+//     6 AM-noon is half inside (6 AM-9 AM):    15.24 mm
+//     35.56 mm = 1.4 in.  The first period with snow begins at midnight.
+//
+//   SERIES_DRY: 6 PM-noon 0 mm  ->  0 in, and no start.
+const OUT_NOW = '2026-11-10T03:00:00Z';     // 6 PM Alaska standard time, 11/9
+const OUT_UNTIL = '2026-11-10T18:00:00Z';   // 9 AM, 11/10
+const at = (iso) => Date.parse(iso);
+const SERIES_A = [
+  { start: at('2026-11-10T00:00:00Z'), end: at('2026-11-10T06:00:00Z'), mm: 15.24 },
+  { start: at('2026-11-10T06:00:00Z'), end: at('2026-11-10T12:00:00Z'), mm: 25.4 },
+  { start: at('2026-11-10T12:00:00Z'), end: at('2026-11-10T18:00:00Z'), mm: 43.18 },
+  { start: at('2026-11-10T18:00:00Z'), end: at('2026-11-11T00:00:00Z'), mm: 99 }];
+const SERIES_B = [
+  { start: at('2026-11-10T03:00:00Z'), end: at('2026-11-10T09:00:00Z'), mm: 0 },
+  { start: at('2026-11-10T09:00:00Z'), end: at('2026-11-10T15:00:00Z'), mm: 20.32 },
+  { start: at('2026-11-10T15:00:00Z'), end: at('2026-11-10T21:00:00Z'), mm: 30.48 }];
+const SERIES_DRY = [{ start: at('2026-11-10T03:00:00Z'), end: at('2026-11-10T21:00:00Z'), mm: 0 }];
+// Six sites. Ids and list order are not alphabetical and not by depth, so an order the code did not make cannot pass.
+//   S-b  series B, callout 1.4   1.4 in: AT its depth, and that reaches (the Callouts box's own rule: under is out)
+//   S-a  series A, callout 2     3.0 in: reaches
+//   S-c  series B, callout 1.5   1.4 in: 0.1 short
+//   S-d  series B, no callout    1.4 in: a row, never "reaches", counted as not set
+//   S-e  no forecast, callout 1  missing (it is NOT 0 in)
+//   S-f  dry, callout 0.5        0 in
+const OUT_SITES = { 'S-b': { callout_in: 1.4 }, 'S-a': { callout_in: 2 }, 'S-c': { callout_in: 1.5 }, 'S-d': { callout_in: null },
+  'S-e': { callout_in: 1 }, 'S-f': { callout_in: 0.5 } };
+const OUT_SERIES = { 'S-b': SERIES_B, 'S-a': SERIES_A, 'S-c': SERIES_B, 'S-d': SERIES_B, 'S-e': null, 'S-f': SERIES_DRY };
+const lookOut = (over) => SnowCallout.outlook(Object.assign({ siteIds: ['S-b', 'S-a', 'S-c', 'S-d', 'S-e', 'S-f'], siteById: OUT_SITES,
+  seriesFor: (id) => OUT_SERIES[id], nowIso: OUT_NOW, untilIso: OUT_UNTIL }, over));
+
+test('outlook: forecast inches per site from now to the end of the night, deepest first, and which reach their callout', () => {
+  const o = lookOut();
+  assert.deepEqual(o.rows, [
+    { site_id: 'S-a', inches: 3, starts: '2026-11-10T03:00:00.000Z', callout: 2, reaches: true },   // already snowing at 6 PM: now
+    { site_id: 'S-b', inches: 1.4, starts: '2026-11-10T09:00:00.000Z', callout: 1.4, reaches: true },
+    { site_id: 'S-c', inches: 1.4, starts: '2026-11-10T09:00:00.000Z', callout: 1.5, reaches: false },
+    { site_id: 'S-d', inches: 1.4, starts: '2026-11-10T09:00:00.000Z', callout: null, reaches: false },
+    { site_id: 'S-f', inches: 0, starts: null, callout: 0.5, reaches: false }]);
+});
+
+test('outlook: the most snow anywhere, and the earliest it starts', () => {
+  const o = lookOut();
+  assert.equal(o.max, 3);
+  // Site A is already under snow at 6 PM: the earliest start is now, not midnight.
+  assert.equal(Date.parse(o.starts), Date.parse(OUT_NOW));
+  // Without site A the first snow is B's, at midnight (09:00 UTC).
+  const b = lookOut({ siteIds: ['S-b', 'S-c', 'S-f'] });
+  assert.deepEqual([b.max, b.starts], [1.4, '2026-11-10T09:00:00.000Z']);
+});
+
+test('outlook: a site with no forecast is missing, never 0 inches; a site with no callout depth is counted, never guessed', () => {
+  const o = lookOut();
+  assert.deepEqual(o.missing, ['S-e']);
+  assert.equal(o.rows.some((r) => r.site_id === 'S-e'), false);
+  // S-d has no depth: it is in the rows with callout null, it does not reach, and it is the one counted.
+  assert.equal(o.unset, 1);
+  // A depth of 0 or a word is not a depth either (the server never stores one; a hand-edited Sheet might).
+  const odd = lookOut({ siteById: Object.assign({}, OUT_SITES, { 'S-a': { callout_in: 0 }, 'S-b': { callout_in: '2' }, 'S-c': {} }) });
+  assert.equal(odd.unset, 4);
+  assert.deepEqual(odd.rows.filter((r) => r.reaches), []);
+  // A site with no forecast AND no depth is both missing and not set.
+  const both = lookOut({ siteById: Object.assign({}, OUT_SITES, { 'S-e': {} }) });
+  assert.deepEqual([both.missing, both.unset], [['S-e'], 2]);
+});
+
+test('outlook: a dry night is 0 inches everywhere and has no start', () => {
+  const o = lookOut({ siteIds: ['S-f'] });
+  assert.deepEqual(o, { rows: [{ site_id: 'S-f', inches: 0, starts: null, callout: 0.5, reaches: false }], missing: [], unset: 0, max: 0, starts: null });
+});
+
+test('outlook: nothing fetched at all is no rows, no max and every site missing', () => {
+  const o = lookOut({ seriesFor: () => null });
+  assert.deepEqual(o, { rows: [], missing: ['S-b', 'S-a', 'S-c', 'S-d', 'S-e', 'S-f'], unset: 1, max: null, starts: null });
+});
+
+test('outlook: a site listed twice is counted once, an unknown id is skipped, and a window that has already ended gives nothing', () => {
+  const twice = lookOut({ siteIds: ['S-a', 'S-zz', 'S-a', 'S-d', 'S-d'] });
+  assert.deepEqual(twice.rows.map((r) => r.site_id), ['S-a', 'S-d']);
+  assert.equal(twice.unset, 1);
+  // until at or before now: there is no night left to look at, so every site is "missing" and nothing reaches.
+  const over = lookOut({ untilIso: OUT_NOW });
+  assert.deepEqual([over.rows, over.max, over.starts], [[], null, null]);
+});
+
+test('outlook: sites tied on inches keep the order they were given', () => {
+  // B, C and D all read 1.4 in. Given D, C, B they come back D, C, B.
+  assert.deepEqual(lookOut({ siteIds: ['S-d', 'S-c', 'S-b'] }).rows.map((r) => r.site_id), ['S-d', 'S-c', 'S-b']);
+});
+
+test('outlook: snow too light to round to a tenth has no start (0 inches is a dry night)', () => {
+  // 1 mm over the whole window = 0.039 in -> 0.0.
+  const thin = [{ start: at(OUT_NOW), end: at(OUT_UNTIL), mm: 1 }];
+  const o = lookOut({ siteIds: ['S-a'], seriesFor: () => thin });
+  assert.deepEqual(o.rows, [{ site_id: 'S-a', inches: 0, starts: null, callout: 2, reaches: false }]);
+  assert.equal(o.starts, null);
+});

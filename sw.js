@@ -26,6 +26,38 @@ self.addEventListener('activate', function (e) {
   }).then(function () { return self.clients.claim(); }));
 });
 
+// Crew alerts. The push carries no words (the server sends an empty body), so every word
+// is here. The page keeps the crew's language in this cache; anything but 'es' is English.
+var PREFS_CACHE = 'titan-snow-prefs';
+var NOTICE = {
+  en: { title: 'Shovel Command', body: 'Snow tonight. Open Shovel Command for your route.' },
+  es: { title: 'Shovel Command', body: 'Nieve esta noche. Abre Shovel Command para ver tu ruta.' }
+};
+
+function noticeLang() {
+  return caches.open(PREFS_CACHE).then(function (c) { return c.match('./prefs/lang'); })
+    .then(function (hit) { return hit ? hit.text() : 'en'; })
+    .then(function (t) { return String(t).trim() === 'es' ? 'es' : 'en'; })
+    .catch(function () { return 'en'; });
+}
+
+self.addEventListener('push', function (e) {
+  e.waitUntil(noticeLang().then(function (lang) {
+    var n = NOTICE[lang];
+    return self.registration.showNotification(n.title, { body: n.body, tag: 'snow-notice', renotify: true, icon: './icon-192.png' });
+  }));
+});
+
+self.addEventListener('notificationclick', function (e) {
+  e.notification.close();
+  e.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(function (list) {
+    for (var i = 0; i < list.length; i++) {
+      if (typeof list[i].focus === 'function') return list[i].focus();
+    }
+    return clients.openWindow('./');
+  }));
+});
+
 self.addEventListener('fetch', function (e) {
   var url = new URL(e.request.url);
   // Apps Script and every other origin: straight to the network, never cached.

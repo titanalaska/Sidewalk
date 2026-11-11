@@ -92,3 +92,30 @@ test('the privacy promise on Your card names the dispatcher and Matt; the old Ma
   assert.equal(Es.translateString('Only the dispatcher and Matt see your emergency contact.'), 'Solo el despachador y Matt ven tu contacto de emergencia.');
   for (const old of ['Only Matt sees where you live.', 'Only Matt sees your emergency contact.']) assert.equal(Es.translateString(old), old, old);
 });
+
+// Site times (Matt, 11/10/26): Arrived / Left / In / Out sit in exact text nodes, so they are rules, not rows: a bare row
+// would turn "Left by night" and "Sign in" into half Spanish. Worked by hand from the vocabulary in the brief (tú).
+test("site times: the single words translate only as a whole text node", () => {
+  const whole = { Arrived: "Llegué", Left: "Salí", In: "Entrada", Out: "Salida", typed: "escrito", Shift: "Turno", Undo: "Deshacer" };
+  for (const [en, es] of Object.entries(whole)) assert.equal(Es.translateString(en), es, en);
+  // Not inside longer English: nothing may bite.
+  for (const keep of ["Left by night", "Sign in", "Out of date", "Arrived late"]) {
+    const out = Es.translateString(keep);
+    assert.ok(!/Llegué|Salí|Entrada|Salida|Turno/.test(out), keep + " -> " + out);
+  }
+});
+
+test("site times: the Set times box and its date line", () => {
+  const cases = {
+    "Set times": "Poner horas", "Set times: ": "Poner horas: ", "typed by": "escrito por",
+    "on 10/3": "el 10/3", "on 11/10": "el 11/10",
+    "Night of 10/2": "Noche del 10/2", "Day of 10/2": "Día del 10/2",
+    "Type a start, a finish, or both": "Escribe una entrada, una salida, o las dos",
+    "Type each time as hours and minutes": "Escribe cada hora con horas y minutos",
+    "Leave a box blank to keep that side as the crew tapped it.": "Deja una casilla en blanco para conservar ese lado como lo tocó la cuadrilla.",
+    "Times not saved": "No se guardaron las horas",
+  };
+  for (const [en, es] of Object.entries(cases)) assert.equal(Es.translateString(en), es, en);
+  // The shift labels that were already in Spanish by the Tonight rule are not disturbed.
+  assert.equal(Es.translateString("Night of 10/3, posted 12:12 AM"), "Noche del 10/3, publicado 12:12 AM");
+});

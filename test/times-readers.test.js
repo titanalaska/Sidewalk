@@ -113,12 +113,12 @@ test('Undo targets: a mark after a tap does not block its Undo, and a mark itsel
   assert.equal(Log.undoTarget(clone(log), ST, 70).ok, true);
 });
 
-test('the BuilderTrend note reads its walks, flags and times from the real taps only', () => {
+test('the BuilderTrend note reads its walks and flags from the real taps only; the times are those of siteClock (Task 9)', () => {
   const site = { id: 'S1', name: 'PAC', units: { bobcat: '', snowrator: '' } };
   const zones = [{ id: 'Z1', site_id: 'S1', type: 'sidewalk', name: 'Main entry' }, { id: 'Z2', site_id: 'S1', type: 'heated', name: 'Heated walk' }];
   const t = (seq, zone, state, at) => ({ id: 'L-' + seq, seq, storm_id: ST, shift_id: SHIFT, site_id: 'S1', zone_id: zone, state, note: '', by_name: 'Alex Test', at, snowing_warned: false });
   const log = [t(10, 'Z1', 'cleared', '2026-12-04T23:55:00.000-09:00'), t(30, 'Z2', 'checked', '2026-12-05T00:53:00.000-09:00')];
-  // Paper: first tap 11:55 PM, last 12:53 AM; the marks (early at 6:00 PM, late at 3:00 AM) must not move either time.
+  // Paper: first tap 11:55 PM, last 12:53 AM (the times with no mark at all).
   const early = mark(5, 'S1', 'arrived', { at: '2026-12-04T18:00:00.000-09:00' }), late = mark(40, 'S1', 'left', { at: '2026-12-05T03:00:00.000-09:00' });
   const typed = mark(20, 'S1', 'typed', { at: '2026-12-05T00:10:00.000-09:00', time_in: '2026-12-04T18:00', time_out: '2026-12-05T03:00' });
   const undone = mark(41, 'S1', 'left_undone', { undoes: 'M-40', at: '2026-12-05T03:01:00.000-09:00' });
@@ -126,8 +126,21 @@ test('the BuilderTrend note reads its walks, flags and times from the real taps 
   assert.equal(want.timeIn, '11:55 PM');
   assert.equal(want.timeOut, '12:53 AM');
   assert.equal(want.text.split('\n')[0], 'Cleared: Main entry. Checked: Heated walk.');
-  [[early], [late], [typed], [undone], [early, typed, late, undone]].forEach((marks) => {
-    assert.deepEqual(Note.btNote({ site, zones, storm_id: ST, log: log.concat(marks), visits: [] }, SHIFT), want, marks.map((m) => m.state).join(','));
+  // The walks and flags line never moves for a mark. The times DO since Task 9 (Time In / Out are the same siteClock values as the
+  // Storm tab's line): a standing tapped Arrived is In, a standing tapped Left is Out, a typed side beats a tapped one, an undone
+  // mark is nothing, and a side nobody marked stays the walk taps. Paper, per case (In, Out):
+  //   early Arrived 6:00 PM          -> 6:00 PM, 12:53 AM (Out is still the last walk tap)
+  //   late Left 3:00 AM              -> 11:55 PM, 3:00 AM
+  //   typed in 6:00 PM / out 3:00 AM -> 6:00 PM, 3:00 AM
+  //   a Left undo with nothing to undo (its target M-40 is not in the log) -> 11:55 PM, 12:53 AM, as without it
+  //   all four together: typed beats the tapped Arrived; the tapped Left is undone, the typed Out stands -> 6:00 PM, 3:00 AM
+  const cases = [[[early], '6:00 PM', '12:53 AM'], [[late], '11:55 PM', '3:00 AM'], [[typed], '6:00 PM', '3:00 AM'],
+    [[undone], '11:55 PM', '12:53 AM'], [[early, typed, late, undone], '6:00 PM', '3:00 AM']];
+  cases.forEach(([marks, timeIn, timeOut]) => {
+    const got = Note.btNote({ site, zones, storm_id: ST, log: log.concat(marks), visits: [] }, SHIFT);
+    const name = marks.map((m) => m.state).join(',');
+    assert.equal(got.text, want.text, name);
+    assert.deepEqual([got.timeIn, got.timeOut], [timeIn, timeOut], name);
   });
 });
 

@@ -326,3 +326,13 @@ header #who{flex:1 1 auto;min-width:0;text-align:left}
 .zonepick button{min-height:52px;display:flex;align-items:center;text-align:left;font-weight:600}
 /* Who is waiting (10/19/26): the count on Matt's Roster tab. */
 .tabcount{display:inline-block;min-width:18px;padding:0 5px;margin-left:2px;border-radius:9px;background:var(--warn);color:var(--bg);font-size:12px;line-height:18px;font-weight:700;text-align:center}
+/* site times (11/11/26): the In / Out line, Arrived / Left / Undo / Set times under the site heading */
+.site-times{margin:0 0 8px;font-size:14px;overflow-wrap:anywhere}
+.site-times b{font-variant-numeric:tabular-nums}
+.site-marks{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 10px}
+.site-marks button{margin-left:0;min-width:0}
+.site-marks .markbtn{flex:1 1 96px;min-height:48px;font-weight:600}
+.site-marks .markbtn.small{flex:0 1 auto;min-height:48px;font-size:15px}
+.site-marks.pending .markbtn{opacity:.55}
+.site-marks .walk-fail{flex:1 0 100%;margin:0}
+.typed-mark{white-space:normal}

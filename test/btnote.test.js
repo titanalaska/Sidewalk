@@ -132,3 +132,37 @@ test('a curbs item reads as one walk in the note: its feet in brackets, not afte
   o.log = [row(1, 'Z1', 'cleared'), row(2, 'Z2', 'checked'), row(3, 'curbs-1', 'cleared')];
   assert.equal(N.btNote(o, 'night-2026-12-04').text.split('\n')[0], 'Cleared: Main entry, Curbs (about 500 ft). Checked: Heated walk. Not done: Back stairs.');
 });
+
+// Start and stop times (Matt, 11/10/26): Time In / Time Out are the site's siteClock, the same two values the Storm tab's
+// line and the Site card show. A side that was typed or tapped (Arrived / Left) wins over the walk taps; a side that is
+// neither keeps what this note always printed (the latest pass's first and last walk tap).
+test('Time In and Out: a tapped Arrived and Left beat the walk taps', () => {
+  // Walk taps 11:55 PM (Z1) and 12:53 AM (Z2). Arrived tapped 10:05 PM (seq 3), Left tapped 1:15 AM (seq 4).
+  // In = 10:05 PM, Out = 1:15 AM: the marks, not the walk taps.
+  const o = base();
+  o.log = [row(1, 'Z1', 'cleared'), row(2, 'Z2', 'checked', { at: '2026-12-05T00:53:00.000-09:00' }),
+    row(3, '*', 'arrived', { at: '2026-12-04T22:05:00.000-09:00' }), row(4, '*', 'left', { at: '2026-12-05T01:15:00.000-09:00' })];
+  const n = N.btNote(o, 'night-2026-12-04');
+  assert.deepEqual([n.timeIn, n.timeOut], ['10:05 PM', '1:15 AM']);
+});
+
+test('Time In and Out: a typed side beats a tapped one, and each side is decided on its own', () => {
+  // Arrived tapped 10:05 PM (seq 3); a dispatcher typed In 2026-12-04T21:40 (seq 4, no Out). In = 9:40 PM (typed beats the tap).
+  // Nobody tapped or typed Out, so Out is the latest pass's last walk tap, 12:53 AM.
+  const o = base();
+  o.log = [row(1, 'Z1', 'cleared'), row(2, 'Z2', 'checked', { at: '2026-12-05T00:53:00.000-09:00' }),
+    row(3, '*', 'arrived', { at: '2026-12-04T22:05:00.000-09:00' }),
+    row(4, '*', 'typed', { time_in: '2026-12-04T21:40', time_out: '', by_name: 'Matt', at: '2026-12-05T07:00:00.000-09:00' })];
+  const n = N.btNote(o, 'night-2026-12-04');
+  assert.deepEqual([n.timeIn, n.timeOut], ['9:40 PM', '12:53 AM']);
+});
+
+test('Time In and Out: an undone Arrived goes back to the walk taps, and another storm marks never count', () => {
+  // Arrived (seq 3) is undone (seq 4): In falls back to the first walk tap, 11:55 PM. A typed row of ST-0 (seq 5) is another storm's.
+  const o = base();
+  o.log = [row(1, 'Z1', 'cleared'), row(2, 'Z2', 'checked', { at: '2026-12-05T00:53:00.000-09:00' }),
+    row(3, '*', 'arrived', { at: '2026-12-04T22:05:00.000-09:00' }), row(4, '*', 'arrived_undone', { undoes: 'L-3' }),
+    row(5, '*', 'typed', { storm_id: 'ST-0', time_in: '2026-12-04T18:00', time_out: '2026-12-04T19:00', by_name: 'Matt' })];
+  const n = N.btNote(o, 'night-2026-12-04');
+  assert.deepEqual([n.timeIn, n.timeOut], ['11:55 PM', '12:53 AM']);
+});

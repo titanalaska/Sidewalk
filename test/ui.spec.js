@@ -8968,7 +8968,7 @@ const ctOpen = async (page, w, o = {}) => {
   const calls = await openStorm(page, w, { token: 'tok-matt', ...o });
   return calls;
 };
-const OLDER_NOTE = 'Crew times for earlier nights of this storm are in the saved sheets, not on this phone.';
+const OLDER_NOTE = 'Crew times here cover the last two shifts only. Earlier nights, if any were recorded, are in the saved sheets.';
 
 test('crew times sheet: Print sheets ends with a page headed Crew times, three people worked on paper, and the count includes it', async ({ page }) => {
   await ctOpen(page, ctWorld());
@@ -9091,8 +9091,46 @@ test('crew times sheet: a storm that began before the window prints only the win
   await expect(page.locator('#clockOlder')).toBeVisible();
   await expect(page.locator('#clockOlder')).toHaveText(OLDER_NOTE);
   expect(await page.locator('#printsheets').evaluate((e) => e.lastElementChild.id)).toBe('clockOlder');   // after the pages
-  // It is part of the paper: the print stylesheet does not hide it.
+  // It is part of the paper: under the PRINT stylesheet it is still displayed (F4: the screen sheet proves nothing about paper).
+  await page.emulateMedia({ media: 'print' });
   expect(await page.locator('#clockOlder').evaluate((e) => getComputedStyle(e).display)).not.toBe('none');
+});
+
+test('crew times sheet: F1 on paper: the last sheet does not break before the older-nights line, and every earlier sheet still breaks', async ({ page }) => {
+  // Print media. 3 sheets (N1, N2, Crew times) then the line. The sheet css says .sheet { break-after: page } and .sheet:last-child { auto }; the line
+  // makes the Crew times sheet no longer the last child, so without the phone's own rule it would break and the line would print alone on a page.
+  await ctOpen(page, olderStorm());
+  await page.click('#printSheets');
+  await expect(page.locator('#printview')).toBeVisible();
+  await page.emulateMedia({ media: 'print' });
+  const sheets = page.locator('#printsheets .sheet');
+  await expect(sheets).toHaveCount(3);
+  await expect(page.locator('#clockOlder')).toBeVisible();
+  const brk = (i) => sheets.nth(i).evaluate((e) => getComputedStyle(e).breakAfter);
+  expect(await brk(0)).toBe('page');
+  expect(await brk(1)).toBe('page');
+  expect(['page', 'always']).not.toContain(await brk(2));
+  expect(await page.locator('#clockOlder').evaluate((e) => getComputedStyle(e).display)).not.toBe('none');
+});
+
+test('crew times sheet: R37 (b): a shift outside the window that clockSheetsFor names gets no page, and the line shows; without such rows there is no line', async ({ page }) => {
+  // ST-1 starts 10/2 12:00 = day-2026-10-02, the shift before the current night: the storm fits the window, so rule (a) is silent.
+  // R19: the ONE shift before the storm's start shift is night-2026-10-01. clockSheetsFor names it when a line there is still open at the storm's
+  // start (a Start and no End). Alex tapped Start 10/2 04:00 in night-2026-10-01 and never ended: open -> named. It is two shifts back from the
+  // current night, outside the window, and its row reaches the phone later through the cursor (a first load never carries it). No page, but the line.
+  const w = ctWorld(); w.storms = [{ ...START_ROW, at: '2026-10-02T12:00:00.000-08:00' }];
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: at('06:30') })];   // a tap in the night of 10/2: N1 by the tap, N2 by the post = 2 route sheets
+  await ctOpen(page, w);
+  await expect(page.locator('#printSheets')).toBeVisible();
+  w.clockRows.push(oldNight(6, 'C01', 'Alex Test', 'start', '2026-10-02T04:00:00.000-08:00'));
+  await pollNow(page);
+  await expect.poll(async () => (await phoneState(page)).clock.map((r) => r.id)).toContain('K-6');
+  await page.click('#printSheets');
+  await expect(page.locator('#printview')).toBeVisible();
+  await expect(ctPages(page)).toHaveCount(1);
+  await expect(page.locator('#printsheets')).not.toContainText('Night of 10/1');
+  await expect(page.locator('#clockOlder')).toHaveText(OLDER_NOTE);
+  await expect(page.locator('#printbar .muted')).toHaveText('3 sheets');
 });
 
 test('crew times sheet: a storm that began in the shift before the current one fits the window, so there is no older-nights line', async ({ page }) => {
@@ -9156,8 +9194,8 @@ test('crew times sheet: in Spanish the older-nights line and the build-failed to
   await expect(page.locator('#printview')).toBeVisible();
   const toast = 'No se pudo armar la hoja de horas del equipo en este teléfono.';
   await expect(page.locator('#toast')).toHaveText(toast);
-  await expect(page.locator('#clockOlder')).toHaveText('Las horas del equipo de las noches anteriores de esta tormenta están en las hojas guardadas, no en este teléfono.');
-  await expect(page.locator('#printsheets')).not.toContainText('earlier nights');
+  await expect(page.locator('#clockOlder')).toHaveText('Aquí las horas del equipo cubren solo los dos últimos turnos. Las noches anteriores, si se registraron, están en las hojas guardadas.');
+  await expect(page.locator('#printsheets')).not.toContainText('Earlier nights');
   await expect(page.getByText("couldn't be built", { exact: false })).toHaveCount(0);
 });
 
@@ -9223,6 +9261,39 @@ test('crew times sheet: status: a clearing row cancels the placeholder it clears
   w.sheets = [savedRow(1, 'R1'), savedRow(2, 'R2'), ctPlaceholder(3), { ...ctClearing(4), cleared: 'TRUE' }];
   await pollNow(page);
   await expect(page.locator('#sheetsstatus')).toHaveText('Sheets: 2 saved');
+});
+
+test('crew times sheet: status: an unchanged Reopen and End leaves the new set with no clock row: the line is the new set route sheets', async ({ page }) => {
+  // Start (1), End (2) 8:00, Reopen (3) 9:00, End (4) 10:00. The first End's set held N1 and a Crew times row (for_seq 2). The new End's set (4) is
+  // N1 and N2 route rows and NO clock row (the Clock rows did not change). Expected route sheets: 2 (the post names N1 and N2). Only End 4's rows
+  // count: 2 route saved = "Sheets: 2 saved". Counting the old clock row would read 3; expecting a clock row would read "of".
+  const w = stormWorld();
+  w.storms = [START_ROW, { id: 'ST-2', seq: 2, kind: 'end', storm_id: 'ST-1', at: at('08:00'), by_name: 'Matthew' },
+    { id: 'ST-3', seq: 3, kind: 'reopen', storm_id: 'ST-1', at: at('09:00'), by_name: 'Matthew' },
+    { id: 'ST-4', seq: 4, kind: 'end', storm_id: 'ST-1', at: at('10:00'), by_name: 'Matthew' }];
+  w.sheets = [savedRow(1, 'R1'), ctSheet(2), { ...savedRow(3, 'R1'), end_seq: 4 }];
+  await openStorm(page, w, { token: 'tok-matt', clockAt: at('10:05') });
+  await expect(page.locator('#sheetsstatus')).toHaveText('Sheets: 1 of 2 saved \u00b7 making\u2026');   // N2 not in yet
+  w.sheets.push({ ...savedRow(4, 'R2'), end_seq: 4 });
+  await pollNow(page);
+  await expect(page.locator('#sheetsstatus')).toHaveText('Sheets: 2 saved');
+  await expect(page.locator('#retrySheets')).toHaveCount(0);
+});
+
+test('crew times sheet: status: a saved clock row whose cleared flag is blank, missing, false or "FALSE" counts as a saved sheet', async ({ page }) => {
+  // 2 route sheets + the clock row = 3 saved. A row read as cleared would be skipped and read 2.
+  const w = endedAt8();
+  w.sheets = [savedRow(1, 'R1'), savedRow(2, 'R2'), ctSheet(3, { cleared: '' })];
+  await openStorm(page, w, { token: 'tok-matt', clockAt: at('08:09') });
+  await expect(page.locator('#sheetsstatus')).toHaveText('Sheets: 3 saved');
+  for (const v of [undefined, false, 'FALSE']) {
+    w.sheets = [savedRow(1, 'R1')];   // a different line first, so the next read must redraw
+    await pollNow(page);
+    await expect(page.locator('#sheetsstatus')).toHaveText('Sheets: 1 of 2 saved · making…');
+    w.sheets = [savedRow(1, 'R1'), savedRow(2, 'R2'), ctSheet(3, { cleared: v })];
+    await pollNow(page);
+    await expect(page.locator('#sheetsstatus')).toHaveText('Sheets: 3 saved');
+  }
 });
 
 test('crew times sheet: status: a stray clock row never changes the handoff line (a handoff run writes none)', async ({ page }) => {

@@ -134,7 +134,8 @@ function fakeSnow(state, opts = {}) {
     // Rows are only ever appended; seq is the row's place in its tab. Crew and
     // lead rows are allow-listed (no by_profile, undoes null); Matt's are raw
     // (by_profile present, no undoes key on a tap). Refusals are {ok:false, code, reason}.
-    if (['getShiftLog', 'tapZone', 'undoTap', 'stormAction', 'saveVisit', 'cleanAgain', 'depthNow', 'handOff'].includes(body.action)) {
+    if (['getShiftLog', 'tapZone', 'undoTap', 'stormAction', 'saveVisit', 'cleanAgain', 'depthNow', 'handOff',
+      'siteMark', 'undoSiteMark', 'typeSiteTimes', 'clockTap', 'clockUndo', 'typeClock'].includes(body.action)) {
       const SL = require('../lib/shiftlog.js');
       state.log = state.log || []; state.storms = state.storms || []; state.visits = state.visits || [];
       const stamp = state.clock || '2026-10-03T07:50:18.445-08:00';
@@ -142,6 +143,16 @@ function fakeSnow(state, opts = {}) {
         if (role !== 'admin') return row;
         const { undoes, ...raw } = row;
         return { ...raw, by_profile: 'P1', ...(undoes ? { undoes } : {}) };
+      };
+      // The Clock tab rows (snow-app-script roster.js PUBLIC_CLOCK_FIELDS): Matt gets the whole row, everyone else the allow-list, and
+      // a crew phone only the rows whose crew_id is its own (clockShownAll_).
+      const CLOCK_FIELDS = ['id', 'seq', 'shift_id', 'kind', 'crew_id', 'name', 'route_id', 'storm_id', 'at', 'time_in', 'time_out', 'undoes', 'by_key', 'by_name'];
+      const clockView = (row) => (role === 'admin' ? { ...row, by_profile: 'P1' } : Object.fromEntries(CLOCK_FIELDS.map((k) => [k, row[k] === undefined ? null : row[k]])));
+      const clockShown = (rows) => rows.filter((r) => role === 'admin' || r.crew_id === me.crew_id).map(clockView);
+      const shiftBefore = (id) => { // a day's is the night before it, a night's is its own day (Code.js shiftBefore_)
+        const p = require('../lib/time.js').parseShift(id);
+        if (p.kind === 'night') return 'day-' + p.date;
+        return 'night-' + new Date(Date.UTC(+p.date.slice(0, 4), +p.date.slice(5, 7) - 1, +p.date.slice(8, 10) - 1)).toISOString().slice(0, 10);
       };
       // Storms rows reach crew and leads through the server's allow-list (snow-app-script roster.js
       // PUBLIC_STORM_FIELDS, publicRow): a missing field is null, so a start row carries shift_id: null and
@@ -174,7 +185,127 @@ function fakeSnow(state, opts = {}) {
             routes: (p.routes || []).map((r) => ({ id: r.id, lead: r.lead || null, members: (r.members || []).slice(), truck: r.truck === undefined ? null : r.truck })) }));
           out.cursor.posts = state.posts.length; out.reset.posts = reset;
         } else { out.posts = []; out.cursor.posts = 0; out.reset.posts = false; }
+        // The Clock tab (snow-app-script times-1, readClockAfter_ + clockShownAll_): a first load or a reset is the current
+        // shift and the one before it (R10), reset: true; a crew phone is sent only its own rows while the cursor counts every
+        // row; `tail.clock` is the tab's newest seq, which the phone must send back as last.clock (R12). opts.noClock = a
+        // backend that has never heard of any of this.
+        if (!opts.noClock) {
+          const cr = state.clockRows = state.clockRows || [], total = cr.length;
+          const ccur = Math.max(0, Math.floor(Number((body.cursor || {}).clock) || 0)), clast = (body.last || {}).clock;
+          let creset = ccur > total;
+          if (!creset && ccur >= 1 && clast != null && Number(cr[ccur - 1].seq) !== Number(clast)) creset = true;
+          let crows;
+          if (creset || (ccur === 0 && total > 0)) {
+            const now = SL.shiftFor(stamp, state.storms);
+            crows = cr.filter((r) => [now, shiftBefore(now)].includes(r.shift_id));
+            creset = true;
+          } else crows = cr.slice(ccur);
+          out.clock = clockShown(crows); out.cursor.clock = total; out.reset.clock = creset;
+          out.tail = { clock: total ? cr[total - 1].seq : null };
+        }
         return out;
+      }
+      // The six times actions (snow-app-script Code.js, times-1): who comes from the token, the route check is the
+      // Board's (a crew member on no route, or on another, is refused), the two typed ones are admin only, every
+      // reply echoes `action` (...v).
+      if (['siteMark', 'undoSiteMark', 'typeSiteTimes', 'clockTap', 'clockUndo', 'typeClock'].includes(body.action)) {
+        const CK = require('../lib/clock.js'), B = require('../lib/board.js'), T = require('../lib/time.js');
+        state.clockRows = state.clockRows || []; state.moves = state.moves || [];
+        if (['typeSiteTimes', 'typeClock'].includes(body.action) && role !== 'admin') return refuse('forbidden', 'Only Matt can do that.');
+        const live = state.routes.filter((r) => !r.archived);
+        const pool = state.crew.filter((c) => c.pending !== true);
+        const board = B.boardFrom(state.moves, live, Object.fromEntries(pool.map((c) => [c.id, c])));
+        const st0 = SL.stormState(state.storms), now = SL.shiftFor(stamp, state.storms), n0 = state.log.length + 1;
+        const markRow = (extra) => ({ id: 'L-' + n0, seq: n0, storm_id: st0.storm_id, shift_id: now, zone_id: '*', note: '', by_key: me.crew_id || 'admin',
+          by_name: me.name, at: stamp, off_route: false, snowing_warned: false, undoes: null, ...extra });
+        const typedMinute = (x) => { // '' when blank, the trimmed minute when real, null when refused (Code.js typedMinute_)
+          if (typeof x !== 'string') return null;
+          const t = x.trim(); if (t === '') return '';
+          const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(t); if (!m) return null;
+          const d = new Date(Date.UTC(+m[1], m[2] - 1, +m[3], +m[4], +m[5]));
+          return d.getUTCFullYear() === +m[1] && d.getUTCMonth() === m[2] - 1 && d.getUTCDate() === +m[3] && d.getUTCHours() === +m[4] && d.getUTCMinutes() === +m[5] ? t : null;
+        };
+        const typedCheck = (shiftId) => { // the shared time rules of typeSiteTimes_ / typeClock_; a string = a refusal
+          const sd = T.parseShift(shiftId); if (!sd) return 'Pick a shift';
+          const tin = typedMinute(body.time_in), tout = typedMinute(body.time_out);
+          if (tin === null || tout === null) return 'A time is YYYY-MM-DDTHH:MM, a real date and minute';
+          if (tin === '' && tout === '') return 'Type a start, a finish, or both';
+          const next = new Date(Date.UTC(+sd.date.slice(0, 4), +sd.date.slice(5, 7) - 1, +sd.date.slice(8, 10) + 1)).toISOString().slice(0, 10);
+          if ([tin, tout].some((x) => x !== '' && x.slice(0, 10) !== sd.date && x.slice(0, 10) !== next)) return 'That time is not on the ' + sd.kind + ' you picked';
+          const nowMin = stamp.slice(0, 16);
+          if ((tin !== '' && tin > nowMin) || (tout !== '' && tout > nowMin)) return 'A time cannot be in the future';
+          if (tin !== '' && tout !== '' && tout < tin) return 'The finish is before the start';
+          return { tin, tout };
+        };
+        if (body.action === 'typeClock') {
+          const card = pool.find((c) => c.id === body.crew_id);
+          if (!card) return refuse('invalid', 'Unknown person');
+          const t = typedCheck(String(body.shift_id || '')); if (typeof t === 'string') return refuse('invalid', t);
+          const kn = state.clockRows.length + 1;
+          const row = { id: 'K-' + kn, seq: kn, shift_id: body.shift_id, kind: 'typed', crew_id: card.id, name: card.name, route_id: '',
+            storm_id: st0.open ? st0.storm_id : '', at: stamp, time_in: t.tin, time_out: t.tout, undoes: '', by_key: me.crew_id || 'admin', by_name: me.name };
+          state.clockRows.push(row);
+          return { ok: true, record: clockView(row), ...v };
+        }
+        if (body.action === 'clockTap' || body.action === 'clockUndo') {
+          const kind = body.kind;
+          if (kind !== 'start' && kind !== 'end') return refuse('invalid', 'Start or End');
+          let routeId;
+          if (role === 'admin') {
+            routeId = typeof body.route_id === 'string' ? body.route_id : '';
+            if (!Object.prototype.hasOwnProperty.call(board.routes, routeId)) return refuse('invalid', 'Pick a route');
+          } else {
+            const where = B.whereIs(board, me.crew_id);
+            if (!where) return refuse('forbidden', 'The dispatcher has not placed you on a route');
+            routeId = where.route;
+            if (body.route_id !== undefined && body.route_id !== null && body.route_id !== routeId) return refuse('forbidden', 'That is not your route');
+          }
+          const slot = board.routes[routeId], ids = (slot.lead ? [slot.lead] : []).concat(slot.members);
+          const byId = Object.fromEntries(pool.map((c) => [c.id, c])), cr = state.clockRows, out = [];
+          const push = (extra) => { const kn = cr.length + 1; const row = { id: 'K-' + kn, seq: kn, route_id: routeId, storm_id: st0.open ? st0.storm_id : '', at: stamp,
+            time_in: '', time_out: '', by_key: me.crew_id || 'admin', by_name: me.name, ...extra }; cr.push(row); out.push(row); };
+          if (body.action === 'clockTap') {
+            const shiftOf = {};
+            CK.tapRows(cr, ids, now, kind).forEach((id) => { shiftOf[id] = now; });
+            if (kind === 'end') { // R13: an End closes whichever shift is open: now, else the one before
+              const rest = ids.filter((id) => shiftOf[id] === undefined);
+              CK.tapRows(cr, rest, shiftBefore(now), 'end').forEach((id) => { shiftOf[id] = shiftBefore(now); });
+            }
+            ids.filter((id) => shiftOf[id] !== undefined).forEach((id) => push({ shift_id: shiftOf[id], kind, crew_id: id, name: byId[id].name, undoes: '' }));
+          } else {
+            let targets = CK.undoable(cr, ids, now, kind);
+            const here = cr.some((r) => r.shift_id === now && (r.kind === kind || r.kind === kind + '_undone') && ids.includes(r.crew_id)); // R14
+            if (!targets.length && !here) targets = CK.undoable(cr, ids, shiftBefore(now), kind);
+            if (!targets.length) return refuse('conflict', 'Nothing to take back');
+            targets.forEach((id) => { const t = cr.find((r) => r.id === id); push({ shift_id: t.shift_id, kind: kind + '_undone', crew_id: t.crew_id, name: t.name, undoes: t.id }); });
+          }
+          return { ok: true, written: out.length, records: clockShown(out), ...v };
+        }
+        // The three site actions: a storm must be open; the site must be live; a crew member must be on a route holding it.
+        if (!st0.open) return refuse('invalid', 'No storm is open');
+        const siteId = typeof body.site_id === 'string' ? body.site_id : '';
+        if (!state.sites.some((s) => s.id === siteId && !s.archived)) return refuse('invalid', 'Unknown site');
+        if (body.action === 'typeSiteTimes') {
+          const t = typedCheck(typeof body.shift_id === 'string' ? body.shift_id : ''); if (typeof t === 'string') return refuse('invalid', t);
+          const row = markRow({ shift_id: body.shift_id, site_id: siteId, state: 'typed', time_in: t.tin, time_out: t.tout });
+          state.log.push(row);
+          return { ok: true, record: view(row), ...v };
+        }
+        if (body.kind !== 'arrived' && body.kind !== 'left') return refuse('invalid', 'Arrived or Left');
+        if (role !== 'admin') {
+          const where = B.whereIs(board, me.crew_id), route = where && live.find((r) => r.id === where.route);
+          if (!route || !(route.site_ids || []).includes(siteId)) return refuse('forbidden', 'That site is not on your route');
+        }
+        if (body.action === 'siteMark') {
+          const row = markRow({ site_id: siteId, state: body.kind });
+          state.log.push(row);
+          return { ok: true, record: view(row), ...v };
+        }
+        const t = SL.markUndoTarget(state.log, st0.storm_id, siteId, now, body.kind);
+        if (!t.ok) return refuse('conflict', t.reason);
+        const row = markRow({ shift_id: t.row.shift_id, site_id: siteId, state: body.kind + '_undone', undoes: t.row.id });
+        state.log.push(row);
+        return { ok: true, record: view(row), ...v };
       }
       const storm = SL.stormState(state.storms);
       if (body.action === 'stormAction') {
@@ -2567,9 +2698,9 @@ test('the phone asks only for rows after its cursor', async ({ page }) => {
   const [first, second] = shiftCalls(calls).map((c) => c.body);
   // Trucks and Sheets (route sheets) are two more tabs on the same cursor; this fake has none of either.
   // Posts ride the cursor too (Matt's only: Jordan's poll gets none, cursor 0); they have no seq, so no `last`.
-  expect(first.cursor).toEqual({ log: 0, storms: 0, visits: 0, trucks: 0, sheets: 0, posts: 0 });
-  expect(second.cursor).toEqual({ log: 2, storms: 1, visits: 0, trucks: 0, sheets: 0, posts: 0 });
-  expect(second.last).toEqual({ log: 2, storms: 1, visits: null, trucks: null, sheets: null });
+  expect(first.cursor).toEqual({ log: 0, storms: 0, visits: 0, trucks: 0, sheets: 0, posts: 0, clock: 0 });
+  expect(second.cursor).toEqual({ log: 2, storms: 1, visits: 0, trucks: 0, sheets: 0, posts: 0, clock: 0 });
+  expect(second.last).toEqual({ log: 2, storms: 1, visits: null, trucks: null, sheets: null, clock: null });
   await expect.poll(async () => (await phoneState(page)).cursor.log).toBe(2);
   expect((await phoneState(page)).log.map((r) => r.id)).toEqual(['L-1', 'L-2']); // nothing came twice
 });
@@ -7079,4 +7210,192 @@ test('route lists: with Print sheets open the route lists cannot open a second v
   await expect(page.locator('#printsheets .rl-page')).toHaveCount(3);
   await expect(page.locator('#printsheets .sheet')).toHaveCount(0);
   expect(await page.evaluate(() => window.__printed)).toBe(2);
+});
+
+// ---------------- times rows: the phone keeps the Clock rows it is sent (times plan, Task 8) ----------------
+// Fixture, worked by hand. The fake stamps 7:50 AM on 10/3, so the shift now is night-2026-10-02 and the one before it is
+// day-2026-10-02 (a night's is its own day). The Clock tab holds four rows, in this order:
+//   K-1 C03 day-2026-09-30 (an old night: R10, a first load never carries it)
+//   K-2 C01 night-2026-10-02   K-3 C03 night-2026-10-02   K-4 C01 day-2026-10-02
+// So a first load for Matt is K-2, K-3, K-4 (cursor 4, reset true); for Jordan (C03) it is K-3 alone, yet the cursor still
+// counts all four rows, and the tab's newest seq (the tail) is 4, which is NOT the newest seq Jordan holds (3).
+const clockRow = (n, crew, name, shift, kind = 'start', extra = {}) => ({ id: 'K-' + n, seq: n, shift_id: shift, kind, crew_id: crew, name, route_id: 'R1',
+  storm_id: 'ST-1', at: '2026-10-02T20:00:00.000-08:00', time_in: '', time_out: '', undoes: '', by_key: crew, by_name: name, ...extra });
+const timesWorld = () => {
+  const w = stormWorld();
+  w.moves = [{ id: 'M1', at: '2026-10-01T17:00:00.000-08:00', worker: 'C01', to_route: 'R1', role: 'lead' },
+    { id: 'M2', at: '2026-10-01T17:00:00.000-08:00', worker: 'C03', to_route: 'R1', role: 'member' }];
+  w.clockRows = [clockRow(1, 'C03', 'Jordan Demo', 'day-2026-09-30'), clockRow(2, 'C01', 'Alex Test', 'night-2026-10-02'),
+    clockRow(3, 'C03', 'Jordan Demo', 'night-2026-10-02'), clockRow(4, 'C01', 'Alex Test', 'day-2026-10-02')];
+  return w;
+};
+const clockIds = async (page) => (await phoneState(page)).clock.map((r) => r.id);
+const clockReplies = (page) => {
+  const got = [];
+  page.on('response', async (res) => {
+    if (!isSnow(new URL(res.url()))) return;
+    try { const j = await res.json(); if (j.action === 'getShiftLog') got.push(j); } catch (e) { /* not ours */ }
+  });
+  return got;
+};
+
+test('times rows: Matt\'s first poll holds everyone\'s Clock rows of this shift and the one before, and not the old night', async ({ page }) => {
+  await openStorm(page, timesWorld(), { token: 'tok-matt' });
+  await expect.poll(async () => (await phoneState(page)).cursor.clock).toBe(4);
+  expect(await clockIds(page)).toEqual(['K-2', 'K-3', 'K-4']);   // K-1 is an old night
+  const s = await phoneState(page);
+  expect(s.last.clock).toBe(4);
+});
+
+test('times rows: a crew member holds only their own Clock rows, and sends the TAB\'s newest seq back, not their own', async ({ page }) => {
+  const replies = clockReplies(page);
+  const calls = await openStorm(page, timesWorld());   // Jordan, C03
+  await expect.poll(async () => (await phoneState(page)).cursor.clock).toBe(4);
+  expect(await clockIds(page)).toEqual(['K-3']);        // never Alex's K-2 / K-4
+  expect((await phoneState(page)).last.clock).toBe(4);  // the server's tail; Jordan's newest row is seq 3
+  await pollNow(page);
+  await expect.poll(() => shiftCalls(calls).length).toBe(2);
+  // R12: the second poll's REQUEST says cursor 4 and last 4. Sending 3 (his own newest) would make the server compare
+  // row 4's seq with 3, call it a reset, and re-send the window every 20 s.
+  expect(shiftCalls(calls)[0].body.cursor.clock).toBe(0);
+  expect(shiftCalls(calls)[0].body.last.clock).toBe(null);
+  expect(shiftCalls(calls)[1].body.cursor.clock).toBe(4);
+  expect(shiftCalls(calls)[1].body.last.clock).toBe(4);
+  await expect.poll(() => replies.length).toBe(2);
+  expect(replies[0].reset.clock).toBe(true);
+  expect(replies[1].reset.clock).toBe(false);
+  expect(replies[1].clock).toEqual([]);
+  expect(await clockIds(page)).toEqual(['K-3']);
+});
+
+test('times rows: rows that arrive later join what the phone holds, and the cursor and tail move with them', async ({ page }) => {
+  const w = timesWorld();
+  const calls = await openStorm(page, w, { token: 'tok-matt' });
+  await expect.poll(async () => (await phoneState(page)).cursor.clock).toBe(4);
+  w.clockRows.push(clockRow(5, 'C03', 'Jordan Demo', 'night-2026-10-02', 'end'));
+  await pollNow(page);
+  await expect.poll(async () => (await phoneState(page)).cursor.clock).toBe(5);
+  expect(await clockIds(page)).toEqual(['K-2', 'K-3', 'K-4', 'K-5']);
+  expect((await phoneState(page)).last.clock).toBe(5);
+  expect(shiftCalls(calls).at(-1).body.cursor.clock).toBe(4);
+});
+
+test('times rows: a reset replaces the Clock rows the phone holds', async ({ page }) => {
+  const w = timesWorld();
+  await openStorm(page, w, { token: 'tok-matt' });
+  await expect.poll(async () => (await phoneState(page)).cursor.clock).toBe(4);
+  // Rows deleted by hand: only K-2 is left. The cursor (4) is past the tab (1 row): the server answers reset.
+  w.clockRows = [w.clockRows[1]];
+  await pollNow(page);
+  await expect.poll(async () => (await phoneState(page)).cursor.clock).toBe(1);
+  expect(await clockIds(page)).toEqual(['K-2']);
+  expect((await phoneState(page)).last.clock).toBe(2);
+  // And an emptied tab: nothing held, the tail is null.
+  w.clockRows = [];
+  await pollNow(page);
+  await expect.poll(async () => (await phoneState(page)).cursor.clock).toBe(0);
+  expect(await clockIds(page)).toEqual([]);
+  expect((await phoneState(page)).last.clock).toBe(null);
+});
+
+test('times rows: signing out forgets the Clock rows, the cursor and the tail', async ({ page }) => {
+  await openStorm(page, timesWorld(), { token: 'tok-matt' });
+  await expect.poll(async () => (await phoneState(page)).cursor.clock).toBe(4);
+  await page.click('#signout');
+  await expect(page.locator('#signin')).toBeVisible();
+  const s = await phoneState(page);
+  expect(s.clock).toEqual([]);
+  expect(s.cursor).toEqual({ log: 0, storms: 0, visits: 0, trucks: 0, sheets: 0, posts: 0, clock: 0 });
+  expect(s.last).toEqual({ log: null, storms: null, visits: null, trucks: null, sheets: null, clock: null });
+});
+
+test('times rows: a backend that has never heard of Clock rows leaves the phone working', async ({ page }) => {
+  const calls = await openStorm(page, timesWorld(), { fake: { noClock: true } });
+  await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
+  await pollNow(page);
+  await expect.poll(() => shiftCalls(calls).length).toBe(2);
+  expect((await phoneState(page)).clock).toEqual([]);
+  expect(shiftCalls(calls)[1].body.cursor.clock).toBe(0);
+  expect(shiftCalls(calls)[1].body.last.clock).toBe(null);
+});
+
+test('times rows: the fake answers the six actions as the server does', async () => {
+  const w = timesWorld(), f = fakeSnow(w);
+  const as = (token, body) => f({ token, ...body });
+  // Who comes from the token; the row is the server's. Jordan (C03, a member of R1) marks PAC (S1, on R1).
+  const mk = as('tok-jordan', { action: 'siteMark', kind: 'arrived', site_id: 'S1' });
+  expect(mk).toMatchObject({ ok: true, action: 'siteMark', record: { site_id: 'S1', zone_id: '*', state: 'arrived', by_key: 'C03', by_name: 'Jordan Demo' } });
+  expect(mk.record.by_profile).toBeUndefined();   // crew rows are allow-listed
+  // Off route: TUDOR (S2) is on R2, and he is on R1.
+  expect(as('tok-jordan', { action: 'siteMark', kind: 'arrived', site_id: 'S2' })).toMatchObject({ ok: false, code: 'forbidden', reason: 'That site is not on your route', action: 'siteMark' });
+  expect(as('tok-matt', { action: 'siteMark', kind: 'arrived', site_id: 'S2' })).toMatchObject({ ok: true });   // an admin goes anywhere
+  expect(as('tok-jordan', { action: 'siteMark', kind: 'bogus', site_id: 'S1' })).toMatchObject({ ok: false, code: 'invalid', reason: 'Arrived or Left' });
+  // Undo takes back that mark: a new row, the undone state, undoes the id.
+  expect(as('tok-jordan', { action: 'undoSiteMark', kind: 'arrived', site_id: 'S1' })).toMatchObject({ ok: true, record: { state: 'arrived_undone', undoes: mk.record.id } });
+  expect(as('tok-jordan', { action: 'undoSiteMark', kind: 'arrived', site_id: 'S1' })).toMatchObject({ ok: false, code: 'conflict' });
+  // The two typed actions are admin only.
+  expect(as('tok-jordan', { action: 'typeSiteTimes', site_id: 'S1', shift_id: 'night-2026-10-02', time_in: '2026-10-02T21:00' })).toMatchObject({ ok: false, code: 'forbidden', action: 'typeSiteTimes' });
+  expect(as('tok-alex', { action: 'typeClock', crew_id: 'C03', shift_id: 'night-2026-10-02', time_in: '2026-10-02T21:00' })).toMatchObject({ ok: false, code: 'forbidden', action: 'typeClock' });
+  expect(as('tok-matt', { action: 'typeSiteTimes', site_id: 'S1', shift_id: 'night-2026-10-02', time_in: '2026-10-02T21:00', time_out: '' }))
+    .toMatchObject({ ok: true, record: { state: 'typed', time_in: '2026-10-02T21:00', time_out: '' } });
+  expect(as('tok-matt', { action: 'typeSiteTimes', site_id: 'S1', shift_id: 'night-2026-10-02', time_in: '', time_out: '' })).toMatchObject({ ok: false, code: 'invalid' });
+  // A tap covers the whole route: Jordan's Start is Alex's too, two rows written, but Jordan is sent only his own.
+  w.clockRows = [];
+  const tap = as('tok-jordan', { action: 'clockTap', kind: 'start' });
+  expect(tap).toMatchObject({ ok: true, written: 2, action: 'clockTap' });
+  expect(tap.records.map((r) => r.crew_id)).toEqual(['C03']);
+  expect(w.clockRows.map((r) => [r.crew_id, r.shift_id, r.kind, r.by_key])).toEqual([['C01', 'night-2026-10-02', 'start', 'C03'], ['C03', 'night-2026-10-02', 'start', 'C03']]);
+  expect(as('tok-matt', { action: 'clockTap', kind: 'start', route_id: 'R1' })).toMatchObject({ ok: true, written: 0 });   // nobody still owed
+  expect(as('tok-matt', { action: 'clockTap', kind: 'start' })).toMatchObject({ ok: false, code: 'invalid', reason: 'Pick a route' });
+  expect(as('tok-jordan', { action: 'clockTap', kind: 'start', route_id: 'R2' })).toMatchObject({ ok: false, code: 'forbidden', reason: 'That is not your route' });
+  expect(as('tok-jordan', { action: 'clockUndo', kind: 'start' })).toMatchObject({ ok: true, written: 2 });
+  expect(as('tok-jordan', { action: 'clockUndo', kind: 'start' })).toMatchObject({ ok: false, code: 'conflict', reason: 'Nothing to take back' });
+  expect(as('tok-matt', { action: 'typeClock', crew_id: 'C03', shift_id: 'night-2026-10-02', time_in: '2026-10-02T21:00', time_out: '' }))
+    .toMatchObject({ ok: true, record: { kind: 'typed', crew_id: 'C03', by_key: 'admin' } });
+  // A crew member the Board has not placed.
+  w.moves = [];
+  expect(as('tok-jordan', { action: 'clockTap', kind: 'start' })).toMatchObject({ ok: false, code: 'forbidden', reason: 'The dispatcher has not placed you on a route' });
+  expect(as('tok-jordan', { action: 'siteMark', kind: 'arrived', site_id: 'S1' })).toMatchObject({ ok: false, code: 'forbidden' });
+});
+
+// The reader audit (lib/shiftlogui.js topSeqAt): a refused Clean again goes once a newer row AT THAT SITE comes in. An Arrived
+// or a Left is a row at the site but not work: it cannot make "Nothing to clean again yet" out of date.
+test('times rows: a refused Clean again stays when only an Arrived or a typed time comes in at that site', async ({ page }) => {
+  const w = stormWorld(); // nothing done yet at PAC
+  await openStorm(page, w, { token: 'tok-alex' });
+  await openRoute(page, 'R1');
+  await page.click('[data-again="S1"]');
+  await page.click('#ag_yes');
+  const site = page.locator('[data-shiftsite="S1"]');
+  await expect(site).toContainText('Nothing to clean again yet');
+  w.log.push(logRow(1, 'S1', '*', 'arrived', 'Jordan Demo', { by_key: 'C03' }), logRow(2, 'S1', '*', 'typed', 'Matthew', { time_in: '2026-10-02T21:00', time_out: '' }));
+  await pollNow(page);
+  await expect.poll(async () => (await phoneState(page)).log.length).toBe(2);
+  await expect(site).toContainText('Nothing to clean again yet');
+  // A real tap at the site still clears it.
+  w.log.push(logRow(3, 'S1', 'Z1', 'cleared', 'Jordan Demo', { by_key: 'C03' }));
+  await pollNow(page);
+  await expect(site).not.toContainText('Nothing to clean again yet');
+});
+
+// The reader audit, on the page: a log holding one of each new state (and a typed row with both times) changes nothing the live
+// view says. Worked by hand: Z1 cleared 6:30 and Z2 checked 6:40 make PAC (S1) done; TUDOR (S2) has no walk tap, so it is not done and
+// its route has not started. The marks sit at 7:00 to 7:40, later than every tap and at both sites.
+test('times rows: Arrived, Left, typed and their undos change nothing on the live view', async ({ page }) => {
+  const t = (hhmm) => '2026-10-03T' + hhmm + ':00.000-08:00';
+  const w = stormWorld();
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: t('06:30') }), logRow(2, 'S1', 'Z2', 'checked', 'Alex Test', { at: t('06:40') }),
+    logRow(3, 'S1', '*', 'arrived', 'Mark Maker', { at: t('07:00') }), logRow(4, 'S2', '*', 'arrived', 'Mark Maker', { at: t('07:05') }),
+    logRow(5, 'S2', '*', 'left', 'Mark Maker', { at: t('07:10') }), logRow(6, 'S2', '*', 'typed', 'Mark Maker', { at: t('07:15'), time_in: '2026-10-03T05:00', time_out: '2026-10-03T07:00' }),
+    logRow(7, 'S1', '*', 'arrived_undone', 'Mark Maker', { at: t('07:20'), undoes: 'L-3' }), logRow(8, 'S2', '*', 'left_undone', 'Mark Maker', { at: t('07:25'), undoes: 'L-5' }),
+    logRow(9, 'S1', '*', 'left', 'Mark Maker', { at: t('07:40') })];
+  await openStorm(page, w, { token: 'tok-matt' });
+  await expect(page.locator('#livesum')).toHaveText('1 of 2 sites done · 0 problems · last tap 6:40 AM · 1 of 2 routes started');
+  await expect(page.locator('[data-liveroute="R1"] .live-last')).toHaveText('Last tap 6:40 AM');
+  await expect(page.locator('[data-liveroute="R1"] .live-count')).toHaveText('1 of 1 sites done');
+  await expect(page.locator('[data-liveroute="R2"] .live-last')).toHaveText('No taps yet');
+  await expect(page.locator('[data-liveroute="R2"] .live-count')).toHaveText('0 of 1 sites done');
+  await openRoute(page, 'R2');
+  await expect(walkRow(page, 'S2|whole')).not.toContainText('Mark Maker');
+  await expect(walkBtn(page, 'S2|whole', 'cleared')).toBeVisible();
 });

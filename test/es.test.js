@@ -139,3 +139,30 @@ test('shift times: the bare word Ended is only ever an exact text node, so a lon
   assert.equal(Es.translateString('Ended'), 'Terminó');
   assert.equal(Es.translateString('Ended by Matthew'), 'Ended by Matthew');
 });
+
+// M4 (final review): the refusal sentences the start/stop-times actions send a CREW phone (Code.js siteGate_, siteMark_, undoSiteMark_,
+// clockCrew_, clockTap_, clockUndo_, and shiftlog.js markUndoTarget's reasons) arrive in English and are shown inside a frame: "Not saved: ",
+// "Shift not saved: ", "Times not saved: ". Each used to leave the sentence in English behind a Spanish frame ("No se guardó: That site is not
+// on your route"). Tú, plain words; the button words are the ones on the buttons (Llegué, Salí, Deshacer).
+const REFUSALS = [
+  ['No storm is open', 'No hay una tormenta abierta'],
+  ['Arrived or Left', 'Llegué o Salí'],
+  ['Unknown site', 'Sitio desconocido'],
+  ['That site is not on your route', 'Ese sitio no está en tu ruta'],
+  ['No Arrived to take back', 'No hay ningún "Llegué" que deshacer'],
+  ['No Left to take back', 'No hay ningún "Salí" que deshacer'],
+  ['That cannot be undone', 'Eso no se puede deshacer'],
+  ['The dispatcher has not placed you on a route', 'El despachador todavía no te ha puesto en una ruta'],
+  ['That is not your route', 'Esa no es tu ruta'],
+  ['Start or End', 'Inicio o Final'],
+  ['Nothing to take back', 'No hay nada que deshacer'],
+  ['Pick a route', 'Elige una ruta'],
+];
+const FRAMES = [['Not saved: ', 'No se guardó: '], ['Shift not saved: ', 'No se guardó el turno: '], ['Times not saved: ', 'No se guardaron las horas: ']];
+test('M4 every refusal a crew phone can be shown reads Spanish inside each of its frames, nothing left in English', () => {
+  for (const [en, es] of REFUSALS) {
+    assert.equal(Es.translateString(en), es, en);
+    for (const [fen, fes] of FRAMES) assert.equal(Es.translateString(fen + en), fes + es, fen + en);
+  }
+});
+

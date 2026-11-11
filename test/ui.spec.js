@@ -236,7 +236,7 @@ function fakeSnow(state, opts = {}) {
           return !isNaN(d.getTime()) && d.toISOString().slice(0, 10) === p.date ? p : null;
         };
         const markShown = (row) => (role === 'admin' ? view(row) : Object.fromEntries(LOG_FIELDS.map((k) => [k, row[k] === undefined ? null : row[k]])));
-        const typedCheck = (shiftId, spanOk) => { // the shared time rules of typeSiteTimes_ / typeClock_; a string = a refusal
+        const typedCheck = (shiftId, spanOk, held) => { // the shared time rules of typeSiteTimes_ / typeClock_; a string = a refusal
           const sd = realShift(shiftId); if (!sd) return 'Pick a shift';
           if (spanOk && !spanOk()) return 'That shift is not part of this storm';
           const tin = typedMinute(body.time_in), tout = typedMinute(body.time_out);
@@ -247,12 +247,18 @@ function fakeSnow(state, opts = {}) {
           const nowMin = stamp.slice(0, 16);
           if ((tin !== '' && tin > nowMin) || (tout !== '' && tout > nowMin)) return 'A time cannot be in the future';
           if (tin !== '' && tout !== '' && tout < tin) return 'The finish is before the start';
+          // R40 (typedAgainstHeld_): ONE typed side is held to the other side the shift already has (a tapped or typed time).
+          if (held && (tin === '') !== (tout === '')) {
+            const h = held(), bad = tin === '' ? (h.start && CK.minutes(h.start, tout) === null) : (h.end && CK.minutes(tin, h.end) === null);
+            if (bad) return 'The finish is before the start';
+          }
           return { tin, tout };
         };
         if (body.action === 'typeClock') {
           const card = pool.find((c) => c.id === body.crew_id);
           if (!card) return refuse('invalid', 'Unknown person');
-          const t = typedCheck(String(body.shift_id || '')); if (typeof t === 'string') return refuse('invalid', t);
+          const t = typedCheck(String(body.shift_id || ''), null, () => { const p = CK.personShift(state.clockRows, card.id, body.shift_id); return { start: p.start, end: p.end }; });
+          if (typeof t === 'string') return refuse('invalid', t);
           const kn = state.clockRows.length + 1;
           const row = { id: 'K-' + kn, seq: kn, shift_id: body.shift_id, kind: 'typed', crew_id: card.id, name: card.name, route_id: '',
             storm_id: st0.open ? st0.storm_id : '', at: stamp, time_in: t.tin, time_out: t.tout, undoes: '', by_key: me.crew_id || 'admin', by_name: me.name };
@@ -299,7 +305,11 @@ function fakeSnow(state, opts = {}) {
             const begun = state.storms.find((r) => r.kind === 'start' && r.storm_id === st0.storm_id), first = begun ? SL.shiftFor(begun.at, state.storms) : now;
             return T.shiftKey(body.shift_id) >= T.shiftKey(first) && T.shiftKey(body.shift_id) <= T.shiftKey(now);
           };
-          const t = typedCheck(typeof body.shift_id === 'string' ? body.shift_id : '', spanOk); if (typeof t === 'string') return refuse('invalid', t);
+          const held = () => {
+            const c = SL.siteClock(state.log.filter((r) => r.storm_id === st0.storm_id), siteId, body.shift_id), ok = (how) => how === 'typed' || how === 'tapped';
+            return { start: ok(c.startHow) ? c.start : null, end: ok(c.finishHow) ? c.finish : null };
+          };
+          const t = typedCheck(typeof body.shift_id === 'string' ? body.shift_id : '', spanOk, held); if (typeof t === 'string') return refuse('invalid', t);
           const row = markRow({ shift_id: body.shift_id, site_id: siteId, state: 'typed', time_in: t.tin, time_out: t.tout });
           state.log.push(row);
           return { ok: true, record: markShown(row), ...v };
@@ -7822,6 +7832,27 @@ test('site times: a refused Set times keeps the box open with the server\'s word
   await page.fill('#st_out', '02:00');
   await page.click('#st_save');
   await expect(page.locator('#st_err')).toHaveText('The finish is before the start');
+});
+
+// R40 (final review M1): a one-sided typed time is held to the other side the shift already has. Paper: it is 7:50 AM on 10/3, the night of
+// 10/2; Alex's Arrived was tapped at 6:10 AM. A typed Out of 6:00 AM is ten minutes before it: the server refuses with the both-sided words
+// and the box stays open; 6:10 AM, the same minute, saves.
+test('site times: a typed Out before the standing Arrived is refused in the server words; the same minute saves', async ({ page }) => {
+  const w = settimesWorld();
+  w.log = [seedMark(1, 'arrived', { at: tAt('06:10:00') })];
+  const calls = await openStorm(page, w, { token: 'tok-matt' });
+  await openRoute(page, 'R1');
+  await openSetTimes(page, 'S1');
+  await page.fill('#st_out', '06:00');
+  await page.click('#st_save');
+  await expect(page.locator('#st_err')).toHaveText('The finish is before the start');
+  await expect(page.locator('#dlg')).toBeVisible();
+  expect((await phoneState(page)).log.map((r) => r.state)).toEqual(['arrived']);
+  await page.fill('#st_out', '06:10');
+  await page.click('#st_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(siteActionCalls(calls, 'typeSiteTimes')).toHaveLength(2);
+  await expect(timesLine(page, 'S1')).toContainText('Out 6:10 AM');
 });
 
 test('site times: the Site card and the BT post read the same In and Out as the line, a typed side marked on the card', async ({ page }) => {

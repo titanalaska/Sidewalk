@@ -2282,6 +2282,9 @@ const logRow = (n, siteId, zoneId, state, by, extra = {}) => ({ id: 'L-' + n, se
   off_route: false, snowing_warned: false, undoes: null, ...extra });
 async function openStorm(page, w, o = {}) {
   const calls = await open(page, { token: o.token || 'tok-jordan', snow: fakeSnow(w, o.fake), clockAt: o.clockAt || STORM_CLOCK, delay: o.delay, abortIf: o.abortIf, hangIf: o.hangIf });
+  // A crew phone lands on Tonight, which reads the shift log once for the shift card (times, 11/11/26). Let that read finish before the
+  // Storm tab is opened, so that the first Storm poll is always the SECOND call of a crew phone and never races the first.
+  if ((o.token || 'tok-jordan') !== 'tok-matt') await page.waitForFunction(() => window.SnowShiftUI && SnowShiftUI.isLoaded(), null, { timeout: 3000 }).catch(() => {});   // (a read that never lands: go on)
   await page.click('nav [data-tab="storm"]');
   return calls;
 }
@@ -2725,7 +2728,7 @@ test('the phone asks only for rows after its cursor', async ({ page }) => {
   const calls = await openStorm(page, w);
   await expect(walkRow(page, 'S1|Z1')).toContainText('Cleared · Alex Test');
   await pollNow(page);
-  await expect.poll(() => shiftCalls(calls).length).toBe(2);
+  await expect.poll(() => shiftCalls(calls).length).toBe(3);   // a crew phone's first screen is Tonight, which read the shift log once for the shift card (times, 11/11/26): that read is call 1 and the Storm tab's first poll is call 2; the pollNow is the third
   const [first, second] = shiftCalls(calls).map((c) => c.body);
   // Trucks and Sheets (route sheets) are two more tabs on the same cursor; this fake has none of either.
   // Posts ride the cursor too (Matt's only: Jordan's poll gets none, cursor 0); they have no seq, so no `last`.
@@ -2752,10 +2755,10 @@ test('rows kept out of seq order in the Sheet do not make every poll reset', asy
   const calls = await openStorm(page, w);
   await expect(walkRow(page, 'S1|Z1')).toContainText('Treated · Alex Test'); // seq 2 is the newest row, wherever it sits
   await pollNow(page);
-  await expect.poll(() => shiftCalls(calls).length).toBe(2);
+  await expect.poll(() => shiftCalls(calls).length).toBe(3);   // a crew phone's first screen is Tonight, which read the shift log once for the shift card (times, 11/11/26): that read is call 1 and the Storm tab's first poll is call 2; the pollNow is the third
   expect(shiftCalls(calls)[1].body.cursor.log).toBe(2);
   expect(shiftCalls(calls)[1].body.last.log).toBe(1);
-  await expect.poll(() => replies.length).toBe(2);
+  await expect.poll(() => replies.length).toBe(3);
   expect(replies[1].reset.log).toBe(false);
   expect(replies[1].log).toEqual([]);
 });
@@ -2763,15 +2766,16 @@ test('rows kept out of seq order in the Sheet do not make every poll reset', asy
 test('polling runs only on the Storm tab, and only while the page is visible', async ({ page }) => {
   const calls = await openStorm(page, stormWorld());
   await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
-  expect(shiftCalls(calls)).toHaveLength(1);
+  // a crew phone's first screen is Tonight, which read the shift log once for the shift card (times, 11/11/26): that read is call 1 and the Storm tab's first poll is call 2: so every count below is one more than the Storm tab's own.
+  expect(shiftCalls(calls)).toHaveLength(2);
   // Another tab: the timer is gone. Three ticks' worth of time asks nothing.
   await page.click('nav [data-tab="tonight"]');
   await page.clock.runFor(60000);
   await page.waitForTimeout(300);
-  expect(shiftCalls(calls)).toHaveLength(1);
+  expect(shiftCalls(calls)).toHaveLength(2);
   // Back on Storm: one poll at once, and the timer runs again (one tick = one more).
   await page.click('nav [data-tab="storm"]');
-  await expect.poll(() => shiftCalls(calls).length).toBe(2);
+  await expect.poll(() => shiftCalls(calls).length).toBe(3);
   // Page hidden (phone locked): the timer ticks but asks nothing.
   await page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
@@ -2779,15 +2783,15 @@ test('polling runs only on the Storm tab, and only while the page is visible', a
   });
   await page.clock.runFor(60000);
   await page.waitForTimeout(300);
-  expect(shiftCalls(calls)).toHaveLength(2);
+  expect(shiftCalls(calls)).toHaveLength(3);
   // Visible again: exactly one poll, straight away.
   await page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
     document.dispatchEvent(new Event('visibilitychange'));
   });
-  await expect.poll(() => shiftCalls(calls).length).toBe(3);
+  await expect.poll(() => shiftCalls(calls).length).toBe(4);
   await page.waitForTimeout(300);
-  expect(shiftCalls(calls)).toHaveLength(3);
+  expect(shiftCalls(calls)).toHaveLength(4);
 });
 
 test('polling stops on an expired session and shows sign-in', async ({ page }) => {
@@ -2798,8 +2802,8 @@ test('polling stops on an expired session and shows sign-in', async ({ page }) =
   await page.clock.runFor(20000); // the 20 s timer fires one poll; the server says the session is gone
   await expect(page.locator('#signin')).toBeVisible();
   await expect(page.locator('#si_err')).toContainText('Sign in again');
-  const before = shiftCalls(calls).length; // the first poll plus the one that was refused: 2
-  expect(before).toBe(2);
+  const before = shiftCalls(calls).length; // Tonight's read, the Storm tab's first poll, and the one that was refused: 3
+  expect(before).toBe(3);
   await page.clock.runFor(60000);          // three more timer ticks' worth of time
   await page.waitForTimeout(300);
   expect(shiftCalls(calls)).toHaveLength(before);
@@ -4314,17 +4318,17 @@ test('a poll the server never answers does not stop the polls after it', async (
   const w = stormWorld();
   const calls = await openStorm(page, w, { hangIf: (b) => net.hang && b.action === 'getShiftLog' });
   await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
-  expect(shiftCalls(calls)).toHaveLength(1);
+  expect(shiftCalls(calls)).toHaveLength(2);   // a crew phone's first screen is Tonight, which read the shift log once for the shift card (times, 11/11/26): that read is call 1 and the Storm tab's first poll is call 2
   net.hang = true;
   await page.clock.runFor(20000);
-  await expect.poll(() => shiftCalls(calls).length).toBe(2);
+  await expect.poll(() => shiftCalls(calls).length).toBe(3);
   net.hang = false;
   w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test')];
   await page.clock.runFor(40000);
   await page.waitForTimeout(300);
-  expect(shiftCalls(calls)).toHaveLength(2);
+  expect(shiftCalls(calls)).toHaveLength(3);
   await page.clock.runFor(20000);
-  await expect.poll(() => shiftCalls(calls).length).toBe(3);
+  await expect.poll(() => shiftCalls(calls).length).toBe(4);
   await expect(walkRow(page, 'S1|Z1')).toContainText('Cleared · Alex Test');
 });
 
@@ -7285,17 +7289,21 @@ test('times rows: a crew member holds only their own Clock rows, and sends the T
   expect(await clockIds(page)).toEqual(['K-3']);        // never Alex's K-2 / K-4
   expect((await phoneState(page)).last.clock).toBe(4);  // the server's tail; Jordan's newest row is seq 3
   await pollNow(page);
-  await expect.poll(() => shiftCalls(calls).length).toBe(2);
+  await expect.poll(() => shiftCalls(calls).length).toBe(3);   // a crew phone's first screen is Tonight, which read the shift log once for the shift card (times, 11/11/26): that read is call 1 and the Storm tab's first poll is call 2; the pollNow is the third
   // R12: the second poll's REQUEST says cursor 4 and last 4. Sending 3 (his own newest) would make the server compare
   // row 4's seq with 3, call it a reset, and re-send the window every 20 s.
   expect(shiftCalls(calls)[0].body.cursor.clock).toBe(0);
   expect(shiftCalls(calls)[0].body.last.clock).toBe(null);
   expect(shiftCalls(calls)[1].body.cursor.clock).toBe(4);
   expect(shiftCalls(calls)[1].body.last.clock).toBe(4);
-  await expect.poll(() => replies.length).toBe(2);
+  expect(shiftCalls(calls)[2].body.cursor.clock).toBe(4);
+  expect(shiftCalls(calls)[2].body.last.clock).toBe(4);
+  await expect.poll(() => replies.length).toBe(3);
   expect(replies[0].reset.clock).toBe(true);
   expect(replies[1].reset.clock).toBe(false);
   expect(replies[1].clock).toEqual([]);
+  expect(replies[2].reset.clock).toBe(false);
+  expect(replies[2].clock).toEqual([]);
   expect(await clockIds(page)).toEqual(['K-3']);
 });
 
@@ -7344,7 +7352,7 @@ test('times rows: a backend that has never heard of Clock rows leaves the phone 
   const calls = await openStorm(page, timesWorld(), { fake: { noClock: true } });
   await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
   await pollNow(page);
-  await expect.poll(() => shiftCalls(calls).length).toBe(2);
+  await expect.poll(() => shiftCalls(calls).length).toBe(3);   // a crew phone's first screen is Tonight, which read the shift log once for the shift card (times, 11/11/26): that read is call 1 and the Storm tab's first poll is call 2; the pollNow is the third
   expect((await phoneState(page)).clock).toEqual([]);
   expect(shiftCalls(calls)[1].body.cursor.clock).toBe(0);
   expect(shiftCalls(calls)[1].body.last.clock).toBe(null);
@@ -7499,6 +7507,8 @@ test('times rows: a crew phone behind on other people\'s Clock rows moves its cu
   // Worked by hand. First load (the four rows of timesWorld): Jordan holds K-3, cursor 4, tail 4.
   // Alex's K-5 lands: the second poll sends cursor 4 / last 4, and the server (row 4 has seq 4: no reset) answers rows after 4 =
   // [K-5], none of them Jordan's, so clock [], cursor 5, tail 5. The THIRD poll must then send cursor 5 and last 5.
+  // (A crew phone's first screen is Tonight, which read the shift log once for the shift card (times, 11/11/26): that read is call 1,
+  // the Storm tab's first poll call 2 (4 / 4); so the "second" and "third" polls below are calls 3 and 4.)
   const w = timesWorld();
   const replies = clockReplies(page);
   const calls = await openStorm(page, w);
@@ -7508,14 +7518,14 @@ test('times rows: a crew phone behind on other people\'s Clock rows moves its cu
   await expect.poll(async () => (await phoneState(page)).cursor.clock).toBe(5);
   expect((await phoneState(page)).last.clock).toBe(5);
   await pollNow(page);
-  await expect.poll(() => shiftCalls(calls).length).toBe(3);
-  expect(shiftCalls(calls)[1].body.cursor.clock).toBe(4);
-  expect(shiftCalls(calls)[1].body.last.clock).toBe(4);
-  expect(shiftCalls(calls)[2].body.cursor.clock).toBe(5);
-  expect(shiftCalls(calls)[2].body.last.clock).toBe(5);
-  await expect.poll(() => replies.length).toBe(3);
-  expect(replies[1]).toMatchObject({ clock: [], cursor: { clock: 5 }, tail: { clock: 5 }, reset: { clock: false } });
+  await expect.poll(() => shiftCalls(calls).length).toBe(4);
+  expect(shiftCalls(calls)[2].body.cursor.clock).toBe(4);
+  expect(shiftCalls(calls)[2].body.last.clock).toBe(4);
+  expect(shiftCalls(calls)[3].body.cursor.clock).toBe(5);
+  expect(shiftCalls(calls)[3].body.last.clock).toBe(5);
+  await expect.poll(() => replies.length).toBe(4);
   expect(replies[2]).toMatchObject({ clock: [], cursor: { clock: 5 }, tail: { clock: 5 }, reset: { clock: false } });
+  expect(replies[3]).toMatchObject({ clock: [], cursor: { clock: 5 }, tail: { clock: 5 }, reset: { clock: false } });
   expect(await clockIds(page)).toEqual(['K-3']);
 });
 
@@ -8270,4 +8280,526 @@ test('site times: a Set times box whose value was set with no input event still 
   await page.click('#st_save');
   await expect(page.locator('#dlg')).toBeHidden();
   expect(siteActionCalls(calls, 'typeSiteTimes')[0].body).toMatchObject({ shift_id: 'night-2026-10-02', time_in: '2026-10-03T02:55', time_out: '' });
+});
+
+// ---------------- shift times: Start shift / End shift on Tonight, each person's line on the Board, Set shift (times plan, Task 10) ----------------
+// Fixture (shiftWorld): the Clock tab is empty and no storm is open (a shift needs none). Alex (C01) leads R1, Jordan (C03) and Casey (C04) are
+// members, so a tap by anyone on R1 covers THREE people. R2 has nobody. The fake stamps a row at w.clock (3:05 AM on 10/3 unless a test says
+// otherwise), the phone's own clock is STORM_CLOCK (7:30 AM), and the shift now is night-2026-10-02 until 9 AM.
+const shiftWorld = () => {
+  const w = timesWorld(); w.clockRows = []; w.storms = []; w.clock = tAt('03:05:00');
+  w.crew.push({ id: 'C04', name: 'Casey Third', phone: '555-0104', is_lead: false, rev: 1, profile_id: '5' });
+  w.moves.push({ id: 'M3', at: '2026-10-01T17:00:00.000-08:00', worker: 'C04', to_route: 'R1', role: 'member' });
+  w.posts = [{ ...POST, shift: 'night-2026-10-02', people: { ...POST.people, C04: { name: 'Casey Third', phone: '555-0104', shifts: { night: 0, day: 0 } } },
+    routes: [{ id: 'R2', name: 'N2', sites: [{ id: 'S2', name: 'TUDOR-TRANSIT' }], lead: null, members: [] },
+      { id: 'R1', name: 'N1', sites: [{ id: 'S1', name: 'PAC' }], lead: 'C01', members: ['C03', 'C04'] }] }];
+  return w;
+};
+const NIGHT = 'night-2026-10-02', DAYSHIFT = 'day-2026-10-03';
+// An evening is still the day shift until Matt logs night_on (shiftlog.js shiftFor): the 8 PM tests log it at 7:30 PM.
+const nightOn = () => [{ id: 'ST-9', seq: 1, kind: 'night_on', storm_id: 'ST-1', at: '2026-10-02T19:30:00.000-08:00', by_name: 'Matthew' }];
+const openShift = (page, w, o = {}) => open(page, { token: o.token || 'tok-jordan', snow: fakeSnow(w, o.fake), clockAt: o.clockAt || STORM_CLOCK, delay: o.delay, abortIf: o.abortIf, hangIf: o.hangIf });
+const shiftLine = (page) => page.locator('#shiftLine');
+const clockLine = (page, id) => page.locator('[data-clock="' + id + '"]');
+const clockCalls = (calls, action) => calls.filter((c) => c.body.action === action);
+const goBoard = async (page) => { await page.click('nav [data-tab="board"]'); await expect(page.locator('#post')).toBeVisible(); };
+const openSetShift = async (page, id) => { await page.locator('[data-setshift="' + id + '"]').click(); await expect(page.locator('#ss_save')).toBeVisible(); };
+const kindsOf = async (page) => (await phoneState(page)).clock.map((r) => [r.kind, r.shift_id]);
+
+test('shift times: a crew member on a route taps Start with no storm open, then End; the line and the count come from the rows', async ({ page }) => {
+  const w = shiftWorld();
+  const calls = await openShift(page, w);
+  await expect(page.locator('#shiftcard')).toBeVisible();
+  await expect(page.locator('#shiftStart')).toBeVisible();
+  await expect(page.locator('#shiftEnd')).toHaveCount(0);   // nobody to end yet
+  await expect(page.locator('#shiftUndo')).toHaveCount(0);
+  await expect(shiftLine(page)).toHaveText('');
+  await page.click('#shiftStart');
+  await expect(shiftLine(page)).toHaveText('On the clock since 3:05 AM');
+  await expect(page.locator('#shiftNote')).toHaveText('Started for 3 people');   // `written`: Jordan, Alex and Casey
+  await expect(page.locator('#shiftStart')).toHaveCount(0);
+  await expect(page.locator('#shiftEnd')).toBeVisible();
+  await expect(page.locator('#shiftUndo')).toHaveText('Undo start');
+  // The request names the kind and nothing that names a person, a time or a route; three rows were written, the phone holds its own.
+  const sent = clockCalls(calls, 'clockTap');
+  expect(sent).toHaveLength(1);
+  expect(Object.keys(sent[0].body).sort()).toEqual(['action', 'kind', 'token']);
+  expect(sent[0].body.kind).toBe('start');
+  expect(w.clockRows.map((r) => r.crew_id).sort()).toEqual(['C01', 'C03', 'C04']);
+  expect(await kindsOf(page)).toEqual([['start', NIGHT]]);
+  expect((await phoneState(page)).clock.map((r) => r.crew_id)).toEqual(['C03']);
+  w.clock = tAt('08:40:00');
+  await page.click('#shiftEnd');
+  await expect(shiftLine(page)).toHaveText('Ended 8:40 AM');
+  await expect(page.locator('#shiftNote')).toHaveText('Ended for 3 people');
+  await expect(page.locator('#shiftEnd')).toHaveCount(0);
+  await expect(page.locator('#shiftStart')).toHaveCount(0);   // started and ended in this shift: the server writes nothing more
+  await expect(page.locator('#shiftUndo')).toHaveText('Undo end');
+  expect(clockCalls(calls, 'clockTap')[1].body.kind).toBe('end');
+  expect(await kindsOf(page)).toEqual([['start', NIGHT], ['end', NIGHT]]);
+});
+
+test('shift times: a person the fresh Post does not list sees the card with no buttons and is told to ask the dispatcher', async ({ page }) => {
+  const w = shiftWorld();
+  w.posts[0].routes[1].members = ['C04'];   // Jordan is on no route
+  w.moves = w.moves.filter((m) => m.worker !== 'C03');
+  const calls = await openShift(page, w);
+  await expect(page.locator('#shiftcard')).toBeVisible();
+  await expect(page.locator('#shiftcard')).toContainText('Ask the dispatcher to put you on a route.');
+  await expect(page.locator('#shiftStart')).toHaveCount(0);
+  await expect(page.locator('#shiftEnd')).toHaveCount(0);
+  await expect(page.locator('#shiftUndo')).toHaveCount(0);
+  await expect(page.locator('#shiftcard button')).toHaveCount(0);
+  expect(clockCalls(calls, 'clockTap')).toHaveLength(0);
+});
+
+test('shift times: with no fresh Post the phone offers Start and the server decides by the Board; a refusal shows its words and changes nothing', async ({ page }) => {
+  const w = shiftWorld();
+  w.posts = [];
+  w.moves = w.moves.filter((m) => m.worker !== 'C03');   // the Board has Jordan on no route
+  const calls = await openShift(page, w);
+  await expect(page.locator('#shiftStart')).toBeVisible();
+  await expect(page.locator('#shiftcard')).not.toContainText('Ask the dispatcher');
+  await page.click('#shiftStart');
+  await expect(page.locator('#shiftcard .err')).toContainText('Not saved: The dispatcher has not placed you on a route');
+  await expect(page.locator('#shiftcard [data-clockretry]')).toHaveCount(0);   // refused again however often it is sent
+  await expect(shiftLine(page)).toHaveText('');
+  await expect(page.locator('#shiftStart')).toBeVisible();
+  expect((await phoneState(page)).clock).toHaveLength(0);
+  expect(w.clockRows).toHaveLength(0);
+  const sent = clockCalls(calls, 'clockTap');
+  expect(sent).toHaveLength(1);
+  expect(Object.keys(sent[0].body).sort()).toEqual(['action', 'kind', 'token']);   // a route the phone only guessed is never sent
+});
+
+test('shift times: with no Post at all a person on the Board starts their crew, and the card reads the same', async ({ page }) => {
+  const w = shiftWorld();
+  w.posts = [];
+  await openShift(page, w);
+  await page.click('#shiftStart');
+  await expect(shiftLine(page)).toHaveText('On the clock since 3:05 AM');
+  expect(w.clockRows).toHaveLength(3);
+});
+
+test('shift times: across 9 AM the night crew keeps its card with the night\'s label; End files in the night; Start begins the day (the 9 AM walk)', async ({ page }) => {
+  const w = shiftWorld(); w.clock = '2026-10-02T20:00:00.000-08:00'; w.storms = nightOn();
+  await openShift(page, w, { clockAt: '2026-10-02T20:00:00-08:00' });
+  await page.click('#shiftStart');
+  await expect(shiftLine(page)).toHaveText('On the clock since 8:00 PM');
+  // 9:10 AM: the day shift has no row of Jordan's, the night has a standing Start: the night's card, with its label, End and Undo.
+  w.clock = tAt('09:10:00');
+  await setPhoneClock(page, NINE_TEN);
+  await pollNow(page);
+  await expect(shiftLine(page)).toHaveText('Night of 10/2: On the clock since 8:00 PM');
+  await expect(page.locator('#shiftEnd')).toBeVisible();
+  await expect(page.locator('#shiftUndo')).toHaveText('Undo start');
+  await expect(page.locator('#shiftStart')).toHaveCount(0);   // the night is still open: End it first
+  // End: the row is in the NIGHT; the card reads the night's Ended line and offers a new Start and the Undo of the End.
+  w.clock = tAt('09:12:00');
+  await page.click('#shiftEnd');
+  await expect(shiftLine(page)).toHaveText('Night of 10/2: Ended 9:12 AM');
+  expect((await phoneState(page)).clock.map((r) => [r.kind, r.shift_id])).toEqual([['start', NIGHT], ['end', NIGHT]]);
+  await expect(page.locator('#shiftStart')).toBeVisible();
+  await expect(page.locator('#shiftUndo')).toHaveText('Undo end');
+  await expect(page.locator('#shiftEnd')).toHaveCount(0);
+  // Start: a new shift in the day, shown with no label.
+  w.clock = tAt('09:15:00');
+  await page.click('#shiftStart');
+  await expect(shiftLine(page)).toHaveText('On the clock since 9:15 AM');
+  expect((await phoneState(page)).clock.map((r) => [r.kind, r.shift_id])).toEqual([['start', NIGHT], ['end', NIGHT], ['start', DAYSHIFT]]);
+  await expect(page.locator('#shiftEnd')).toBeVisible();
+  await expect(page.locator('#shiftUndo')).toHaveText('Undo start');
+});
+
+test('shift times: an Undo at 9:05 AM of a Start tapped at 8:55 AM works, and the undo row is filed in the night', async ({ page }) => {
+  const w = shiftWorld(); w.clock = tAt('08:55:00');
+  const calls = await openShift(page, w, { clockAt: '2026-10-03T08:55:00-08:00' });
+  await page.click('#shiftStart');
+  await expect(shiftLine(page)).toHaveText('On the clock since 8:55 AM');
+  w.clock = tAt('09:05:00');
+  await setPhoneClock(page, '2026-10-03T09:05:00-08:00');
+  await pollNow(page);
+  await expect(shiftLine(page)).toHaveText('Night of 10/2: On the clock since 8:55 AM');
+  await page.click('#shiftUndo');
+  expect(clockCalls(calls, 'clockUndo')[0].body).toMatchObject({ kind: 'start' });
+  expect(Object.keys(clockCalls(calls, 'clockUndo')[0].body).sort()).toEqual(['action', 'kind', 'token']);
+  await expect(shiftLine(page)).toHaveText('');
+  await expect(page.locator('#shiftStart')).toBeVisible();
+  await expect(page.locator('#shiftUndo')).toHaveCount(0);
+  expect(await kindsOf(page)).toEqual([['start', NIGHT], ['start_undone', NIGHT]]);
+  await expect(page.locator('#shiftNote')).toHaveText('Start taken back for 3 people');
+});
+
+test('shift times: a second phone on the route tapping Start a minute later writes nothing and shows the FIRST start', async ({ page, browser }) => {
+  const w = shiftWorld();
+  await openShift(page, w);   // Jordan
+  const ctx2 = await browser.newContext({ timezoneId: 'America/Anchorage', viewport: { width: 390, height: 844 } });
+  const p2 = await ctx2.newPage();
+  try {
+    await openShift(p2, w, { token: 'tok-alex' });   // Alex, the lead
+    await expect(p2.locator('#shiftStart')).toBeVisible();
+    w.clock = tAt('03:02:11');
+    await page.click('#shiftStart');
+    await expect(shiftLine(page)).toHaveText('On the clock since 3:02 AM');
+    w.clock = tAt('03:03:30');
+    await p2.click('#shiftStart');   // his phone has not polled: it still offers Start
+    await expect(p2.locator('#shiftNote')).toHaveText('Nothing to change: it was already recorded');
+    await expect(p2.locator('#shiftLine')).toHaveText('On the clock since 3:02 AM');   // read back from the rows: the first start wins
+    await expect(p2.locator('#shiftEnd')).toBeVisible();
+    expect(w.clockRows).toHaveLength(3);
+    expect(w.clockRows.every((r) => r.at === tAt('03:02:11'))).toBe(true);
+  } finally { await ctx2.close(); }
+});
+
+test('shift times: with an End standing there is no Undo of the Start; taking the End back brings End and Undo of the Start (R2)', async ({ page }) => {
+  const w = shiftWorld(); w.clock = tAt('03:00:00');
+  const calls = await openShift(page, w);
+  await page.click('#shiftStart');
+  await expect(shiftLine(page)).toHaveText('On the clock since 3:00 AM');
+  w.clock = tAt('08:00:00');
+  await page.click('#shiftEnd');
+  await expect(shiftLine(page)).toHaveText('Ended 8:00 AM');
+  await expect(page.locator('#shiftUndo')).toHaveCount(1);
+  await expect(page.locator('#shiftUndo')).toHaveAttribute('data-kind', 'end');
+  await expect(page.locator('#shiftUndo')).toHaveText('Undo end');
+  await page.click('#shiftUndo');
+  expect(clockCalls(calls, 'clockUndo')[0].body.kind).toBe('end');
+  await expect(shiftLine(page)).toHaveText('On the clock since 3:00 AM');
+  await expect(page.locator('#shiftEnd')).toBeVisible();
+  await expect(page.locator('#shiftUndo')).toHaveAttribute('data-kind', 'start');
+  await expect(page.locator('#shiftStart')).toHaveCount(0);
+  expect(await kindsOf(page)).toEqual([['start', NIGHT], ['end', NIGHT], ['end_undone', NIGHT]]);
+});
+
+test('shift times: a crew phone never draws a teammate\'s name or time on the card, though the dispatcher\'s Board shows them', async ({ page, browser }) => {
+  const w = shiftWorld();
+  await openShift(page, w);   // Jordan
+  await page.click('#shiftStart');
+  await expect(shiftLine(page)).toHaveText('On the clock since 3:05 AM');
+  expect(w.clockRows).toHaveLength(3);
+  await expect(page.locator('#shiftcard').getByText('Alex Test')).toHaveCount(0);
+  await expect(page.locator('#shiftcard').getByText('Casey Third')).toHaveCount(0);
+  await expect(page.locator('#shiftcard [data-clock]')).toHaveCount(0);
+  expect((await phoneState(page)).clock.every((r) => r.crew_id === 'C03')).toBe(true);
+  const ctx2 = await browser.newContext({ timezoneId: 'America/Anchorage', viewport: { width: 390, height: 844 } });
+  const p2 = await ctx2.newPage();
+  try {
+    await openShift(p2, w, { token: 'tok-matt' });
+    await p2.click('nav [data-tab="board"]');
+    await expect(clockLine(p2, 'C01')).toHaveText('On the clock since 3:05 AM');   // the control: the Board does show a teammate
+    await expect(clockLine(p2, 'C04')).toHaveText('On the clock since 3:05 AM');
+  } finally { await ctx2.close(); }
+});
+
+test('shift times: Matt\'s Board lists each placed person\'s line; a route Start covers its crew and names the route', async ({ page }) => {
+  const w = shiftWorld();
+  const calls = await openShift(page, w, { token: 'tok-matt' });
+  await goBoard(page);
+  for (const id of ['C01', 'C03', 'C04']) { await expect(clockLine(page, id)).toHaveText(''); await expect(page.locator('[data-setshift="' + id + '"]')).toBeVisible(); }
+  await expect(page.locator('[data-clockstart="R1"]')).toBeVisible();
+  await expect(page.locator('[data-clockend="R1"]')).toHaveCount(0);   // nobody is on the clock to end
+  await expect(page.locator('[data-clockstart="R2"]')).toHaveCount(0); // R2 has nobody
+  await expect(page.locator('[data-clockend="R2"]')).toHaveCount(0);
+  await page.locator('[data-clockstart="R1"]').click();
+  for (const id of ['C01', 'C03', 'C04']) await expect(clockLine(page, id)).toHaveText('On the clock since 3:05 AM');
+  await expect(page.locator('[data-routeclock="R1"]')).toContainText('Started for 3 people');
+  await expect(page.locator('[data-clockstart="R1"]')).toHaveCount(0);   // everyone has a start: it would cover nobody
+  await expect(page.locator('[data-clockend="R1"]')).toBeVisible();
+  const sent = clockCalls(calls, 'clockTap');
+  expect(Object.keys(sent[0].body).sort()).toEqual(['action', 'kind', 'route_id', 'token']);
+  expect([sent[0].body.kind, sent[0].body.route_id]).toEqual(['start', 'R1']);
+  w.clock = tAt('08:40:00');
+  await page.locator('[data-clockend="R1"]').click();
+  for (const id of ['C01', 'C03', 'C04']) await expect(clockLine(page, id)).toHaveText('Ended 8:40 AM');
+  await expect(page.locator('[data-clockend="R1"]')).toHaveCount(0);
+  await expect(page.locator('[data-clockstart="R1"]')).toHaveCount(0);
+  expect(w.clockRows.map((r) => r.kind)).toEqual(['start', 'start', 'start', 'end', 'end', 'end']);
+});
+
+test('shift times: the Board shows only the people the Clock rules would cover: a half-started crew offers both Start and End', async ({ page }) => {
+  const w = shiftWorld();
+  w.clockRows = [clockRow(1, 'C01', 'Alex Test', NIGHT, 'start', { at: tAt('02:00:00') })];
+  await openShift(page, w, { token: 'tok-matt' });
+  await goBoard(page);
+  await expect(clockLine(page, 'C01')).toHaveText('On the clock since 2:00 AM');
+  await expect(clockLine(page, 'C03')).toHaveText('');
+  await expect(page.locator('[data-clockstart="R1"]')).toBeVisible();   // Jordan and Casey have no start
+  await expect(page.locator('[data-clockend="R1"]')).toBeVisible();     // Alex is open
+  await page.locator('[data-clockstart="R1"]').click();
+  await expect(page.locator('[data-routeclock="R1"]')).toContainText('Started for 2 people');
+  await expect(clockLine(page, 'C01')).toHaveText('On the clock since 2:00 AM');   // his first start stands
+  await expect(clockLine(page, 'C03')).toHaveText('On the clock since 3:05 AM');
+});
+
+test('shift times: Set shift saves a typed start marked typed, closes when it is the shift the line shows, and sends the person, shift and derived dates', async ({ page }) => {
+  const w = shiftWorld();
+  const calls = await openShift(page, w, { token: 'tok-matt' });
+  await goBoard(page);
+  await page.locator('[data-clockstart="R1"]').click();
+  await expect(clockLine(page, 'C03')).toHaveText('On the clock since 3:05 AM');
+  await openSetShift(page, 'C03');
+  await expect(page.locator('#dlg h2')).toContainText('Set shift: Jordan Demo');
+  expect(await page.locator('#ss_shift option').evaluateAll((os) => os.map((o) => o.value))).toEqual([NIGHT, 'day-2026-10-02', 'night-2026-10-01', 'day-2026-10-01',
+    'night-2026-09-30', 'day-2026-09-30', 'night-2026-09-29', 'day-2026-09-29']);   // the shift now and the seven before it
+  await expect(page.locator('#ss_shift')).toHaveValue(NIGHT);   // the shift the line shows
+  await expect(page.locator('#ss_held')).toHaveText('Held: In 3:05 AM · Out');
+  await expect(page.locator('#ss_in')).toHaveAttribute('type', 'time');
+  await page.fill('#ss_in', '02:55');
+  await expect(page.locator('#ss_in_day')).toHaveText('on 10/3');
+  await page.click('#ss_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  const sent = clockCalls(calls, 'typeClock');
+  expect(Object.keys(sent[0].body).sort()).toEqual(['action', 'crew_id', 'shift_id', 'time_in', 'time_out', 'token']);
+  expect(sent[0].body).toMatchObject({ crew_id: 'C03', shift_id: NIGHT, time_in: '2026-10-03T02:55', time_out: '' });
+  await expect(clockLine(page, 'C03')).toHaveText('On the clock since 2:55 AM (typed by Matthew)');   // the typed time wins over the tapped 3:05
+  await expect(clockLine(page, 'C01')).toHaveText('On the clock since 3:05 AM');
+  // A blank box leaves that side to the tap: only an end typed for Alex, his tapped start stands (the Held line says so).
+  w.clock = tAt('08:50:00');   // the server's now, so that 8:00 AM is not in the future
+  await openSetShift(page, 'C01');
+  await page.fill('#ss_out', '08:00');
+  await page.click('#ss_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(clockCalls(calls, 'typeClock')[1].body).toMatchObject({ crew_id: 'C01', time_in: '', time_out: '2026-10-03T08:00' });
+  await expect(clockLine(page, 'C01')).toHaveText('Ended 8:00 AM (typed by Matthew)');
+  await openSetShift(page, 'C01');
+  await expect(page.locator('#ss_held')).toHaveText('Held: In 3:05 AM · Out 8:00 AM (typed by Matthew)');
+  await page.click('#dlgClose');
+  // An end typed over a typed start: both marked.
+  await openSetShift(page, 'C03');
+  await page.fill('#ss_out', '08:10');
+  await page.click('#ss_save');
+  await expect(clockLine(page, 'C03')).toHaveText('Ended 8:10 AM (typed by Matthew) · In 2:55 AM (typed by Matthew)');
+});
+
+test('shift times: the date button under a Set shift box is the date sent, flipped or not', async ({ page }) => {
+  const w = shiftWorld();
+  const calls = await openShift(page, w, { token: 'tok-matt' });
+  await goBoard(page);
+  await openSetShift(page, 'C03');
+  await page.fill('#ss_in', '23:40');
+  await expect(page.locator('#ss_in_day')).toHaveText('on 10/2');   // the evening of the night of 10/2
+  await page.fill('#ss_out', '02:30');
+  await expect(page.locator('#ss_out_day')).toHaveText('on 10/3');
+  await page.click('#ss_in_day');   // wrongly read? flip it: the day after
+  await expect(page.locator('#ss_in_day')).toHaveText('on 10/3');
+  await page.click('#ss_out_day');
+  await expect(page.locator('#ss_out_day')).toHaveText('on 10/2');
+  await page.click('#ss_out_day');
+  await expect(page.locator('#ss_out_day')).toHaveText('on 10/3');
+  await page.click('#ss_save');
+  // 10/3 23:40 is in the future of the fake's 3:05 AM clock: the server's words stay in the open dialog and nothing is filed
+  await expect(page.locator('#ss_err')).toHaveText('A time cannot be in the future');
+  expect(clockCalls(calls, 'typeClock')[0].body).toMatchObject({ time_in: '2026-10-03T23:40', time_out: '2026-10-03T02:30' });
+  await page.click('#ss_in_day');   // back to 10/2
+  await page.click('#ss_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(clockCalls(calls, 'typeClock')[1].body).toMatchObject({ time_in: '2026-10-02T23:40', time_out: '2026-10-03T02:30' });
+  // a box set with no input event still sends a real date (the fallback)
+  await openSetShift(page, 'C01');
+  await page.evaluate(() => { document.getElementById('ss_in').value = '02:55'; });
+  await page.click('#ss_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(clockCalls(calls, 'typeClock')[2].body).toMatchObject({ crew_id: 'C01', time_in: '2026-10-03T02:55', time_out: '' });
+});
+
+test('shift times: Set shift for a shift outside the two the phone holds stays open, says Saved, and shows what it holds', async ({ page }) => {
+  const w = shiftWorld();
+  const calls = await openShift(page, w, { token: 'tok-matt' });
+  await goBoard(page);
+  await openSetShift(page, 'C04');
+  await expect(page.locator('#ss_held')).toHaveText('Held: nothing yet');
+  await page.selectOption('#ss_shift', 'night-2026-09-29');
+  await page.fill('#ss_in', '22:00');
+  await page.fill('#ss_out', '05:00');
+  await expect(page.locator('#ss_in_day')).toHaveText('on 9/29');
+  await expect(page.locator('#ss_out_day')).toHaveText('on 9/30');
+  await page.click('#ss_save');
+  await expect(page.locator('#ss_saved')).toHaveText('Saved');
+  await expect(page.locator('#dlg')).toBeVisible();
+  expect(clockCalls(calls, 'typeClock')[0].body).toMatchObject({ crew_id: 'C04', shift_id: 'night-2026-09-29', time_in: '2026-09-29T22:00', time_out: '2026-09-30T05:00' });
+  await expect(page.locator('#ss_held')).toHaveText('Held: In 10:00 PM (typed by Matthew) · Out 5:00 AM (typed by Matthew)');
+  await expect(page.locator('#ss_in')).toHaveValue('');
+  await expect(page.locator('#ss_save')).toBeEnabled();
+  await expect(clockLine(page, 'C04')).toHaveText('');   // the Board line is the shown shift's: nothing there
+  await page.selectOption('#ss_shift', NIGHT);
+  await expect(page.locator('#ss_held')).toHaveText('Held: nothing yet');
+  // Reopened, the shift is the one last saved.
+  await page.click('#dlgClose');
+  await openSetShift(page, 'C04');
+  await expect(page.locator('#ss_shift')).toHaveValue('night-2026-09-29');
+  await expect(page.locator('#ss_held')).toContainText('In 10:00 PM');
+});
+
+test('shift times: a person on no route still has a line and a Set shift in Unassigned', async ({ page }) => {
+  const w = shiftWorld();
+  w.crew.push({ id: 'C05', name: 'Dana Unplaced', phone: '555-0105', is_lead: false, rev: 1, profile_id: '6' });
+  const calls = await openShift(page, w, { token: 'tok-matt' });
+  await goBoard(page);
+  await expect(page.locator('section:has(h2:text("Unassigned")) [data-setshift="C05"]')).toBeVisible();
+  await expect(clockLine(page, 'C05')).toHaveText('');
+  await openSetShift(page, 'C05');
+  await page.fill('#ss_in', '01:00');
+  await page.click('#ss_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(clockCalls(calls, 'typeClock')[0].body).toMatchObject({ crew_id: 'C05', shift_id: NIGHT, time_in: '2026-10-03T01:00', time_out: '' });
+  await expect(clockLine(page, 'C05')).toHaveText('On the clock since 1:00 AM (typed by Matthew)');
+});
+
+test('shift times: the Board at 9:10 AM labels the night\'s lines and still offers End for the crew that is on the clock', async ({ page }) => {
+  const w = shiftWorld(); w.clock = '2026-10-02T20:00:00.000-08:00'; w.storms = nightOn();
+  await openShift(page, w, { token: 'tok-matt', clockAt: '2026-10-02T20:00:00-08:00' });
+  await goBoard(page);
+  await page.locator('[data-clockstart="R1"]').click();
+  await expect(clockLine(page, 'C03')).toHaveText('On the clock since 8:00 PM');
+  w.clock = tAt('09:10:00');
+  await setPhoneClock(page, NINE_TEN);
+  await pollNow(page);
+  for (const id of ['C01', 'C03', 'C04']) await expect(clockLine(page, id)).toHaveText('Night of 10/2: On the clock since 8:00 PM');
+  await expect(page.locator('[data-clockend="R1"]')).toBeVisible();
+  w.clock = tAt('09:12:00');
+  await page.locator('[data-clockend="R1"]').click();
+  expect(w.clockRows.filter((r) => r.kind === 'end').map((r) => r.shift_id)).toEqual([NIGHT, NIGHT, NIGHT]);   // R13: the End closes the night
+  for (const id of ['C01', 'C03', 'C04']) await expect(clockLine(page, id)).toHaveText('Night of 10/2: Ended 9:12 AM');
+});
+
+test('shift times: a double tap on Start sends one request', async ({ page }) => {
+  const w = shiftWorld();
+  const calls = await openShift(page, w, { delay: { clockTap: 700 } });
+  await page.locator('#shiftStart').dblclick();
+  await expect(page.locator('#shiftcard')).toHaveAttribute('aria-busy', 'true');
+  await expect(shiftLine(page)).toHaveText('On the clock since 3:05 AM');
+  await expect(page.locator('#shiftcard')).not.toHaveAttribute('aria-busy', 'true');
+  expect(clockCalls(calls, 'clockTap')).toHaveLength(1);
+  expect(w.clockRows).toHaveLength(3);
+});
+
+test('shift times: a tap whose reply was lost shows Not saved with Retry, and Retry leaves ONE start', async ({ page }) => {
+  const w = shiftWorld();
+  const f = fakeSnow(w);
+  let drop = true;
+  // The first clockTap REACHES the server (three rows are written) and its reply is lost.
+  const calls = await open(page, { token: 'tok-jordan', snow: f, clockAt: STORM_CLOCK, abortIf: (b) => { if (drop && b.action === 'clockTap') { drop = false; f(b); return true; } return false; } });
+  await page.click('#shiftStart');
+  await expect(page.locator('#shiftcard .walk-fail')).toContainText('Not saved: no signal');
+  await expect(page.locator('#shiftStart')).toBeVisible();
+  await expect(shiftLine(page)).toHaveText('');
+  expect(w.clockRows).toHaveLength(3);   // it landed
+  await page.locator('[data-clockretry="card"]').click();
+  await expect(shiftLine(page)).toHaveText('On the clock since 3:05 AM');   // read back from the rows the server already had
+  expect(w.clockRows).toHaveLength(3);
+  expect((await phoneState(page)).clock.map((r) => r.kind)).toEqual(['start']);
+  expect(clockCalls(calls, 'clockTap')).toHaveLength(2);
+  await expect(page.locator('#shiftcard .walk-fail')).toHaveCount(0);
+});
+
+test('shift times: a Set shift that never reached the server shows no signal, keeps the dialog and the values, and Save again works', async ({ page }) => {
+  let drop = true;
+  const w = shiftWorld();
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w), clockAt: STORM_CLOCK, abortIf: (b) => { if (drop && b.action === 'typeClock') { drop = false; return true; } return false; } });
+  await goBoard(page);
+  await openSetShift(page, 'C03');
+  await page.fill('#ss_in', '02:55');
+  await page.click('#ss_save');
+  await expect(page.locator('#ss_err')).toHaveText('Not saved: no signal');
+  await expect(page.locator('#dlg')).toBeVisible();
+  await expect(page.locator('#ss_in')).toHaveValue('02:55');
+  await expect(page.locator('#ss_in_day')).toHaveText('on 10/3');
+  await expect(page.locator('#ss_save')).toBeEnabled();
+  await page.click('#ss_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  await expect(clockLine(page, 'C03')).toHaveText('On the clock since 2:55 AM (typed by Matthew)');
+  expect(clockCalls(calls, 'typeClock')).toHaveLength(2);
+});
+
+test('shift times: a crew member has no Board and no controls of the dispatcher\'s', async ({ page }) => {
+  await openShift(page, shiftWorld());
+  await expect(page.locator('nav [data-tab="board"]')).toHaveCount(0);
+  await expect(page.locator('[data-clockstart]')).toHaveCount(0);
+  await expect(page.locator('[data-clockend]')).toHaveCount(0);
+  await expect(page.locator('[data-setshift]')).toHaveCount(0);
+  await expect(page.locator('[data-clock]')).toHaveCount(0);
+  await expect(page.locator('#shiftStart')).toBeVisible();
+});
+
+test('shift times: Spanish for every new word; names stay as typed; the server still gets English', async ({ page, browser }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  const w = shiftWorld();
+  const calls = await openShift(page, w);
+  await expect(page.locator('#shiftcard h2')).toHaveText('Tu turno');
+  await expect(page.locator('#shiftStart')).toHaveText('Empezar turno');
+  await page.click('#shiftStart');
+  await expect(shiftLine(page)).toHaveText('En turno desde 3:05 AM');
+  await expect(page.locator('#shiftNote')).toHaveText('Empezó el turno para 3 personas');
+  await expect(page.locator('#shiftEnd')).toHaveText('Terminar turno');
+  await expect(page.locator('#shiftUndo')).toHaveText('Deshacer inicio');
+  w.clock = tAt('08:40:00');
+  await page.click('#shiftEnd');
+  await expect(shiftLine(page)).toHaveText('Terminó 8:40 AM');
+  await expect(page.locator('#shiftNote')).toHaveText('Terminó el turno para 3 personas');
+  await expect(page.locator('#shiftUndo')).toHaveText('Deshacer final');
+  expect(clockCalls(calls, 'clockTap').map((c) => c.body.kind)).toEqual(['start', 'end']);
+  // Not on a route, and the Board (Matt)
+  const ctx2 = await browser.newContext({ timezoneId: 'America/Anchorage', viewport: { width: 390, height: 844 } });
+  const p2 = await ctx2.newPage();
+  try {
+    await p2.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+    const w2 = shiftWorld();
+    w2.clockRows = [clockRow(1, 'C01', 'Alex Test', NIGHT, 'start', { at: tAt('02:00:00') })];
+    await openShift(p2, w2, { token: 'tok-matt' });
+    await p2.click('nav [data-tab="board"]');
+    await expect(clockLine(p2, 'C01')).toHaveText('En turno desde 2:00 AM');
+    await expect(p2.locator('[data-clockstart="R1"]')).toHaveText('Empezar turno');
+    await expect(p2.locator('[data-clockend="R1"]')).toHaveText('Terminar turno');
+    await expect(p2.locator('[data-setshift="C01"]')).toHaveText('Poner turno');
+    await expect(p2.locator('.clockrow').first().locator('[data-no-es]')).toHaveText('Alex Test');
+    await p2.locator('[data-setshift="C01"]').click();
+    await expect(p2.locator('#dlg h2')).toContainText('Poner turno: Alex Test');
+  } finally { await ctx2.close(); }
+});
+
+test('shift times: Spanish for a crew member who is on no route', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  const w = shiftWorld();
+  w.posts[0].routes[1].members = ['C04'];
+  await openShift(page, w);
+  await expect(page.locator('#shiftcard')).toContainText('Pídele al despachador que te ponga en una ruta.');
+});
+
+test('shift times: at 320 px wide the card with the night\'s label and both buttons stays on screen', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  const w = shiftWorld(); w.clock = tAt('08:55:00');
+  await openShift(page, w, { clockAt: '2026-10-03T08:55:00-08:00' });
+  await page.click('#shiftStart');
+  await expect(shiftLine(page)).toHaveText('On the clock since 8:55 AM');
+  w.clock = tAt('09:05:00');
+  await setPhoneClock(page, '2026-10-03T09:05:00-08:00');
+  await pollNow(page);
+  await expect(shiftLine(page)).toHaveText('Night of 10/2: On the clock since 8:55 AM');
+  const r = await page.evaluate(() => {
+    const els = Array.from(document.querySelectorAll('#shiftcard button'));
+    return { scroll: document.documentElement.scrollWidth, n: els.length, boxes: els.map((e) => { const b = e.getBoundingClientRect(); return [Math.round(b.left), Math.round(b.right)]; }) };
+  });
+  expect(r.n).toBe(2);   // End shift and Undo start
+  expect(r.scroll).toBeLessThanOrEqual(320);
+  for (const [l, rt] of r.boxes) { expect(l).toBeGreaterThanOrEqual(0); expect(rt).toBeLessThanOrEqual(320); }
+});
+
+test('shift times: at 320 px wide a Board route card with lines, a long typed name and both controls stays on screen', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  const w = shiftWorld();
+  w.crew.find((c) => c.id === 'C04').name = 'Bartholomew Featherstonehaugh-Smythe';
+  w.clockRows = [clockRow(1, 'C01', 'Alex Test', NIGHT, 'start', { at: tAt('02:00:00') }),
+    clockRow(2, 'C04', 'Bartholomew Featherstonehaugh-Smythe', NIGHT, 'typed', { time_in: '2026-10-02T23:40', by_name: 'Matthew' })];
+  await openShift(page, w, { token: 'tok-matt' });
+  await goBoard(page);
+  await expect(clockLine(page, 'C04')).toHaveText('On the clock since 11:40 PM (typed by Matthew)');
+  await expect(page.locator('[data-clockstart="R1"]')).toBeVisible();
+  await expect(page.locator('[data-clockend="R1"]')).toBeVisible();
+  const r = await page.evaluate(() => {
+    const els = Array.from(document.querySelectorAll('.board-route[data-route="R1"] button, .board-route[data-route="R1"] .clockrow, .board-route[data-route="R1"] [data-clock]'));
+    return { scroll: document.documentElement.scrollWidth, n: els.length, boxes: els.map((e) => { const b = e.getBoundingClientRect(); return [Math.round(b.left), Math.round(b.right)]; }) };
+  });
+  expect(r.n).toBeGreaterThanOrEqual(9);
+  expect(r.scroll).toBeLessThanOrEqual(320);
+  for (const [l, rt] of r.boxes) { expect(l).toBeGreaterThanOrEqual(0); expect(rt).toBeLessThanOrEqual(320); }
 });

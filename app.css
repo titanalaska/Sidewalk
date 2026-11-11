@@ -336,3 +336,22 @@ header #who{flex:1 1 auto;min-width:0;text-align:left}
 .site-marks.pending .markbtn{opacity:.55}
 .site-marks .walk-fail{flex:1 0 100%;margin:0}
 .typed-mark{white-space:normal}
+
+/* shift times (Task 10, 11/11/26): Tonight's shift card, the Board's lines and route controls */
+.shiftline{margin:6px 0 0;font-size:15px;overflow-wrap:anywhere}
+.shiftline:empty{display:none}
+.shiftline b{font-variant-numeric:tabular-nums}
+.shiftbtns button{flex:1 1 120px;min-height:48px;font-weight:600}
+.shiftbtns button.small{flex:0 1 auto;font-size:15px}
+#shiftcard .walk-fail{margin:8px 0 0}
+#shiftNote{margin:8px 0 0}
+.routeclock{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:8px 0 0}
+.routeclock:empty{display:none}
+.routeclock button{flex:1 1 120px;min-height:48px;font-weight:600}
+.routeclock .walk-fail{flex:1 0 100%;margin:0}
+.clockrows{margin-top:8px}
+.clockrow{display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;padding:6px 0;border-top:1px solid var(--line)}
+.clockrow .cname{flex:1 1 100%;font-weight:600;overflow-wrap:anywhere}
+.clockrow .clockline{flex:1 1 9em;min-width:0;font-size:14px;overflow-wrap:anywhere}
+.clockrow .clockline:empty{display:none}
+.clockrow button{margin-left:auto}

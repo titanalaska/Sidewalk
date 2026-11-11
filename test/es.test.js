@@ -118,3 +118,24 @@ test("site times: the Set times box and its date line", () => {
   // The shift labels that were already in Spanish by the Tonight rule are not disturbed.
   assert.equal(Es.translateString("Night of 10/3, posted 12:12 AM"), "Noche del 10/3, publicado 12:12 AM");
 });
+
+test('shift times (11/11/26): the buttons, the card heading, the line words and the counts after a tap', () => {
+  const rows = {
+    'Start shift': 'Empezar turno', 'End shift': 'Terminar turno', 'Set shift': 'Poner turno', 'Your shift': 'Tu turno',
+    'On the clock since': 'En turno desde', 'Undo start': 'Deshacer inicio', 'Undo end': 'Deshacer final', 'Ended': 'Terminó',
+    'Set shift: ': 'Poner turno: ', 'Shift not saved: no signal': 'No se guardó el turno: sin señal',
+    'Nothing to change: it was already recorded': 'Nada que cambiar: ya estaba registrado',
+    'Ask the dispatcher to put you on a route.': 'Pídele al despachador que te ponga en una ruta.',
+  };
+  for (const [en, es] of Object.entries(rows)) assert.equal(Es.translateString(en), es, en);
+  // one person is singular, the rest plural (worked by hand: 1 -> persona, 0 and 3 -> personas)
+  assert.equal(Es.translateString('Started for 1 person'), 'Empezó el turno para 1 persona');
+  assert.equal(Es.translateString('Started for 3 people'), 'Empezó el turno para 3 personas');
+  assert.equal(Es.translateString('Ended for 2 people'), 'Terminó el turno para 2 personas');
+  assert.equal(Es.translateString('Start taken back for 3 people'), 'Se deshizo el inicio para 3 personas');
+  assert.equal(Es.translateString('End taken back for 1 person'), 'Se deshizo el final para 1 persona');
+});
+test('shift times: the bare word Ended is only ever an exact text node, so a longer English sentence is left alone', () => {
+  assert.equal(Es.translateString('Ended'), 'Terminó');
+  assert.equal(Es.translateString('Ended by Matthew'), 'Ended by Matthew');
+});

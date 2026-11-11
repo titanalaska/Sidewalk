@@ -120,7 +120,7 @@ test('the BuilderTrend note reads its walks and flags from the real taps only; t
   const log = [t(10, 'Z1', 'cleared', '2026-12-04T23:55:00.000-09:00'), t(30, 'Z2', 'checked', '2026-12-05T00:53:00.000-09:00')];
   // Paper: first tap 11:55 PM, last 12:53 AM (the times with no mark at all).
   const early = mark(5, 'S1', 'arrived', { at: '2026-12-04T18:00:00.000-09:00' }), late = mark(40, 'S1', 'left', { at: '2026-12-05T03:00:00.000-09:00' });
-  const typed = mark(20, 'S1', 'typed', { at: '2026-12-05T00:10:00.000-09:00', time_in: '2026-12-04T18:00', time_out: '2026-12-05T03:00' });
+  const typed = mark(20, 'S1', 'typed', { at: '2026-12-05T00:10:00.000-09:00', time_in: '2026-12-04T17:30', time_out: '2026-12-05T03:30' });
   const undone = mark(41, 'S1', 'left_undone', { undoes: 'M-40', at: '2026-12-05T03:01:00.000-09:00' });
   const want = Note.btNote({ site, zones, storm_id: ST, log, visits: [] }, SHIFT);
   assert.equal(want.timeIn, '11:55 PM');
@@ -131,11 +131,13 @@ test('the BuilderTrend note reads its walks and flags from the real taps only; t
   // mark is nothing, and a side nobody marked stays the walk taps. Paper, per case (In, Out):
   //   early Arrived 6:00 PM          -> 6:00 PM, 12:53 AM (Out is still the last walk tap)
   //   late Left 3:00 AM              -> 11:55 PM, 3:00 AM
-  //   typed in 6:00 PM / out 3:00 AM -> 6:00 PM, 3:00 AM
+  //   typed in 5:30 PM / out 3:30 AM -> 5:30 PM, 3:30 AM (not the tapped 6:00 PM / 3:00 AM: the typed times DIFFER so the case can tell)
+  //   late Left 3:00 AM then its Undo -> 11:55 PM, 12:53 AM (the Undo gives the walk tap back)
+  //   early + typed + late (nothing undone) -> typed beats tapped on both sides: 5:30 PM, 3:30 AM
   //   a Left undo with nothing to undo (its target M-40 is not in the log) -> 11:55 PM, 12:53 AM, as without it
-  //   all four together: typed beats the tapped Arrived; the tapped Left is undone, the typed Out stands -> 6:00 PM, 3:00 AM
-  const cases = [[[early], '6:00 PM', '12:53 AM'], [[late], '11:55 PM', '3:00 AM'], [[typed], '6:00 PM', '3:00 AM'],
-    [[undone], '11:55 PM', '12:53 AM'], [[early, typed, late, undone], '6:00 PM', '3:00 AM']];
+  //   all four together: typed beats the tapped Arrived; the tapped Left is undone, the typed Out stands -> 5:30 PM, 3:30 AM
+  const cases = [[[early], '6:00 PM', '12:53 AM'], [[late], '11:55 PM', '3:00 AM'], [[typed], '5:30 PM', '3:30 AM'], [[late, undone], '11:55 PM', '12:53 AM'], [[early, typed, late], '5:30 PM', '3:30 AM'],
+    [[undone], '11:55 PM', '12:53 AM'], [[early, typed, late, undone], '5:30 PM', '3:30 AM']];
   cases.forEach(([marks, timeIn, timeOut]) => {
     const got = Note.btNote({ site, zones, storm_id: ST, log: log.concat(marks), visits: [] }, SHIFT);
     const name = marks.map((m) => m.state).join(',');

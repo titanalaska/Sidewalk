@@ -314,7 +314,15 @@ function fakeSnow(state, opts = {}) {
           if (!route || !(route.site_ids || []).includes(siteId)) return refuse('forbidden', 'That site is not on your route');
         }
         if (body.action === 'siteMark') {
-          const row = markRow({ site_id: siteId, state: body.kind });
+          // R28 (markShift_): an Arrived is the current shift. A Left goes to the shift before when the current one holds no standing
+          // tapped Arrived here, the shift before holds one, and that one has no standing tapped Left (a night crew leaving at 9:10 AM).
+          const has = (shift, k) => SL.markUndoTarget(state.log, st0.storm_id, siteId, shift, k).ok;
+          let shiftId = now;
+          if (body.kind === 'left' && !has(now, 'arrived')) { const b = shiftBefore(now); if (has(b, 'arrived') && !has(b, 'left')) shiftId = b; }
+          // R29: a mark of this kind already stands in that shift: nothing is written, the standing row is answered.
+          const standing = SL.markUndoTarget(state.log, st0.storm_id, siteId, shiftId, body.kind);
+          if (standing.ok) return { ok: true, record: markShown(standing.row), ...v };
+          const row = markRow({ site_id: siteId, state: body.kind, shift_id: shiftId });
           state.log.push(row);
           return { ok: true, record: markShown(row), ...v };
         }
@@ -7593,12 +7601,25 @@ test('site times: another route\'s site shows the times and no buttons', async (
   await expect(page.locator('[data-shiftsite="S2"] [data-settimes]')).toHaveCount(0);
 });
 
-test('site times: with no post the phone cannot tell the route, so it offers no Arrived or Left', async ({ page }) => {
+test('site times: with no post the phone cannot tell the route, so it offers Arrived and Left as it offers walk taps (R26)', async ({ page }) => {
   const w = timesWorld(); w.posts = [];
   await openStorm(page, w);
   await page.click('#otherRoutes');
-  await expect(page.locator('[data-walk^="S1|"]').first()).toBeVisible();   // the walk buttons stay (the server decides those)
-  await expect(page.locator('[data-arrived], [data-left], [data-markundo]')).toHaveCount(0);
+  await expect(page.locator('[data-walk^="S1|"]').first()).toBeVisible();
+  await expect(arrivedBtn(page, 'S1')).toBeVisible();
+  await expect(arrivedBtn(page, 'S2')).toBeVisible();   // the server decides by the Board
+});
+
+test('site times: with no post, a person off the route taps Arrived: the words of the server show and nothing changes', async ({ page }) => {
+  const w = timesWorld(); w.posts = []; w.moves = []; w.clock = tAt('03:02:11');   // the Board has Jordan nowhere
+  const calls = await openStorm(page, w);
+  await page.click('#otherRoutes');
+  await arrivedBtn(page, 'S1').click();
+  await expect(page.locator('[data-markrow="S1"] .walk-fail')).toHaveText('Not saved: That site is not on your route');
+  await expect(arrivedBtn(page, 'S1')).toBeVisible();
+  await expect(timesLine(page, 'S1')).toHaveCount(0);
+  expect((await phoneState(page)).log).toEqual([]);
+  expect(siteActionCalls(calls, 'siteMark')).toHaveLength(1);
 });
 
 test('site times: off the posted Board there are no buttons, and still the times', async ({ page }) => {
@@ -7643,6 +7664,7 @@ test('site times: a typed time has no Undo; a tapped one does, under the typed t
   await openStorm(page, w);
   await expect(timesLine(page, 'S1')).toHaveText('In 2:55 AM (typed by Matthew) · Out');
   await expect(arrivedBtn(page, 'S1')).toBeVisible();
+  await expect(leftBtn(page, 'S1')).toBeVisible();   // I3: the start side is typed, so Left is offered without a tapped Arrived
   await expect(page.locator('[data-markundo]')).toHaveCount(0);
   await arrivedBtn(page, 'S1').click();
   await expect(markUndoBtn(page, 'S1', 'arrived')).toBeVisible();
@@ -7709,25 +7731,25 @@ test('site times: Set times lists the shifts the server accepts, time-only boxes
   await expect(page.locator('#st_shift')).toHaveValue('night-2026-10-02');   // the shift running now
   await expect(page.locator('#st_in')).toHaveAttribute('type', 'time');
   await expect(page.locator('#st_out')).toHaveAttribute('type', 'time');
-  await expect(page.locator('#st_in_on')).toHaveText('');   // a blank box prints no date
+  await expect(page.locator('#st_in_day')).toHaveText('');   // a blank box prints no date
   // Night of 10/2: 11:40 PM is on 10/2, 12:10 AM and 11:59 AM on 10/3, 12:00 PM on 10/2.
   const cases = [['23:40', 'on 10/2'], ['00:10', 'on 10/3'], ['11:59', 'on 10/3'], ['12:00', 'on 10/2']];
-  for (const [t, label] of cases) { await page.fill('#st_in', t); await expect(page.locator('#st_in_on')).toHaveText(label); }
+  for (const [t, label] of cases) { await page.fill('#st_in', t); await expect(page.locator('#st_in_day')).toHaveText(label); }
   // The date line follows the shift picked, with no new typing: 12:10 AM on the night of 10/2 is on 10/3; on the day of 10/2 it is on 10/2.
   await page.fill('#st_in', '00:10');
-  await expect(page.locator('#st_in_on')).toHaveText('on 10/3');
+  await expect(page.locator('#st_in_day')).toHaveText('on 10/3');
   await page.selectOption('#st_shift', 'day-2026-10-02');
-  await expect(page.locator('#st_in_on')).toHaveText('on 10/2');
+  await expect(page.locator('#st_in_day')).toHaveText('on 10/2');
   // A day shift is its own date for every time.
   await page.fill('#st_out', '09:15');
-  await expect(page.locator('#st_out_on')).toHaveText('on 10/2');
+  await expect(page.locator('#st_out_day')).toHaveText('on 10/2');
   await page.fill('#st_out', '16:30');
-  await expect(page.locator('#st_out_on')).toHaveText('on 10/2');
+  await expect(page.locator('#st_out_day')).toHaveText('on 10/2');
   await page.selectOption('#st_shift', 'night-2026-10-01');
   await page.fill('#st_out', '03:00');
-  await expect(page.locator('#st_out_on')).toHaveText('on 10/2');   // the night of 10/1, before noon: 10/2
+  await expect(page.locator('#st_out_day')).toHaveText('on 10/2');   // the night of 10/1, before noon: 10/2
   await page.fill('#st_in', '23:40');
-  await expect(page.locator('#st_in_on')).toHaveText('on 10/1');
+  await expect(page.locator('#st_in_day')).toHaveText('on 10/1');
 });
 
 test('site times: Set times sends the derived dates, and the line reads the typed time with the name', async ({ page }) => {
@@ -7840,7 +7862,7 @@ test('site times: Spanish for the Set times box', async ({ page }) => {
   await expect(page.locator('label[for="st_out"]')).toHaveText('Salida');
   expect(await page.locator('#st_shift option').allTextContents()).toEqual(['Noche del 10/2', 'Día del 10/2', 'Noche del 10/1']);
   await page.fill('#st_in', '02:55');
-  await expect(page.locator('#st_in_on')).toHaveText('el 10/3');
+  await expect(page.locator('#st_in_day')).toHaveText('el 10/3');
   await page.click('#st_save');
   await expect(page.locator('#dlg')).toBeHidden();
   await expect(timesLine(page, 'S1')).toHaveText('Entrada 2:55 AM (escrito por Matthew) · Salida');
@@ -7873,4 +7895,302 @@ test('site times: at 320 px wide a site row with Arrived, with Undo + Left, and 
   await pollNow(page);
   await expect(timesLine(page, 'S1')).toContainText('typed by Matthew Longname-Jones');
   expect(await fits('both times')).toBe(3);
+});
+
+// ---- the fake, held to the server again (Task 9 fix round 1; Code.js siteMark_ / markShift_ at fb3bab9) ----
+test('the fake: a Left after 9 AM closes the night\'s open visit in the night (R28), and never reaches two shifts back', async () => {
+  const w = timesWorld(), f = fakeSnow(w);
+  w.clock = AT('08:30');
+  const arr = asTok(f, 'tok-jordan', { action: 'siteMark', kind: 'arrived', site_id: 'S1' });
+  expect(arr.record.shift_id).toBe('night-2026-10-02');
+  w.clock = AT('09:10');
+  // The day has no standing tapped Arrived, the night has one and no Left: the Left is the night's.
+  const left = asTok(f, 'tok-jordan', { action: 'siteMark', kind: 'left', site_id: 'S1' });
+  expect(left.record).toMatchObject({ state: 'left', shift_id: 'night-2026-10-02', storm_id: 'ST-1' });
+  // The night's visit is now closed: another Left goes to the day.
+  expect(asTok(f, 'tok-jordan', { action: 'siteMark', kind: 'left', site_id: 'S1' }).record.shift_id).toBe('day-2026-10-03');
+  // An Arrived on a site with no earlier Arrived: a Left stays in the current shift.
+  expect(asTok(f, 'tok-matt', { action: 'siteMark', kind: 'left', site_id: 'S2' }).record.shift_id).toBe('day-2026-10-03');
+});
+
+test('the fake: a tap of a kind that already stands writes nothing and answers the standing row (R29)', async () => {
+  const w = timesWorld(), f = fakeSnow(w);
+  w.clock = AT('03:02');
+  const first = asTok(f, 'tok-jordan', { action: 'siteMark', kind: 'arrived', site_id: 'S1' });
+  w.clock = AT('03:05');
+  const second = asTok(f, 'tok-alex', { action: 'siteMark', kind: 'arrived', site_id: 'S1' });
+  expect(second.record).toMatchObject({ id: first.record.id, by_name: 'Jordan Demo', at: AT('03:02') });
+  expect(w.log.filter((r) => r.state === 'arrived')).toHaveLength(1);
+  // After an Undo it no longer stands: the next tap writes a row.
+  asTok(f, 'tok-jordan', { action: 'undoSiteMark', kind: 'arrived', site_id: 'S1' });
+  const third = asTok(f, 'tok-alex', { action: 'siteMark', kind: 'arrived', site_id: 'S1' });
+  expect(third.record.id).not.toBe(first.record.id);
+  expect(w.log.filter((r) => r.state === 'arrived')).toHaveLength(2);
+});
+
+// ---------------- site times, fix round 1: the shown visit across 9 AM, and Set times that shows what it holds ----------------
+// R27: the line, Undo and Left are about the CURRENT shift when it has any arrived / left / typed row at the site; else the shift
+// before when that holds a standing mark; the Site card and the BT post stay on the current shift. At 9:10 AM on 10/3 the shift
+// is day-2026-10-03 and the shift before is night-2026-10-02 (timesWorld's storm began at 6 AM on 10/3, so the night is its first).
+const NINE_TEN = '2026-10-03T09:10:00-08:00', NINE_THIRTY = '2026-10-03T09:30:00-08:00';
+const setPhoneClock = (page, iso) => page.clock.setSystemTime(new Date(iso));
+
+test('site times: across 9 AM the night crew keeps its line, Undo and Left; a Left closes the night visit; an Arrived starts the day', async ({ page }) => {
+  const w = timesWorld(); w.clock = tAt('08:30:00');
+  const calls = await openStorm(page, w, { token: 'tok-matt' });
+  await openRoute(page, 'R1');
+  await arrivedBtn(page, 'S1').click();
+  await expect(timesLine(page, 'S1')).toHaveText('In 8:30 AM · Out');
+  // 9:10 AM: the day shift has no row at PAC, the night has a standing Arrived: the night's visit is still the one shown.
+  w.clock = tAt('09:10:00');
+  await setPhoneClock(page, NINE_TEN);
+  await pollNow(page);
+  await expect(timesLine(page, 'S1')).toHaveText('Night of 10/2: In 8:30 AM · Out');
+  await expect(markUndoBtn(page, 'S1', 'arrived')).toBeVisible();
+  await expect(leftBtn(page, 'S1')).toBeVisible();
+  await expect(arrivedBtn(page, 'S1')).toHaveCount(0);
+  // Left: a plain siteMark (the phone does not choose the shift); the server files it in the night. The visit is closed:
+  // Arrived again (a new visit) and the Undo of the Left, and no Left.
+  await leftBtn(page, 'S1').click();
+  const sent = siteActionCalls(calls, 'siteMark');
+  expect(Object.keys(sent[1].body).sort()).toEqual(['action', 'kind', 'site_id', 'token']);
+  expect(sent[1].body.kind).toBe('left');
+  await expect(timesLine(page, 'S1')).toHaveText('Night of 10/2: In 8:30 AM · Out 9:10 AM');
+  expect((await phoneState(page)).log.map((r) => [r.state, r.shift_id])).toEqual([['arrived', 'night-2026-10-02'], ['left', 'night-2026-10-02']]);
+  await expect(arrivedBtn(page, 'S1')).toBeVisible();
+  await expect(markUndoBtn(page, 'S1', 'left')).toBeVisible();
+  await expect(leftBtn(page, 'S1')).toHaveCount(0);
+  await expect(markUndoBtn(page, 'S1', 'arrived')).toHaveCount(0);
+  // Arrived: a new visit in the day shift, shown with no label.
+  w.clock = tAt('09:12:00');
+  await arrivedBtn(page, 'S1').click();
+  await expect(timesLine(page, 'S1')).toHaveText('In 9:12 AM · Out');
+  expect((await phoneState(page)).log[2]).toMatchObject({ state: 'arrived', shift_id: 'day-2026-10-03' });
+  await expect(markUndoBtn(page, 'S1', 'arrived')).toBeVisible();
+  await expect(leftBtn(page, 'S1')).toBeVisible();
+});
+
+test('site times: an Undo of the night\'s Arrived at 9:05 AM works and the row comes back in the night', async ({ page }) => {
+  const w = timesWorld(); w.clock = tAt('08:30:00');
+  const calls = await openStorm(page, w, { token: 'tok-matt' });
+  await openRoute(page, 'R1');
+  await arrivedBtn(page, 'S1').click();
+  await expect(timesLine(page, 'S1')).toHaveText('In 8:30 AM · Out');
+  w.clock = tAt('09:05:00');
+  await setPhoneClock(page, '2026-10-03T09:05:00-08:00');
+  await pollNow(page);
+  await expect(timesLine(page, 'S1')).toHaveText('Night of 10/2: In 8:30 AM · Out');
+  await markUndoBtn(page, 'S1', 'arrived').click();
+  expect(siteActionCalls(calls, 'undoSiteMark')[0].body).toMatchObject({ site_id: 'S1', kind: 'arrived' });
+  await expect(timesLine(page, 'S1')).toHaveCount(0);
+  await expect(arrivedBtn(page, 'S1')).toBeVisible();
+  expect((await phoneState(page)).log[1]).toMatchObject({ state: 'arrived_undone', shift_id: 'night-2026-10-02' });
+});
+
+test('site times: an earlier closed visit offers Arrived and the Undo of its Left, never Left; the Site card stays on the current shift', async ({ page }) => {
+  // Seeded at PAC in the night: Arrived 8:30 (seq 1), Left 9:00 (seq 2). It is 9:30 AM (the day shift, no row of its own yet).
+  const w = timesWorld(); w.clock = tAt('09:30:00');
+  w.log = [seedMark(1, 'arrived', { at: tAt('08:30:00') }), seedMark(2, 'left', { at: tAt('08:59:00') })];
+  await openStorm(page, w, { token: 'tok-matt', clockAt: NINE_THIRTY });
+  await openRoute(page, 'R1');
+  await expect(timesLine(page, 'S1')).toHaveText('Night of 10/2: In 8:30 AM · Out 8:59 AM');
+  await expect(arrivedBtn(page, 'S1')).toBeVisible();
+  await expect(markUndoBtn(page, 'S1', 'left')).toBeVisible();
+  await expect(leftBtn(page, 'S1')).toHaveCount(0);
+  // The card reads the DAY shift: nothing there but a walk tap at 9:20.
+  await openCard(page, 'S1');
+  await expect(page.locator('#vc_start')).toHaveText('—');
+  await page.click('#dlgClose');
+  w.log.push(logRow(3, 'S1', 'Z1', 'cleared', 'Alex Test', { shift_id: 'day-2026-10-03', at: tAt('09:20:00') }));
+  await pollNow(page);
+  await openCard(page, 'S1');
+  await expect(page.locator('#vc_start')).toHaveText('9:20 AM');
+  await expect(timesLine(page, 'S1')).toHaveText('Night of 10/2: In 8:30 AM · Out 8:59 AM');   // a walk tap is not a mark
+});
+
+test('site times: a typed-only earlier shift offers Arrived and no Left; the long typed name wraps at 320 px with the label', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  const w = timesWorld(); w.clock = tAt('09:30:00');
+  w.log = [seedMark(1, 'typed', { time_in: '2026-10-03T02:55', time_out: '2026-10-03T06:05', by_name: 'Matthew Longname-Jones', at: tAt('09:00:00') })];
+  await openStorm(page, w, { token: 'tok-matt', clockAt: NINE_THIRTY });
+  await openRoute(page, 'R1');
+  await expect(timesLine(page, 'S1')).toHaveText('Night of 10/2: In 2:55 AM (typed by Matthew Longname-Jones) · Out 6:05 AM (typed by Matthew Longname-Jones)');
+  await expect(arrivedBtn(page, 'S1')).toBeVisible();
+  await expect(leftBtn(page, 'S1')).toHaveCount(0);
+  await expect(page.locator('[data-markundo]')).toHaveCount(0);
+  const r = await page.evaluate(() => {
+    const els = Array.from(document.querySelectorAll('[data-shiftsite="S1"] [data-arrived], [data-shiftsite="S1"] [data-settimes], [data-shiftsite="S1"] [id^="siteTimes-"]'));
+    return { scroll: document.documentElement.scrollWidth, boxes: els.map((e) => { const b = e.getBoundingClientRect(); return [Math.round(b.left), Math.round(b.right)]; }), n: els.length };
+  });
+  expect(r.n).toBe(3);
+  expect(r.scroll).toBeLessThanOrEqual(320);
+  for (const [l, rt] of r.boxes) { expect(l).toBeGreaterThanOrEqual(0); expect(rt).toBeLessThanOrEqual(320); }
+});
+
+test('site times: two storms that share a night never show each other\'s marks', async ({ page }) => {
+  const w = timesWorld();
+  w.clock = tAt('03:02:11');
+  w.storms = [{ id: 'ST-0', seq: 1, kind: 'start', storm_id: 'ST-0', at: '2026-10-02T21:00:00.000-08:00', by_name: 'Matthew' },
+    { id: 'ST-0e', seq: 2, kind: 'end', storm_id: 'ST-0', at: '2026-10-02T23:00:00.000-08:00', by_name: 'Matthew' },
+    { ...START_ROW, id: 'ST-1', seq: 3, storm_id: 'ST-1' }];
+  w.log = [logRow(1, 'S1', '*', 'arrived', 'Alex Test', { storm_id: 'ST-0', at: '2026-10-02T22:00:00.000-08:00' })];
+  await openStorm(page, w);
+  await expect(arrivedBtn(page, 'S1')).toBeVisible();   // ST-0's Arrived is not this storm's
+  await expect(timesLine(page, 'S1')).toHaveCount(0);
+  await expect(page.locator('[data-markundo]')).toHaveCount(0);
+  await arrivedBtn(page, 'S1').click();
+  await expect(timesLine(page, 'S1')).toHaveText('In 3:02 AM · Out');
+  expect(w.log.filter((r) => r.state === 'arrived').map((r) => r.storm_id)).toEqual(['ST-0', 'ST-1']);
+});
+
+test('site times: two people tapping Arrived leave one row, and the second phone shows the first person\'s time', async ({ page, browser }) => {
+  const w = timesWorld(); w.clock = tAt('03:02:11');
+  await openStorm(page, w);   // Jordan
+  const ctx2 = await browser.newContext({ timezoneId: 'America/Anchorage', viewport: { width: 390, height: 844 } });
+  const p2 = await ctx2.newPage();
+  try {
+    await openStorm(p2, w, { token: 'tok-alex' });   // Alex, the lead
+    await openRoute(p2, 'R1');
+    await expect(arrivedBtn(p2, 'S1')).toBeVisible();
+    await arrivedBtn(page, 'S1').click();
+    await expect(timesLine(page, 'S1')).toHaveText('In 3:02 AM · Out');
+    w.clock = tAt('03:05:30');
+    await arrivedBtn(p2, 'S1').click();   // his phone has not polled: it still offers Arrived
+    await expect(timesLine(p2, 'S1')).toHaveText('In 3:02 AM · Out');   // the standing row answered: the first tap wins
+    await expect(markUndoBtn(p2, 'S1', 'arrived')).toBeVisible();
+    await expect(leftBtn(p2, 'S1')).toBeVisible();
+    expect(w.log.filter((r) => r.state === 'arrived')).toHaveLength(1);
+  } finally { await ctx2.close(); }
+});
+
+test('site times: a tap whose reply was lost shows Not saved with Retry, and Retry leaves ONE row (R29)', async ({ page }) => {
+  const w = timesWorld(); w.clock = tAt('03:02:11');
+  const f = fakeSnow(w);
+  let drop = true;
+  // The first siteMark REACHES the server (the row is written) and its reply is lost.
+  const calls = await open(page, { token: 'tok-jordan', snow: f, clockAt: STORM_CLOCK, abortIf: (b) => { if (drop && b.action === 'siteMark') { drop = false; f(b); return true; } return false; } });
+  await page.click('nav [data-tab="storm"]');
+  await arrivedBtn(page, 'S1').click();
+  await expect(page.locator('[data-markrow="S1"] .walk-fail')).toContainText('Not saved: no signal');
+  await expect(arrivedBtn(page, 'S1')).toBeVisible();
+  await expect(timesLine(page, 'S1')).toHaveCount(0);
+  expect(w.log.filter((r) => r.state === 'arrived')).toHaveLength(1);   // it landed
+  await page.locator('[data-retry="mark:S1"]').click();
+  await expect(timesLine(page, 'S1')).toHaveText('In 3:02 AM · Out');
+  expect(w.log.filter((r) => r.state === 'arrived')).toHaveLength(1);
+  expect((await phoneState(page)).log).toHaveLength(1);
+  expect(siteActionCalls(calls, 'siteMark')).toHaveLength(2);
+});
+
+// Set times. settimesWorld: the storm began at 3 AM on 10/2 (the night of 10/1); now is 7:50 AM on 10/3 (the night of 10/2).
+test('site times: Set times for a shift that is neither current nor shown stays open, says Saved, and shows what it holds', async ({ page }) => {
+  const calls = await openStorm(page, settimesWorld(), { token: 'tok-matt' });
+  await openRoute(page, 'R1');
+  await openSetTimes(page, 'S1');
+  await expect(page.locator('#st_held')).toHaveText('Held: nothing yet');
+  await page.selectOption('#st_shift', 'night-2026-10-01');
+  await page.fill('#st_in', '23:50');
+  await page.fill('#st_out', '00:20');
+  await expect(page.locator('#st_in_day')).toHaveText('on 10/1');     // 11:50 PM: the evening, the shift's own date
+  await expect(page.locator('#st_out_day')).toHaveText('on 10/2');    // 12:20 AM: the day after; finish after start
+  await page.click('#st_save');
+  await expect(page.locator('#st_saved')).toHaveText('Saved');
+  await expect(page.locator('#dlg')).toBeVisible();
+  expect(siteActionCalls(calls, 'typeSiteTimes')[0].body).toMatchObject({ site_id: 'S1', shift_id: 'night-2026-10-01', time_in: '2026-10-01T23:50', time_out: '2026-10-02T00:20' });
+  await expect(page.locator('#st_held')).toHaveText('Held: In 11:50 PM (typed by Matthew) · Out 12:20 AM (typed by Matthew)');
+  await expect(page.locator('#st_in')).toHaveValue('');
+  await expect(page.locator('#st_out')).toHaveValue('');
+  await expect(page.locator('#st_save')).toBeEnabled();
+  await expect(timesLine(page, 'S1')).toHaveCount(0);   // the tab's line is the current shift's: nothing there
+  // The Held line follows the shift picked.
+  await page.selectOption('#st_shift', 'night-2026-10-02');
+  await expect(page.locator('#st_held')).toHaveText('Held: nothing yet');
+  await page.selectOption('#st_shift', 'night-2026-10-01');
+  await expect(page.locator('#st_held')).toContainText('In 11:50 PM');
+  // Reopened, the shift is the one last saved.
+  await page.click('#dlgClose');
+  await openSetTimes(page, 'S1');
+  await expect(page.locator('#st_shift')).toHaveValue('night-2026-10-01');
+});
+
+test('site times: Set times at 9:30 AM for the night just ended closes and the line carries the night\'s label', async ({ page }) => {
+  const w = timesWorld(); w.clock = tAt('09:30:00');
+  const calls = await openStorm(page, w, { token: 'tok-matt', clockAt: NINE_THIRTY });
+  await openRoute(page, 'R1');
+  await openSetTimes(page, 'S1');
+  expect(await page.locator('#st_shift option').allTextContents()).toEqual(['Day of 10/3', 'Night of 10/2']);
+  await expect(page.locator('#st_shift')).toHaveValue('day-2026-10-03');   // the shown visit: the current shift
+  await page.selectOption('#st_shift', 'night-2026-10-02');
+  await page.fill('#st_in', '02:55');
+  await page.click('#st_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(siteActionCalls(calls, 'typeSiteTimes')[0].body).toMatchObject({ shift_id: 'night-2026-10-02', time_in: '2026-10-03T02:55', time_out: '' });
+  await expect(timesLine(page, 'S1')).toHaveText('Night of 10/2: In 2:55 AM (typed by Matthew) · Out');
+});
+
+test('site times: Set times on a day shift sends the shift date for both, and a flipped date is the date sent', async ({ page }) => {
+  const calls = await openStorm(page, settimesWorld(), { token: 'tok-matt' });
+  await openRoute(page, 'R1');
+  await openSetTimes(page, 'S1');
+  await page.selectOption('#st_shift', 'day-2026-10-02');
+  await page.fill('#st_in', '09:15');
+  await page.fill('#st_out', '16:30');
+  await page.click('#st_save');
+  expect(siteActionCalls(calls, 'typeSiteTimes')[0].body).toMatchObject({ shift_id: 'day-2026-10-02', time_in: '2026-10-02T09:15', time_out: '2026-10-02T16:30' });
+  // The night of 10/2: Out 06:05 reads on 10/3; a flip makes it 10/2; a new time derives it again; flip again and Save sends the button's date.
+  await openSetTimes(page, 'S1');
+  await page.selectOption('#st_shift', 'night-2026-10-02');
+  await page.fill('#st_out', '06:05');
+  await expect(page.locator('#st_out_day')).toHaveText('on 10/3');
+  await page.click('#st_out_day');
+  await expect(page.locator('#st_out_day')).toHaveText('on 10/2');
+  await page.fill('#st_out', '06:06');
+  await expect(page.locator('#st_out_day')).toHaveText('on 10/3');   // re-derived: the flip held only until the time changed
+  await page.click('#st_out_day');
+  await expect(page.locator('#st_out_day')).toHaveText('on 10/2');
+  await page.click('#st_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(siteActionCalls(calls, 'typeSiteTimes')[1].body).toMatchObject({ shift_id: 'night-2026-10-02', time_in: '', time_out: '2026-10-02T06:06' });
+});
+
+test('site times: a Set times that never reached the server shows no signal, keeps the dialog and the values, and Save again works', async ({ page }) => {
+  let drop = true;
+  const w = settimesWorld();
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w), clockAt: STORM_CLOCK, abortIf: (b) => { if (drop && b.action === 'typeSiteTimes') { drop = false; return true; } return false; } });
+  await page.click('nav [data-tab="storm"]');
+  await openRoute(page, 'R1');
+  await openSetTimes(page, 'S1');
+  await page.fill('#st_in', '02:55');
+  await page.click('#st_save');
+  await expect(page.locator('#st_err')).toHaveText('Not saved: no signal');
+  await expect(page.locator('#dlg')).toBeVisible();
+  await expect(page.locator('#st_in')).toHaveValue('02:55');
+  await expect(page.locator('#st_in_day')).toHaveText('on 10/3');
+  await expect(page.locator('#st_save')).toBeEnabled();
+  await page.click('#st_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  await expect(timesLine(page, 'S1')).toHaveText('In 2:55 AM (typed by Matthew) · Out');
+  expect(siteActionCalls(calls, 'typeSiteTimes')).toHaveLength(2);
+});
+
+test('site times: Spanish for the earlier-visit label, Held, nothing yet and Saved', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await openStorm(page, settimesWorld(), { token: 'tok-matt' });
+  await openRoute(page, 'R1');
+  await openSetTimes(page, 'S1');
+  await expect(page.locator('#st_held')).toHaveText('Registrado: nada todavía');
+  await page.selectOption('#st_shift', 'night-2026-10-01');
+  await page.fill('#st_in', '23:50');
+  await page.click('#st_save');
+  await expect(page.locator('#st_saved')).toHaveText('Guardado');
+  await expect(page.locator('#st_held')).toHaveText('Registrado: Entrada 11:50 PM (escrito por Matthew) · Salida');
+});
+
+test('site times: Spanish for the label of an earlier visit', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  const w = timesWorld(); w.clock = tAt('09:30:00');
+  w.log = [seedMark(1, 'arrived', { at: tAt('08:30:00') })];
+  await openStorm(page, w, { token: 'tok-matt', clockAt: NINE_THIRTY });
+  await openRoute(page, 'R1');
+  await expect(timesLine(page, 'S1')).toHaveText('Noche del 10/2: Entrada 8:30 AM · Salida');
 });

@@ -111,7 +111,6 @@ test("site times: the Set times box and its date line", () => {
     "on 10/3": "el 10/3", "on 11/10": "el 11/10",
     "Night of 10/2": "Noche del 10/2", "Day of 10/2": "Día del 10/2",
     "Type a start, a finish, or both": "Escribe una entrada, una salida, o las dos",
-    "Type each time as hours and minutes": "Escribe cada hora con horas y minutos",
     "Leave a box blank to keep that side as the crew tapped it.": "Deja una casilla en blanco para conservar ese lado como lo tocó la cuadrilla.",
     "Times not saved": "No se guardaron las horas",
   };

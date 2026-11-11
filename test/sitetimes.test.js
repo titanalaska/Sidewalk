@@ -53,3 +53,43 @@ test('shiftsFor: from the storm\'s first shift through the current one, newest f
   assert.deepEqual(T.shiftsFor('night-2026-11-11', 'night-2026-11-10'), []);   // a first shift after now is nothing to pick
   assert.deepEqual(T.shiftsFor('junk', 'night-2026-11-10'), []);
 });
+
+// ---- the shown visit (R27): which shift a site line, Undo and Left are about ----
+const row = (seq, state, shift, extra = {}) => ({ id: 'L-' + seq, seq, storm_id: 'ST-1', shift_id: shift, site_id: 'S1', zone_id: '*', state, by_name: 'Alex',
+  at: '2026-10-03T08:30:00.000-08:00', undoes: null, ...extra });
+const NOW = 'day-2026-10-04', PREV = 'night-2026-10-03';   // a day's shift before is the night before it
+test('shiftBefore: a night is its own day, a day is the night before, across month and year ends and February', () => {
+  assert.equal(T.shiftBefore('night-2026-10-03'), 'day-2026-10-03');
+  assert.equal(T.shiftBefore('day-2026-10-04'), 'night-2026-10-03');
+  assert.equal(T.shiftBefore('day-2026-03-01'), 'night-2026-02-28');   // 2026 is not a leap year
+  assert.equal(T.shiftBefore('day-2028-03-01'), 'night-2028-02-29');
+  assert.equal(T.shiftBefore('day-2027-01-01'), 'night-2026-12-31');
+  assert.equal(T.shiftBefore('nonsense'), null);
+});
+test('visitShift: nothing anywhere, or marks in the current shift only, is the current shift', () => {
+  assert.deepEqual(T.visitShift([], 'S1', NOW), { shift: NOW, earlier: false });
+  assert.deepEqual(T.visitShift([row(1, 'arrived', NOW)], 'S1', NOW), { shift: NOW, earlier: false });
+});
+test('visitShift: an open Arrived, a closed visit, or a typed time in the shift before is shown as the earlier visit', () => {
+  assert.deepEqual(T.visitShift([row(1, 'arrived', PREV)], 'S1', NOW), { shift: PREV, earlier: true });
+  assert.deepEqual(T.visitShift([row(1, 'arrived', PREV), row(2, 'left', PREV)], 'S1', NOW), { shift: PREV, earlier: true });
+  assert.deepEqual(T.visitShift([row(1, 'typed', PREV, { time_in: '2026-10-03T02:55', time_out: '' })], 'S1', NOW), { shift: PREV, earlier: true });
+  // a night's shift before is its own day
+  assert.deepEqual(T.visitShift([row(1, 'left', 'day-2026-10-03')], 'S1', 'night-2026-10-03'), { shift: 'day-2026-10-03', earlier: true });
+});
+test('visitShift: an undone-only shift before, marks two shifts back, and marks in both are the current shift', () => {
+  assert.deepEqual(T.visitShift([row(1, 'arrived', PREV), row(2, 'arrived_undone', PREV, { undoes: 'L-1' })], 'S1', NOW), { shift: NOW, earlier: false });
+  assert.deepEqual(T.visitShift([row(1, 'arrived', 'day-2026-10-03')], 'S1', NOW), { shift: NOW, earlier: false });   // two back
+  assert.deepEqual(T.visitShift([row(1, 'arrived', PREV), row(2, 'arrived', NOW)], 'S1', NOW), { shift: NOW, earlier: false });
+  // the current shift holding ONLY an undone mark still counts as having a visit: the earlier one is not shown over it
+  assert.deepEqual(T.visitShift([row(1, 'arrived', PREV), row(2, 'arrived', NOW), row(3, 'arrived_undone', NOW, { undoes: 'L-2' })], 'S1', NOW), { shift: NOW, earlier: false });
+});
+test('visitShift: another site marks and walk taps are not a visit', () => {
+  assert.deepEqual(T.visitShift([row(1, 'arrived', PREV, { site_id: 'S2' }), row(2, 'cleared', PREV, { zone_id: 'Z1' })], 'S1', NOW), { shift: NOW, earlier: false });
+});
+test('datesFor / otherDate: a shift own date and the day after, flipping between them', () => {
+  assert.deepEqual(T.datesFor('night-2026-12-31'), ['2026-12-31', '2027-01-01']);
+  assert.equal(T.otherDate('night-2026-12-31', '2026-12-31'), '2027-01-01');
+  assert.equal(T.otherDate('night-2026-12-31', '2027-01-01'), '2026-12-31');
+  assert.equal(T.otherDate('day-2026-10-02', '2026-10-02'), '2026-10-03');
+});

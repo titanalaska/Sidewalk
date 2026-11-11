@@ -318,7 +318,9 @@ function fakeSnow(state, opts = {}) {
           // tapped Arrived here, the shift before holds one, and that one has no standing tapped Left (a night crew leaving at 9:10 AM).
           const has = (shift, k) => SL.markUndoTarget(state.log, st0.storm_id, siteId, shift, k).ok;
           let shiftId = now;
-          if (body.kind === 'left' && !has(now, 'arrived')) { const b = shiftBefore(now); if (has(b, 'arrived') && !has(b, 'left')) shiftId = b; }
+          // R31: a start the dispatcher TYPED for the current shift (this storm) is a start too: the open visit is the current one.
+          const typedStart = SL.siteClock(state.log.filter((r) => r.storm_id === st0.storm_id), siteId, now).startHow === 'typed';
+          if (body.kind === 'left' && !has(now, 'arrived') && !typedStart) { const b = shiftBefore(now); if (has(b, 'arrived') && !has(b, 'left')) shiftId = b; }
           // R29: a mark of this kind already stands in that shift: nothing is written, the standing row is answered.
           const standing = SL.markUndoTarget(state.log, st0.storm_id, siteId, shiftId, body.kind);
           if (standing.ok) return { ok: true, record: markShown(standing.row), ...v };
@@ -7948,7 +7950,7 @@ test('site times: across 9 AM the night crew keeps its line, Undo and Left; a Le
   await expect(timesLine(page, 'S1')).toHaveText('Night of 10/2: In 8:30 AM · Out');
   await expect(markUndoBtn(page, 'S1', 'arrived')).toBeVisible();
   await expect(leftBtn(page, 'S1')).toBeVisible();
-  await expect(arrivedBtn(page, 'S1')).toHaveCount(0);
+  await expect(arrivedBtn(page, 'S1')).toBeVisible();   // R32: an open earlier visit also offers Arrived
   // Left: a plain siteMark (the phone does not choose the shift); the server files it in the night. The visit is closed:
   // Arrived again (a new visit) and the Undo of the Left, and no Left.
   await leftBtn(page, 'S1').click();
@@ -8193,4 +8195,79 @@ test('site times: Spanish for the label of an earlier visit', async ({ page }) =
   await openStorm(page, w, { token: 'tok-matt', clockAt: NINE_THIRTY });
   await openRoute(page, 'R1');
   await expect(timesLine(page, 'S1')).toHaveText('Noche del 10/2: Entrada 8:30 AM · Salida');
+});
+
+// ---- fix round 2: R31 (a typed start in the current shift keeps a Left there), R32 (an earlier open visit also offers Arrived), N4 ----
+test('the fake: a Left stays in the current shift when the dispatcher typed that shift\'s start (R31)', async () => {
+  const w = timesWorld(), f = fakeSnow(w);
+  w.clock = AT('08:30');
+  asTok(f, 'tok-jordan', { action: 'siteMark', kind: 'arrived', site_id: 'S1' });   // the night's Arrived, never closed
+  w.clock = AT('09:40');
+  expect(asTok(f, 'tok-matt', { action: 'typeSiteTimes', site_id: 'S1', shift_id: 'day-2026-10-03', time_in: '2026-10-03T09:15', time_out: '' }).ok).toBe(true);
+  const left = asTok(f, 'tok-jordan', { action: 'siteMark', kind: 'left', site_id: 'S1' });
+  expect(left.record).toMatchObject({ state: 'left', shift_id: 'day-2026-10-03' });
+  // Another storm's typed start does not count: S2 has only ST-0's typed row in the day, and no Arrived anywhere.
+  const w2 = timesWorld(), g = fakeSnow(w2);
+  w2.clock = AT('08:30');
+  asTok(g, 'tok-jordan', { action: 'siteMark', kind: 'arrived', site_id: 'S1' });
+  w2.log.push(logRow(9, 'S1', '*', 'typed', 'Matthew', { storm_id: 'ST-0', shift_id: 'day-2026-10-03', time_in: '2026-10-03T09:15', time_out: '' }));
+  w2.clock = AT('09:40');
+  expect(asTok(g, 'tok-jordan', { action: 'siteMark', kind: 'left', site_id: 'S1' }).record.shift_id).toBe('night-2026-10-02');
+});
+
+test('site times: a Left after a typed day start stays in the day, and the night\'s open Arrived is untouched (R31)', async ({ page }) => {
+  // Night Arrived 8:30 AM never closed; the dispatcher typed a day start 9:15 AM; Jordan taps Left at 9:40 AM.
+  const NINE_FORTY = '2026-10-03T09:40:00-08:00';
+  const w = timesWorld(); w.clock = tAt('09:40:00');
+  w.log = [seedMark(1, 'arrived', { at: tAt('08:30:00') }),
+    seedMark(2, 'typed', { shift_id: 'day-2026-10-03', time_in: '2026-10-03T09:15', time_out: '', by_name: 'Matthew', at: tAt('09:30:00') })];
+  await openStorm(page, w, { clockAt: NINE_FORTY });
+  await page.click('#otherRoutes');
+  await expect(timesLine(page, 'S1')).toHaveText('In 9:15 AM (typed by Matthew) · Out');
+  await expect(leftBtn(page, 'S1')).toBeVisible();
+  await leftBtn(page, 'S1').click();
+  await expect(timesLine(page, 'S1')).toHaveText('In 9:15 AM (typed by Matthew) · Out 9:40 AM');
+  expect((await phoneState(page)).log.filter((r) => r.state === 'left')).toMatchObject([{ shift_id: 'day-2026-10-03' }]);
+});
+
+test('site times: an earlier OPEN visit offers Undo, Left and Arrived; Arrived starts the day\'s own visit and leaves the night alone (R32)', async ({ page }) => {
+  const w = timesWorld(); w.clock = tAt('11:00:00');
+  w.log = [seedMark(1, 'arrived', { at: tAt('08:30:00') })];
+  await openStorm(page, w, { token: 'tok-matt', clockAt: '2026-10-03T11:00:00-08:00' });
+  await openRoute(page, 'R1');
+  await expect(timesLine(page, 'S1')).toHaveText('Night of 10/2: In 8:30 AM · Out');
+  await expect(markUndoBtn(page, 'S1', 'arrived')).toBeVisible();
+  await expect(leftBtn(page, 'S1')).toBeVisible();
+  await expect(arrivedBtn(page, 'S1')).toBeVisible();
+  await arrivedBtn(page, 'S1').click();
+  await expect(timesLine(page, 'S1')).toHaveText('In 11:00 AM · Out');
+  const log = (await phoneState(page)).log;
+  expect(log.map((r) => [r.state, r.shift_id])).toEqual([['arrived', 'night-2026-10-02'], ['arrived', 'day-2026-10-03']]);
+  expect(w.log.filter((r) => r.state === 'left' || r.state.endsWith('_undone'))).toEqual([]);   // the night's Arrived: still standing, no Left
+});
+
+test('site times: the three buttons of an earlier open visit stay on screen at 320 px', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  const w = timesWorld(); w.clock = tAt('11:00:00');
+  w.log = [seedMark(1, 'arrived', { at: tAt('08:30:00') })];
+  await openStorm(page, w, { token: 'tok-matt', clockAt: '2026-10-03T11:00:00-08:00' });
+  await openRoute(page, 'R1');
+  await expect(arrivedBtn(page, 'S1')).toBeVisible();
+  const r = await page.evaluate(() => {
+    const els = Array.from(document.querySelectorAll('[data-shiftsite="S1"] [data-arrived], [data-shiftsite="S1"] [data-left], [data-shiftsite="S1"] [data-markundo], [data-shiftsite="S1"] [data-settimes]'));
+    return { scroll: document.documentElement.scrollWidth, n: els.length, boxes: els.map((e) => { const b = e.getBoundingClientRect(); return [Math.round(b.left), Math.round(b.right)]; }) };
+  });
+  expect(r.n).toBe(4);   // Undo, Left, Arrived, Set times
+  expect(r.scroll).toBeLessThanOrEqual(320);
+  for (const [l, rt] of r.boxes) { expect(l).toBeGreaterThanOrEqual(0); expect(rt).toBeLessThanOrEqual(320); }
+});
+
+test('site times: a Set times box whose value was set with no input event still sends a real date (N4)', async ({ page }) => {
+  const calls = await openStorm(page, settimesWorld(), { token: 'tok-matt' });
+  await openRoute(page, 'R1');
+  await openSetTimes(page, 'S1');
+  await page.evaluate(() => { document.getElementById('st_in').value = '02:55'; });   // no input / change event
+  await page.click('#st_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(siteActionCalls(calls, 'typeSiteTimes')[0].body).toMatchObject({ shift_id: 'night-2026-10-02', time_in: '2026-10-03T02:55', time_out: '' });
 });

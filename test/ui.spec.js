@@ -26,7 +26,7 @@ function fakeSnow(state, opts = {}) {
   return (body) => {
     // Every POST reply carries `action`, the action it answers (outlines-1 on): the phone refuses a reply from its own version that
     // does not (lib/api.js, the not-saved guard). A curbs-1 server (opts.oldBackend) has never sent one.
-    const v = { version: opts.version || (opts.oldBackend ? 'curbs-1' : 'dispatch-1'), ...(opts.oldBackend ? {} : { action: body.action }) };
+    const v = { version: opts.version || (opts.oldBackend ? 'curbs-1' : 'times-1'), ...(opts.oldBackend ? {} : { action: body.action }) };
     // Outlines on demand (10/9/26, snow-app-script Code.js): `slim: true`, exactly true, and nothing else.
     const slim = body.slim === true && !opts.oldBackend;
     if (opts.expired && opts.expired.on) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
@@ -1013,7 +1013,7 @@ test('after a conflict the app reloads the latest, so the retry can save', async
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'dispatch-1', action: b.action };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'times-1', action: b.action };
     }
     return base(b);
   } });
@@ -3619,7 +3619,7 @@ test('every bootstrap asks for the slim reply: at sign-in, and the reload after 
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'dispatch-1', action: b.action };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'times-1', action: b.action };
     }
     return base(b);
   } });
@@ -3633,7 +3633,7 @@ test('every bootstrap asks for the slim reply: at sign-in, and the reload after 
   const sent = base.replies.filter((r) => r.body.action === 'bootstrap').map((r) => r.reply);
   expect(sent).toHaveLength(2);
   for (const r of sent) { expect(r.points).toEqual({}); expect(JSON.stringify(r)).not.toContain('"ring"'); } // world() has no zones: no points
-  await expect(page.locator('#verwarn')).toBeHidden(); // dispatch-1 is the version the app expects
+  await expect(page.locator('#verwarn')).toBeHidden(); // times-1 is the version the app expects
 });
 
 test('the forecast point is the server\'s point: the slim sign-in carries no outline, and the hint still comes from where Main entry is', async ({ page }) => {

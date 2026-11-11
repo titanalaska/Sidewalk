@@ -15,7 +15,7 @@ const vm = require('node:vm');
 // lib/api.js is a browser script (SnowApi on `this`), so it is run in a vm context holding just what it reads.
 const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'api.js'), 'utf8');
 const NO_SIGNAL = "Couldn't reach the server. Not saved, try again.";
-const EXPECTED = 'dispatch-1';
+const EXPECTED = 'times-1';
 
 // `reply` is what the server body parses to; the fetch double hands it back as JSON.
 function api(reply) {

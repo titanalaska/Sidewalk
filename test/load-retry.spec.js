@@ -15,7 +15,7 @@ const url = require('url');
 const PAGE = url.pathToFileURL(path.resolve(__dirname, '..', 'index.html')).href;
 const isSnow = (u) => u.href.includes('AKfycbwc7dcfmJFa1TAspzBZVprJRwBNvCP6q2bqOH5uoS_hU6ScZOnr9Kn');
 const isInv = (u) => u.href.includes('AKfycbyudFaJ0dsSYMo');
-const VERSION = 'dispatch-1'; // lib/config.js EXPECTED_BACKEND
+const VERSION = 'times-1'; // lib/config.js EXPECTED_BACKEND
 
 // Matt (tok-matt) is the admin; any other token is an expired session.
 const fake = (body) => {

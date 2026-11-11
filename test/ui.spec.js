@@ -9205,16 +9205,21 @@ test('crew times sheet: a person archived from the roster, or with no card at al
   const w = ctWorld();
   w.crew = w.crew.map((c) => (c.id === 'C03' ? { ...c, archived: true } : c));   // Jordan: archived, the card still names him
   w.clockRows.push(ctRow(6, 'C09', 'Old Hand', 'start', '2026-10-02T23:00:00.000-08:00'), ctRow(7, 'C09', 'Old Hand', 'end', '2026-10-03T04:00:00.000-08:00'));
+  // M5 (final review): C09's card is gone, so the sheet prints the name on their Clock rows ("Old Hand"); C08's rows carry no name at all, so
+  // only that one prints as the crew id. Before M5 both printed as ids.
+  w.clockRows.push(ctRow(8, 'C08', '', 'start', '2026-10-02T23:30:00.000-08:00'), ctRow(9, 'C08', '', 'end', '2026-10-03T03:30:00.000-08:00'));
   await ctOpen(page, w);
   await page.click('#printSheets');
   const ct = ctPages(page);
   await expect(ct).toHaveCount(1);
-  // By name, case-insensitive: "alex test" < "c09" ('0' sorts before 'a') < "casey third" < "jordan demo". C09 has no card: the crew id. 23:00 to 04:00 = 5:00.
+  // By name, case-insensitive: "alex test" < "c08" ('0' sorts before 'a') < "casey third" < "jordan demo" < "old hand".
+  // C09, no card: "Old Hand", 23:00 to 04:00 = 5:00. C08, no card and no name: the crew id, 23:30 to 03:30 = 4:00.
   expect(await ctCells(ct)).toEqual([
     ['Alex Test', '10/2 10:00 PM', '10/3 5:30 AM', '7:30'],
-    ['C09', '10/2 11:00 PM', '10/3 4:00 AM', '5:00'],
+    ['C08', '10/2 11:30 PM', '10/3 3:30 AM', '4:00'],
     ['Casey Third', '10/3 12:10 AM', '', ''],
     ['Jordan Demo', '10/2 9:15 PM (typed)', '10/3 5:45 AM', '8:30'],
+    ['Old Hand', '10/2 11:00 PM', '10/3 4:00 AM', '5:00'],
   ]);
 });
 

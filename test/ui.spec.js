@@ -7713,8 +7713,12 @@ test('site times: Set times lists the shifts the server accepts, time-only boxes
   // Night of 10/2: 11:40 PM is on 10/2, 12:10 AM and 11:59 AM on 10/3, 12:00 PM on 10/2.
   const cases = [['23:40', 'on 10/2'], ['00:10', 'on 10/3'], ['11:59', 'on 10/3'], ['12:00', 'on 10/2']];
   for (const [t, label] of cases) { await page.fill('#st_in', t); await expect(page.locator('#st_in_on')).toHaveText(label); }
-  // A day shift is its own date for every time; the date line follows the shift picked.
+  // The date line follows the shift picked, with no new typing: 12:10 AM on the night of 10/2 is on 10/3; on the day of 10/2 it is on 10/2.
+  await page.fill('#st_in', '00:10');
+  await expect(page.locator('#st_in_on')).toHaveText('on 10/3');
   await page.selectOption('#st_shift', 'day-2026-10-02');
+  await expect(page.locator('#st_in_on')).toHaveText('on 10/2');
+  // A day shift is its own date for every time.
   await page.fill('#st_out', '09:15');
   await expect(page.locator('#st_out_on')).toHaveText('on 10/2');
   await page.fill('#st_out', '16:30');

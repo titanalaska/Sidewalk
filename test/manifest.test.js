@@ -68,3 +68,11 @@ test('the offline shell carries the manifest and icons', () => {
   const sw = read('sw.js').toString();
   for (const f of ['manifest.json', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png']) assert.ok(sw.includes("'" + f + "'"), f);
 });
+
+test('sheets: clock.js is loaded before routesheet.js, which captures CrewClock when it loads', () => {
+  const html = read('index.html').toString();
+  const loaded = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(loaded.indexOf('lib/clock.js') !== -1, 'clock.js is loaded');
+  assert.ok(loaded.indexOf('lib/clock.js') < loaded.indexOf('lib/routesheet.js'), 'clock.js comes first');
+  assert.ok(loaded.indexOf('lib/shiftlog.js') < loaded.indexOf('lib/routesheet.js'), 'shiftlog.js comes first');
+});

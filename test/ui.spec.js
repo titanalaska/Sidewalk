@@ -146,7 +146,8 @@ function fakeSnow(state, opts = {}) {
       };
       // The Clock tab rows (snow-app-script roster.js PUBLIC_CLOCK_FIELDS): Matt gets the whole row, everyone else the allow-list, and
       // a crew phone only the rows whose crew_id is its own (clockShownAll_).
-      const CLOCK_FIELDS = ['id', 'seq', 'shift_id', 'kind', 'crew_id', 'name', 'route_id', 'storm_id', 'at', 'time_in', 'time_out', 'undoes', 'by_key', 'by_name'];
+      const CLOCK_FIELDS = require('./clock-fields.js');
+      const LOG_FIELDS = ['id', 'seq', 'storm_id', 'shift_id', 'site_id', 'zone_id', 'state', 'note', 'by_key', 'by_name', 'at', 'off_route', 'snowing_warned', 'undoes', 'depth_in', 'time_in', 'time_out']; // roster.js PUBLIC_LOG_FIELDS
       const clockView = (row) => (role === 'admin' ? { ...row, by_profile: 'P1' } : Object.fromEntries(CLOCK_FIELDS.map((k) => [k, row[k] === undefined ? null : row[k]])));
       const clockShown = (rows) => rows.filter((r) => role === 'admin' || r.crew_id === me.crew_id).map(clockView);
       const shiftBefore = (id) => { // a day's is the night before it, a night's is its own day (Code.js shiftBefore_)
@@ -205,6 +206,10 @@ function fakeSnow(state, opts = {}) {
         }
         return out;
       }
+      // KNOWN, HARMLESS differences from Code.js in this section: the first-load read has no `floorDate` early stop (it filters the
+      // whole tab by shift id, same rows); seq / id come from the array length, not a script property; no lock, no Sheets;
+      // the admin's raw rows carry by_profile 'P1'. Everything else (who, refusals and their words, the shift id written, the
+      // reply shape) is meant to match handler for handler.
       // The six times actions (snow-app-script Code.js, times-1): who comes from the token, the route check is the
       // Board's (a crew member on no route, or on another, is refused), the two typed ones are admin only, every
       // reply echoes `action` (...v).
@@ -225,8 +230,15 @@ function fakeSnow(state, opts = {}) {
           const d = new Date(Date.UTC(+m[1], m[2] - 1, +m[3], +m[4], +m[5]));
           return d.getUTCFullYear() === +m[1] && d.getUTCMonth() === m[2] - 1 && d.getUTCDate() === +m[3] && d.getUTCHours() === +m[4] && d.getUTCMinutes() === +m[5] ? t : null;
         };
-        const typedCheck = (shiftId) => { // the shared time rules of typeSiteTimes_ / typeClock_; a string = a refusal
-          const sd = T.parseShift(shiftId); if (!sd) return 'Pick a shift';
+        const realShift = (id) => { // Code.js realShift_: the shape AND a date that exists (night-2026-13-01 and day-2026-02-30 are not shifts)
+          const p = T.parseShift(id); if (!p) return null;
+          const d = new Date(Date.UTC(+p.date.slice(0, 4), +p.date.slice(5, 7) - 1, +p.date.slice(8, 10)));
+          return !isNaN(d.getTime()) && d.toISOString().slice(0, 10) === p.date ? p : null;
+        };
+        const markShown = (row) => (role === 'admin' ? view(row) : Object.fromEntries(LOG_FIELDS.map((k) => [k, row[k] === undefined ? null : row[k]])));
+        const typedCheck = (shiftId, spanOk) => { // the shared time rules of typeSiteTimes_ / typeClock_; a string = a refusal
+          const sd = realShift(shiftId); if (!sd) return 'Pick a shift';
+          if (spanOk && !spanOk()) return 'That shift is not part of this storm';
           const tin = typedMinute(body.time_in), tout = typedMinute(body.time_out);
           if (tin === null || tout === null) return 'A time is YYYY-MM-DDTHH:MM, a real date and minute';
           if (tin === '' && tout === '') return 'Type a start, a finish, or both';
@@ -277,21 +289,26 @@ function fakeSnow(state, opts = {}) {
             const here = cr.some((r) => r.shift_id === now && (r.kind === kind || r.kind === kind + '_undone') && ids.includes(r.crew_id)); // R14
             if (!targets.length && !here) targets = CK.undoable(cr, ids, shiftBefore(now), kind);
             if (!targets.length) return refuse('conflict', 'Nothing to take back');
-            targets.forEach((id) => { const t = cr.find((r) => r.id === id); push({ shift_id: t.shift_id, kind: kind + '_undone', crew_id: t.crew_id, name: t.name, undoes: t.id }); });
+            targets.forEach((id) => { const t = cr.find((r) => r.id === id); push({ shift_id: t.shift_id, kind: kind + '_undone', crew_id: t.crew_id, name: t.name, route_id: t.route_id, undoes: t.id }); });
           }
           return { ok: true, written: out.length, records: clockShown(out), ...v };
         }
         // The three site actions: a storm must be open; the site must be live; a crew member must be on a route holding it.
         if (!st0.open) return refuse('invalid', 'No storm is open');
         const siteId = typeof body.site_id === 'string' ? body.site_id : '';
+        if (body.action !== 'typeSiteTimes' && body.kind !== 'arrived' && body.kind !== 'left') return refuse('invalid', 'Arrived or Left');   // the kind first (siteMark_, undoSiteMark_)
         if (!state.sites.some((s) => s.id === siteId && !s.archived)) return refuse('invalid', 'Unknown site');
         if (body.action === 'typeSiteTimes') {
-          const t = typedCheck(typeof body.shift_id === 'string' ? body.shift_id : ''); if (typeof t === 'string') return refuse('invalid', t);
+          // Code.js: from the shift of the storm's start row to the shift now, inclusive.
+          const spanOk = () => {
+            const begun = state.storms.find((r) => r.kind === 'start' && r.storm_id === st0.storm_id), first = begun ? SL.shiftFor(begun.at, state.storms) : now;
+            return T.shiftKey(body.shift_id) >= T.shiftKey(first) && T.shiftKey(body.shift_id) <= T.shiftKey(now);
+          };
+          const t = typedCheck(typeof body.shift_id === 'string' ? body.shift_id : '', spanOk); if (typeof t === 'string') return refuse('invalid', t);
           const row = markRow({ shift_id: body.shift_id, site_id: siteId, state: 'typed', time_in: t.tin, time_out: t.tout });
           state.log.push(row);
-          return { ok: true, record: view(row), ...v };
+          return { ok: true, record: markShown(row), ...v };
         }
-        if (body.kind !== 'arrived' && body.kind !== 'left') return refuse('invalid', 'Arrived or Left');
         if (role !== 'admin') {
           const where = B.whereIs(board, me.crew_id), route = where && live.find((r) => r.id === where.route);
           if (!route || !(route.site_ids || []).includes(siteId)) return refuse('forbidden', 'That site is not on your route');
@@ -299,13 +316,17 @@ function fakeSnow(state, opts = {}) {
         if (body.action === 'siteMark') {
           const row = markRow({ site_id: siteId, state: body.kind });
           state.log.push(row);
-          return { ok: true, record: view(row), ...v };
+          return { ok: true, record: markShown(row), ...v };
         }
-        const t = SL.markUndoTarget(state.log, st0.storm_id, siteId, now, body.kind);
+        // R4 / R14 (undoSiteMark_): the current shift first; only when it holds NO mark of that kind here, standing or undone, the
+        // shift before it. The undo row takes the TARGET's shift and storm.
+        let t = SL.markUndoTarget(state.log, st0.storm_id, siteId, now, body.kind);
+        const here = state.log.some((r) => r.storm_id === st0.storm_id && r.site_id === siteId && r.shift_id === now && (r.state === body.kind || r.state === body.kind + '_undone'));
+        if (!t.ok && !here) { const t2 = SL.markUndoTarget(state.log, st0.storm_id, siteId, shiftBefore(now), body.kind); if (t2.ok) t = t2; }
         if (!t.ok) return refuse('conflict', t.reason);
-        const row = markRow({ shift_id: t.row.shift_id, site_id: siteId, state: body.kind + '_undone', undoes: t.row.id });
+        const row = markRow({ storm_id: t.row.storm_id, shift_id: t.row.shift_id, site_id: siteId, state: body.kind + '_undone', undoes: t.row.id });
         state.log.push(row);
-        return { ok: true, record: view(row), ...v };
+        return { ok: true, record: markShown(row), ...v };
       }
       const storm = SL.stormState(state.storms);
       if (body.action === 'stormAction') {
@@ -7398,4 +7419,92 @@ test('times rows: Arrived, Left, typed and their undos change nothing on the liv
   await openRoute(page, 'R2');
   await expect(walkRow(page, 'S2|whole')).not.toContainText('Mark Maker');
   await expect(walkBtn(page, 'S2|whole', 'cleared')).toBeVisible();
+});
+
+// ---- the fake, held to the server (fix round 1): each test below is a rule of Code.js the stand-in must keep ----
+const AT = (hhmm) => '2026-10-03T' + hhmm + ':00.000-08:00';
+const asTok = (f, token, body) => f({ token, ...body });
+
+test('times rows: the fake steps an Undo back to the shift before only when the current shift holds no mark of that kind (R4, R14)', async () => {
+  const w = timesWorld(), f = fakeSnow(w);
+  // 8:55 AM is still the night (before the 9 AM cutover): an Arrived there is in night-2026-10-02.
+  w.clock = AT('08:55');
+  const night = asTok(f, 'tok-jordan', { action: 'siteMark', kind: 'arrived', site_id: 'S1' });
+  expect(night.record.shift_id).toBe('night-2026-10-02');
+  // 9:05 AM is the day. Undo finds nothing in the day, none was ever tapped there, so it reaches back to the night's
+  // mark and the undo row is written in the NIGHT, with the target's own storm.
+  w.clock = AT('09:05');
+  const undo = asTok(f, 'tok-jordan', { action: 'undoSiteMark', kind: 'arrived', site_id: 'S1' });
+  expect(undo).toMatchObject({ ok: true, action: 'undoSiteMark', record: { state: 'arrived_undone', shift_id: 'night-2026-10-02', storm_id: 'ST-1', undoes: night.record.id } });
+  // R14: a night Arrived that stands, then a day Arrived, undone. A second Undo must not reach back to the night's.
+  const w2 = timesWorld(), g = fakeSnow(w2);
+  w2.clock = AT('08:55');
+  asTok(g, 'tok-jordan', { action: 'siteMark', kind: 'arrived', site_id: 'S1' });
+  w2.clock = AT('09:05');
+  const day = asTok(g, 'tok-jordan', { action: 'siteMark', kind: 'arrived', site_id: 'S1' });
+  expect(day.record.shift_id).toBe('day-2026-10-03');
+  expect(asTok(g, 'tok-jordan', { action: 'undoSiteMark', kind: 'arrived', site_id: 'S1' })).toMatchObject({ ok: true, record: { shift_id: 'day-2026-10-03', undoes: day.record.id } });
+  expect(asTok(g, 'tok-jordan', { action: 'undoSiteMark', kind: 'arrived', site_id: 'S1' })).toMatchObject({ ok: false, code: 'conflict', reason: 'No Arrived to take back' });
+});
+
+test('times rows: the fake writes a clock Undo with the TARGET row\'s route, not the route the person is on now', async () => {
+  const w = timesWorld(), f = fakeSnow(w);
+  w.clockRows = [];
+  asTok(f, 'tok-jordan', { action: 'clockTap', kind: 'start' });   // C01 and C03 on R1: both rows say R1
+  // The dispatcher moves Jordan to R2 (a later move wins). Alex stays on R1.
+  w.moves.push({ id: 'M3', at: '2026-10-02T12:00:00.000-08:00', worker: 'C03', to_route: 'R2', role: 'member' });
+  const undo = asTok(f, 'tok-jordan', { action: 'clockUndo', kind: 'start' });
+  // His route now is R2 and holds only him: one undo, of his own row, which was tapped on R1.
+  expect(undo).toMatchObject({ ok: true, written: 1, records: [{ kind: 'start_undone', crew_id: 'C03', route_id: 'R1' }] });
+});
+
+test('times rows: the fake refuses an impossible shift date in both typed actions, in the server\'s words', async () => {
+  const f = fakeSnow(timesWorld());
+  for (const shift_id of ['night-2026-13-01', 'day-2026-02-30', 'night-2026-00-10', 'nonsense']) {
+    expect(asTok(f, 'tok-matt', { action: 'typeSiteTimes', site_id: 'S1', shift_id, time_in: '2026-10-02T21:00', time_out: '' })).toMatchObject({ ok: false, code: 'invalid', reason: 'Pick a shift' });
+    expect(asTok(f, 'tok-matt', { action: 'typeClock', crew_id: 'C03', shift_id, time_in: '2026-10-02T21:00', time_out: '' })).toMatchObject({ ok: false, code: 'invalid', reason: 'Pick a shift' });
+  }
+  // A real leap day is real: 2028-02-29 passes the shift check (and then fails the future check, not the shift check).
+  expect(asTok(f, 'tok-matt', { action: 'typeClock', crew_id: 'C03', shift_id: 'night-2028-02-29', time_in: '2028-02-29T21:00', time_out: '' })).toMatchObject({ reason: 'A time cannot be in the future' });
+});
+
+test('times rows: the fake keeps typeSiteTimes inside the open storm\'s span', async () => {
+  const f = fakeSnow(timesWorld());   // the storm began 6:00 AM on 10/3 (night-2026-10-02); now is night-2026-10-02
+  const typed = (shift_id, time_in) => asTok(f, 'tok-matt', { action: 'typeSiteTimes', site_id: 'S1', shift_id, time_in, time_out: '' });
+  expect(typed('night-2026-10-01', '2026-10-01T21:00')).toMatchObject({ ok: false, code: 'invalid', reason: 'That shift is not part of this storm' });   // before it began
+  expect(typed('day-2026-10-03', '2026-10-03T07:00')).toMatchObject({ ok: false, code: 'invalid', reason: 'That shift is not part of this storm' });   // after now
+  expect(typed('night-2026-10-02', '2026-10-02T21:00')).toMatchObject({ ok: true });
+});
+
+test('times rows: the fake checks the kind before the site, as the server does', async () => {
+  const f = fakeSnow(timesWorld());
+  for (const action of ['siteMark', 'undoSiteMark']) {
+    expect(asTok(f, 'tok-jordan', { action, kind: 'bogus', site_id: 'S2' })).toMatchObject({ ok: false, code: 'invalid', reason: 'Arrived or Left' });     // off route AND bad kind: the kind
+    expect(asTok(f, 'tok-jordan', { action, kind: 'bogus', site_id: 'NOPE' })).toMatchObject({ ok: false, code: 'invalid', reason: 'Arrived or Left' });
+    expect(asTok(f, 'tok-jordan', { action, kind: 'arrived', site_id: 'NOPE' })).toMatchObject({ ok: false, code: 'invalid', reason: 'Unknown site' });
+  }
+});
+
+test('times rows: a crew phone behind on other people\'s Clock rows moves its cursor and tail and still holds only its own', async ({ page }) => {
+  // Worked by hand. First load (the four rows of timesWorld): Jordan holds K-3, cursor 4, tail 4.
+  // Alex's K-5 lands: the second poll sends cursor 4 / last 4, and the server (row 4 has seq 4: no reset) answers rows after 4 =
+  // [K-5], none of them Jordan's, so clock [], cursor 5, tail 5. The THIRD poll must then send cursor 5 and last 5.
+  const w = timesWorld();
+  const replies = clockReplies(page);
+  const calls = await openStorm(page, w);
+  await expect.poll(async () => (await phoneState(page)).cursor.clock).toBe(4);
+  w.clockRows.push(clockRow(5, 'C01', 'Alex Test', 'night-2026-10-02', 'end'));
+  await pollNow(page);
+  await expect.poll(async () => (await phoneState(page)).cursor.clock).toBe(5);
+  expect((await phoneState(page)).last.clock).toBe(5);
+  await pollNow(page);
+  await expect.poll(() => shiftCalls(calls).length).toBe(3);
+  expect(shiftCalls(calls)[1].body.cursor.clock).toBe(4);
+  expect(shiftCalls(calls)[1].body.last.clock).toBe(4);
+  expect(shiftCalls(calls)[2].body.cursor.clock).toBe(5);
+  expect(shiftCalls(calls)[2].body.last.clock).toBe(5);
+  await expect.poll(() => replies.length).toBe(3);
+  expect(replies[1]).toMatchObject({ clock: [], cursor: { clock: 5 }, tail: { clock: 5 }, reset: { clock: false } });
+  expect(replies[2]).toMatchObject({ clock: [], cursor: { clock: 5 }, tail: { clock: 5 }, reset: { clock: false } });
+  expect(await clockIds(page)).toEqual(['K-3']);
 });

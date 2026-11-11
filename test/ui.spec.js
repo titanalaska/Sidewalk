@@ -316,9 +316,10 @@ function fakeSnow(state, opts = {}) {
           // R31: a start the dispatcher TYPED for the current shift (this storm) is a start too: the open visit is the current one.
           const typedStart = SL.siteClock(state.log.filter((r) => r.storm_id === st0.storm_id), siteId, now).startHow === 'typed';
           if (body.kind === 'left' && !has(now, 'arrived') && !typedStart) { const b = shiftBefore(now); if (has(b, 'arrived') && !has(b, 'left')) shiftId = b; }
-          // R29: a mark of this kind already stands in that shift: nothing is written, the standing row is answered.
-          const standing = SL.markUndoTarget(state.log, st0.storm_id, siteId, shiftId, body.kind);
-          if (standing.ok) return { ok: true, record: markShown(standing.row), ...v };
+          // R29 + R38: a tap of the SAME kind as the latest standing mark there writes nothing and answers that row; an Arrived after a
+          // standing Left (a return visit) and a Left after a standing Arrived are written.
+          const latest = SL.latestMark(state.log, st0.storm_id, siteId, shiftId);
+          if (latest && latest.state === body.kind) return { ok: true, record: markShown(latest), ...v };
           const row = markRow({ site_id: siteId, state: body.kind, shift_id: shiftId });
           state.log.push(row);
           return { ok: true, record: markShown(row), ...v };
@@ -7577,7 +7578,9 @@ test('site times: a crew member on the route taps Arrived, then Left, and takes 
   await leftBtn(page, 'S1').click();
   await expect(timesLine(page, 'S1')).toHaveText('In 3:02 AM · Out 6:10 AM');
   await expect(leftBtn(page, 'S1')).toHaveCount(0);
-  await expect(arrivedBtn(page, 'S1')).toHaveCount(0);
+  // R38 (final review C1): the latest mark is a Left, so Arrived is offered again (a return visit) beside the Left's Undo. Before
+  // R38 this expected no Arrived button at all, and a crew back on site had no way to say so.
+  await expect(arrivedBtn(page, 'S1')).toBeVisible();
   await expect(markUndoBtn(page, 'S1', 'left')).toBeVisible();
   await expect(markUndoBtn(page, 'S1', 'arrived')).toHaveCount(0);
   // Undo Left: the Out goes, the word stays.
@@ -9304,4 +9307,46 @@ test('crew times sheet: status: a stray clock row never changes the handoff line
   await openStorm(page, w, { token: 'tok-matt', clockAt: at('08:05') });
   await expect(page.locator('#sheetsstatus')).toHaveText('Handoff sheets: 1 of 2 saved · making…');
   await expect(page.locator('#retrySheets')).toHaveCount(0);
+});
+
+// A return visit (final review C1 / R38): the crew comes back to a site inside one shift and taps Arrived again. The clock is the
+// night of 10/2 throughout (before 9 AM). Paper: Arrived 3:02 (seq 1), Left 6:10 (2), Arrived 6:20 (3), Left 6:40 (4); the line
+// is In = the EARLIEST Arrived, Out = the LATEST Left, blank while the last mark is an Arrived.
+test('site times: a return visit can be tapped', async ({ page }) => {
+  const w = timesWorld(); w.clock = tAt('03:02:11');
+  const calls = await openStorm(page, w);
+  await arrivedBtn(page, 'S1').click();
+  await expect(timesLine(page, 'S1')).toHaveText('In 3:02 AM · Out');
+  w.clock = tAt('06:10:40');
+  await leftBtn(page, 'S1').click();
+  await expect(timesLine(page, 'S1')).toHaveText('In 3:02 AM · Out 6:10 AM');
+  // The latest mark is a Left: Arrived is offered again beside the Left's Undo, and Left is not.
+  await expect(arrivedBtn(page, 'S1')).toBeVisible();
+  await expect(markUndoBtn(page, 'S1', 'left')).toBeVisible();
+  await expect(leftBtn(page, 'S1')).toHaveCount(0);
+  await expect(markUndoBtn(page, 'S1', 'arrived')).toHaveCount(0);
+  // A return visit: the second Arrived is written, the line goes back to open (no Out), Left + Undo(Arrived) are offered.
+  w.clock = tAt('06:20:00');
+  await arrivedBtn(page, 'S1').click();
+  await expect(timesLine(page, 'S1')).toHaveText('In 3:02 AM · Out');
+  await expect(leftBtn(page, 'S1')).toBeVisible();
+  await expect(markUndoBtn(page, 'S1', 'arrived')).toBeVisible();
+  await expect(arrivedBtn(page, 'S1')).toHaveCount(0);
+  await expect(markUndoBtn(page, 'S1', 'left')).toHaveCount(0);
+  w.clock = tAt('06:40:00');
+  await leftBtn(page, 'S1').click();
+  await expect(timesLine(page, 'S1')).toHaveText('In 3:02 AM · Out 6:40 AM');
+  // Undo the second Left: open again. Undo the second Arrived (the NEWEST standing one): closed again at the first Left, 6:10 AM.
+  await markUndoBtn(page, 'S1', 'left').click();
+  await expect(timesLine(page, 'S1')).toHaveText('In 3:02 AM · Out');
+  await markUndoBtn(page, 'S1', 'arrived').click();
+  await expect(timesLine(page, 'S1')).toHaveText('In 3:02 AM · Out 6:10 AM');
+  await expect(arrivedBtn(page, 'S1')).toBeVisible();
+  // The requests: four siteMark taps in this order, then the two Undos, each with only action, kind, site_id, token.
+  const marks = siteActionCalls(calls, 'siteMark').map((c) => c.body);
+  expect(marks.map((b) => b.kind)).toEqual(['arrived', 'left', 'arrived', 'left']);
+  marks.forEach((b) => expect(Object.keys(b).sort()).toEqual(['action', 'kind', 'site_id', 'token']));
+  expect(siteActionCalls(calls, 'undoSiteMark').map((c) => c.body.kind)).toEqual(['left', 'arrived']);
+  const log = (await phoneState(page)).log;
+  expect(log.map((r) => [r.seq, r.state, r.undoes])).toEqual([[1, 'arrived', null], [2, 'left', null], [3, 'arrived', null], [4, 'left', null], [5, 'left_undone', 'L-4'], [6, 'arrived_undone', 'L-3']]);
 });

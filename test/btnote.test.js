@@ -166,3 +166,52 @@ test('Time In and Out: an undone Arrived goes back to the walk taps, and another
   const n = N.btNote(o, 'night-2026-12-04');
   assert.deepEqual([n.timeIn, n.timeOut], ['11:55 PM', '12:53 AM']);
 });
+
+// A return visit and a second pass (final review C1 / R38). The story, one site, one shift (night-2026-12-04):
+//   seq 3  Arrived 8:30 PM     seq 4  Left 9:15 PM      (pass 1: walk tap seq 1 at 8:40 PM)
+//   seq 6  Clean again 2:00 AM (pass 2 starts: sinceSeq 6)
+//   seq 8  walk tap 2:10 AM; then, if tapped: seq 9 Arrived 2:05 AM, seq 10 Left 2:30 AM.
+// Pass 1 (before the Clean again) reads the marks: In 8:30 PM, Out 9:15 PM. Pass 2 may only use marks AFTER seq 6.
+
+const passRows = () => [
+  row(1, 'Z1', 'cleared', { at: '2026-12-04T20:40:00.000-09:00' }),
+  row(3, '*', 'arrived', { at: '2026-12-04T20:30:00.000-09:00' }), row(4, '*', 'left', { at: '2026-12-04T21:15:00.000-09:00' })];
+const pass2Rows = () => [
+  row(6, '*', 'again', { at: '2026-12-05T02:00:00.000-09:00' }), row(8, 'Z1', 'cleared', { at: '2026-12-05T02:10:00.000-09:00' })];
+
+test('R38 BT: pass 1 reads the visit it tapped, In 8:30 PM and Out 9:15 PM', () => {
+  const o = base();
+  o.log = passRows();
+  const n = N.btNote(o, 'night-2026-12-04');
+  assert.deepEqual([n.timeIn, n.timeOut], ['8:30 PM', '9:15 PM']);
+});
+
+test('R38 BT: pass 2 with no new marks reads ITS walk taps, not pass 1 marks', () => {
+  // Only the walk tap seq 8 (2:10 AM) is after sinceSeq 6: In and Out are both 2:10 AM. The 8:30 PM / 9:15 PM marks are seq 3, 4.
+  const o = base();
+  o.log = passRows().concat(pass2Rows());
+  const n = N.btNote(o, 'night-2026-12-04');
+  assert.deepEqual([n.timeIn, n.timeOut], ['2:10 AM', '2:10 AM']);
+});
+
+test('R38 BT: pass 2 reads its own tapped Arrived and Left; an open second visit has no Out of its own', () => {
+  const o = base();
+  o.log = passRows().concat(pass2Rows(), [row(9, '*', 'arrived', { at: '2026-12-05T02:05:00.000-09:00' })]);
+  // Arrived seq 9 (2:05 AM) is after sinceSeq 6: In 2:05 AM. No Left after sinceSeq: Out is the walk tap 2:10 AM.
+  let n = N.btNote(o, 'night-2026-12-04');
+  assert.deepEqual([n.timeIn, n.timeOut], ['2:05 AM', '2:10 AM']);
+  o.log = o.log.concat([row(10, '*', 'left', { at: '2026-12-05T02:30:00.000-09:00' })]);
+  n = N.btNote(o, 'night-2026-12-04');
+  assert.deepEqual([n.timeIn, n.timeOut], ['2:05 AM', '2:30 AM']);
+});
+
+test('R38 BT: a typed time filed before the pass began is not the pass; one filed after is', () => {
+  const o = base();
+  o.log = passRows().concat([row(5, '*', 'typed', { time_in: '2026-12-04T20:00', time_out: '2026-12-04T21:30', by_name: 'Matt' })], pass2Rows());
+  // Typed seq 5 is before sinceSeq 6: pass 2 reads the walk tap, 2:10 AM both sides.
+  let n = N.btNote(o, 'night-2026-12-04');
+  assert.deepEqual([n.timeIn, n.timeOut], ['2:10 AM', '2:10 AM']);
+  o.log = o.log.concat([row(11, '*', 'typed', { time_in: '', time_out: '2026-12-05T02:45', by_name: 'Matt' })]);
+  n = N.btNote(o, 'night-2026-12-04');
+  assert.deepEqual([n.timeIn, n.timeOut], ['2:10 AM', '2:45 AM']);
+});

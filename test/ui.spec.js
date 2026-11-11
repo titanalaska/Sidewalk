@@ -277,17 +277,12 @@ function fakeSnow(state, opts = {}) {
           const push = (extra) => { const kn = cr.length + 1; const row = { id: 'K-' + kn, seq: kn, route_id: routeId, storm_id: st0.open ? st0.storm_id : '', at: stamp,
             time_in: '', time_out: '', by_key: me.crew_id || 'admin', by_name: me.name, ...extra }; cr.push(row); out.push(row); };
           if (body.action === 'clockTap') {
-            const shiftOf = {};
-            CK.tapRows(cr, ids, now, kind).forEach((id) => { shiftOf[id] = now; });
-            if (kind === 'end') { // R13: an End closes whichever shift is open: now, else the one before
-              const rest = ids.filter((id) => shiftOf[id] === undefined);
-              CK.tapRows(cr, rest, shiftBefore(now), 'end').forEach((id) => { shiftOf[id] = shiftBefore(now); });
-            }
+            // R34 / R13: the SAME function the server calls (clock.js tapShifts): no second Start for someone still open in the shift
+            // before; an End closes whichever shift is open (now, else the one before)
+            const shiftOf = CK.tapShifts(cr, ids, now, shiftBefore(now), kind);
             ids.filter((id) => shiftOf[id] !== undefined).forEach((id) => push({ shift_id: shiftOf[id], kind, crew_id: id, name: byId[id].name, undoes: '' }));
           } else {
-            let targets = CK.undoable(cr, ids, now, kind);
-            const here = cr.some((r) => r.shift_id === now && (r.kind === kind || r.kind === kind + '_undone') && ids.includes(r.crew_id)); // R14
-            if (!targets.length && !here) targets = CK.undoable(cr, ids, shiftBefore(now), kind);
+            const targets = CK.undoTargets(cr, ids, now, shiftBefore(now), kind); // R35 / R14, per person: the server's own function
             if (!targets.length) return refuse('conflict', 'Nothing to take back');
             targets.forEach((id) => { const t = cr.find((r) => r.id === id); push({ shift_id: t.shift_id, kind: kind + '_undone', crew_id: t.crew_id, name: t.name, route_id: t.route_id, undoes: t.id }); });
           }
@@ -2735,6 +2730,11 @@ test('the phone asks only for rows after its cursor', async ({ page }) => {
   expect(first.cursor).toEqual({ log: 0, storms: 0, visits: 0, trucks: 0, sheets: 0, posts: 0, clock: 0 });
   expect(second.cursor).toEqual({ log: 2, storms: 1, visits: 0, trucks: 0, sheets: 0, posts: 0, clock: 0 });
   expect(second.last).toEqual({ log: 2, storms: 1, visits: null, trucks: null, sheets: null, clock: null });
+  // The pollNow is the THIRD call and says the same as the Storm tab's first: nothing new came, the cursor and last-seq stay put (F7: this
+  // is the assertion the old second call carried before the Tonight read moved every count by one).
+  const third = shiftCalls(calls)[2].body;
+  expect(third.cursor).toEqual({ log: 2, storms: 1, visits: 0, trucks: 0, sheets: 0, posts: 0, clock: 0 });
+  expect(third.last).toEqual({ log: 2, storms: 1, visits: null, trucks: null, sheets: null, clock: null });
   await expect.poll(async () => (await phoneState(page)).cursor.log).toBe(2);
   expect((await phoneState(page)).log.map((r) => r.id)).toEqual(['L-1', 'L-2']); // nothing came twice
 });
@@ -2758,9 +2758,14 @@ test('rows kept out of seq order in the Sheet do not make every poll reset', asy
   await expect.poll(() => shiftCalls(calls).length).toBe(3);   // a crew phone's first screen is Tonight, which read the shift log once for the shift card (times, 11/11/26): that read is call 1 and the Storm tab's first poll is call 2; the pollNow is the third
   expect(shiftCalls(calls)[1].body.cursor.log).toBe(2);
   expect(shiftCalls(calls)[1].body.last.log).toBe(1);
+  // F7: and the pollNow, the third call, must still say last = 1 (the last row it was HANDED), not 2, or the server would reset every poll
+  expect(shiftCalls(calls)[2].body.cursor.log).toBe(2);
+  expect(shiftCalls(calls)[2].body.last.log).toBe(1);
   await expect.poll(() => replies.length).toBe(3);
   expect(replies[1].reset.log).toBe(false);
   expect(replies[1].log).toEqual([]);
+  expect(replies[2].reset.log).toBe(false);
+  expect(replies[2].log).toEqual([]);
 });
 
 test('polling runs only on the Storm tab, and only while the page is visible', async ({ page }) => {
@@ -2768,14 +2773,16 @@ test('polling runs only on the Storm tab, and only while the page is visible', a
   await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
   // a crew phone's first screen is Tonight, which read the shift log once for the shift card (times, 11/11/26): that read is call 1 and the Storm tab's first poll is call 2: so every count below is one more than the Storm tab's own.
   expect(shiftCalls(calls)).toHaveLength(2);
-  // Another tab: the timer is gone. Three ticks' worth of time asks nothing.
+  // Another tab: the timer is gone. Entering Tonight reads the shift log ONCE (the shift card's Clock rows: times, F6a) and three ticks'
+  // worth of time asks nothing more.
   await page.click('nav [data-tab="tonight"]');
+  await expect.poll(() => shiftCalls(calls).length).toBe(3);
   await page.clock.runFor(60000);
   await page.waitForTimeout(300);
-  expect(shiftCalls(calls)).toHaveLength(2);
+  expect(shiftCalls(calls)).toHaveLength(3);
   // Back on Storm: one poll at once, and the timer runs again (one tick = one more).
   await page.click('nav [data-tab="storm"]');
-  await expect.poll(() => shiftCalls(calls).length).toBe(3);
+  await expect.poll(() => shiftCalls(calls).length).toBe(4);
   // Page hidden (phone locked): the timer ticks but asks nothing.
   await page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
@@ -2783,15 +2790,15 @@ test('polling runs only on the Storm tab, and only while the page is visible', a
   });
   await page.clock.runFor(60000);
   await page.waitForTimeout(300);
-  expect(shiftCalls(calls)).toHaveLength(3);
+  expect(shiftCalls(calls)).toHaveLength(4);
   // Visible again: exactly one poll, straight away.
   await page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'visible' });
     document.dispatchEvent(new Event('visibilitychange'));
   });
-  await expect.poll(() => shiftCalls(calls).length).toBe(4);
+  await expect.poll(() => shiftCalls(calls).length).toBe(5);
   await page.waitForTimeout(300);
-  expect(shiftCalls(calls)).toHaveLength(4);
+  expect(shiftCalls(calls)).toHaveLength(5);
 });
 
 test('polling stops on an expired session and shows sign-in', async ({ page }) => {
@@ -8617,7 +8624,7 @@ test('shift times: Set shift for a shift outside the two the phone holds stays o
   await expect(page.locator('#ss_saved')).toHaveText('Saved');
   await expect(page.locator('#dlg')).toBeVisible();
   expect(clockCalls(calls, 'typeClock')[0].body).toMatchObject({ crew_id: 'C04', shift_id: 'night-2026-09-29', time_in: '2026-09-29T22:00', time_out: '2026-09-30T05:00' });
-  await expect(page.locator('#ss_held')).toHaveText('Held: In 10:00 PM (typed by Matthew) · Out 5:00 AM (typed by Matthew)');
+  await expect(page.locator('#ss_held')).toHaveText('Held: not shown for a shift this old');   // F4: the phone holds no rows that old, so it does not guess
   await expect(page.locator('#ss_in')).toHaveValue('');
   await expect(page.locator('#ss_save')).toBeEnabled();
   await expect(clockLine(page, 'C04')).toHaveText('');   // the Board line is the shown shift's: nothing there
@@ -8627,7 +8634,7 @@ test('shift times: Set shift for a shift outside the two the phone holds stays o
   await page.click('#dlgClose');
   await openSetShift(page, 'C04');
   await expect(page.locator('#ss_shift')).toHaveValue('night-2026-09-29');
-  await expect(page.locator('#ss_held')).toContainText('In 10:00 PM');
+  await expect(page.locator('#ss_held')).toHaveText('Held: not shown for a shift this old');
 });
 
 test('shift times: a person on no route still has a line and a Set shift in Unassigned', async ({ page }) => {
@@ -8802,4 +8809,133 @@ test('shift times: at 320 px wide a Board route card with lines, a long typed na
   expect(r.n).toBeGreaterThanOrEqual(9);
   expect(r.scroll).toBeLessThanOrEqual(320);
   for (const [l, rt] of r.boxes) { expect(l).toBeGreaterThanOrEqual(0); expect(rt).toBeLessThanOrEqual(320); }
+});
+
+// ---------------- shift times, fix round 1 ----------------
+// R34 at the phone: A (Alex C01) and C (Casey C04) started at 8:00 PM and are still on the clock at 9:10 AM; B (Jordan C03) has nothing.
+const splitWorld = () => {
+  const w = shiftWorld(); w.clock = tAt('09:10:00');
+  w.clockRows = [clockRow(1, 'C01', 'Alex Test', NIGHT, 'start'), clockRow(2, 'C04', 'Casey Third', NIGHT, 'start')];
+  return w;
+};
+const AT_910 = '2026-10-03T09:10:00-08:00';
+
+test('shift times: a late Start after 9 AM leaves the night crew\'s shifts alone, and the End closes each person\'s own', async ({ page }) => {
+  const w = splitWorld();
+  const calls = await openShift(page, w, { token: 'tok-matt', clockAt: AT_910 });
+  await goBoard(page);
+  for (const id of ['C01', 'C04']) await expect(clockLine(page, id)).toHaveText('Night of 10/2: On the clock since 8:00 PM');
+  await expect(clockLine(page, 'C03')).toHaveText('');
+  await expect(page.locator('[data-clockstart="R1"]')).toBeVisible();   // Jordan has nothing
+  await expect(page.locator('[data-clockend="R1"]')).toBeVisible();     // Alex and Casey are open
+  await page.locator('[data-clockstart="R1"]').click();
+  await expect(page.locator('[data-routeclock="R1"]')).toContainText('Started for 1 person');   // covers Jordan only
+  expect(clockCalls(calls, 'clockTap')[0].body).toMatchObject({ kind: 'start', route_id: 'R1' });
+  expect(w.clockRows.slice(2).map((r) => [r.kind, r.crew_id, r.shift_id])).toEqual([['start', 'C03', DAYSHIFT]]);
+  for (const id of ['C01', 'C04']) await expect(clockLine(page, id)).toHaveText('Night of 10/2: On the clock since 8:00 PM');   // untouched
+  await expect(clockLine(page, 'C03')).toHaveText('On the clock since 9:10 AM');
+  await expect(page.locator('[data-clockstart="R1"]')).toHaveCount(0);   // nobody left to start
+  // 9:30: one End closes all three, the nights in the NIGHT and Jordan's in the day.
+  w.clock = tAt('09:30:00');
+  await page.locator('[data-clockend="R1"]').click();
+  await expect(page.locator('[data-routeclock="R1"]')).toContainText('Ended for 3 people');
+  expect(w.clockRows.filter((r) => r.kind === 'end').map((r) => [r.crew_id, r.shift_id])).toEqual([['C01', NIGHT], ['C03', DAYSHIFT], ['C04', NIGHT]]);   // in crew order: lead, then members
+  await expect(clockLine(page, 'C01')).toHaveText('Night of 10/2: Ended 9:30 AM');
+  await expect(clockLine(page, 'C04')).toHaveText('Night of 10/2: Ended 9:30 AM');
+  await expect(clockLine(page, 'C03')).toHaveText('Ended 9:30 AM');
+});
+
+test('shift times: the late crew member\'s own Start at 9:10 AM says it covered one person, and the open nights stay open', async ({ page }) => {
+  const w = splitWorld();
+  const calls = await openShift(page, w, { clockAt: AT_910 });   // Jordan
+  await expect(page.locator('#shiftStart')).toBeVisible();
+  await page.click('#shiftStart');
+  await expect(page.locator('#shiftNote')).toHaveText('Started for 1 person');
+  await expect(shiftLine(page)).toHaveText('On the clock since 9:10 AM');
+  expect(w.clockRows).toHaveLength(3);
+  expect(clockCalls(calls, 'clockTap')).toHaveLength(1);
+  expect(w.clockRows.filter((r) => r.crew_id !== 'C03').every((r) => r.shift_id === NIGHT && r.kind === 'start')).toBe(true);
+});
+
+test('shift times: a crew member still open from last night is offered End and no Start at 9:10 AM', async ({ page }) => {
+  await openShift(page, splitWorld(), { token: 'tok-alex', clockAt: AT_910 });
+  await expect(shiftLine(page)).toHaveText('Night of 10/2: On the clock since 8:00 PM');
+  await expect(page.locator('#shiftEnd')).toBeVisible();
+  await expect(page.locator('#shiftStart')).toHaveCount(0);
+});
+
+test('shift times: Set shift says the older shifts are not shown, and shows the real times for the two the phone holds', async ({ page }) => {
+  const w = shiftWorld();
+  await openShift(page, w, { token: 'tok-matt' });
+  await goBoard(page);
+  await page.locator('[data-clockstart="R1"]').click();
+  await expect(clockLine(page, 'C03')).toHaveText('On the clock since 3:05 AM');
+  await openSetShift(page, 'C03');
+  await expect(page.locator('#ss_held')).toHaveText('Held: In 3:05 AM · Out');                 // the shift now
+  await page.selectOption('#ss_shift', 'day-2026-10-02');
+  await expect(page.locator('#ss_held')).toHaveText('Held: nothing yet');                       // the shift before: held, and empty
+  await page.selectOption('#ss_shift', 'night-2026-10-01');                                      // the third: older than the phone holds
+  await expect(page.locator('#ss_held')).toHaveText('Held: not shown for a shift this old');
+  await expect(page.locator('#ss_held')).not.toContainText('nothing yet');
+  await page.selectOption('#ss_shift', NIGHT);
+  await expect(page.locator('#ss_held')).toHaveText('Held: In 3:05 AM · Out');
+});
+
+test('shift times: Spanish for the not-shown Held line', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await openShift(page, shiftWorld(), { token: 'tok-matt' });
+  await goBoard(page);
+  await openSetShift(page, 'C03');
+  await page.selectOption('#ss_shift', 'night-2026-10-01');
+  await expect(page.locator('#ss_held')).toHaveText('Registrado: no se muestra para un turno tan antiguo');
+});
+
+test('shift times: a Set times save still out does not stop a Set shift Save from sending', async ({ page }) => {
+  const w = settimesWorld();
+  const calls = await openStorm(page, w, { token: 'tok-matt', delay: { typeSiteTimes: 2500 } });
+  await openRoute(page, 'R1');
+  await openSetTimes(page, 'S1');
+  await page.fill('#st_in', '02:55');
+  await page.click('#st_save');
+  await page.click('#dlgClose');   // gone from the screen; its reply is 2.5 s away
+  await goBoard(page);
+  await openSetShift(page, 'C03');
+  await page.fill('#ss_in', '02:40');
+  await page.click('#ss_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(clockCalls(calls, 'typeClock')).toHaveLength(1);
+  expect(clockCalls(calls, 'typeClock')[0].body).toMatchObject({ crew_id: 'C03', time_in: '2026-10-03T02:40' });
+});
+
+test('shift times: opening the Tonight tab reads the Clock rows again, without polling', async ({ page }) => {
+  const w = shiftWorld();
+  const calls = await openShift(page, w);
+  await page.waitForFunction(() => SnowShiftUI.isLoaded());
+  await page.click('nav [data-tab="sites"]');
+  w.clockRows.push(clockRow(1, 'C03', 'Jordan Demo', NIGHT, 'start', { at: tAt('02:00:00') }));   // Jordan started on another phone
+  const before = shiftCalls(calls).length;
+  await page.click('nav [data-tab="tonight"]');
+  await expect(shiftLine(page)).toHaveText('On the clock since 2:00 AM');
+  expect(shiftCalls(calls).length).toBe(before + 1);
+  await page.clock.runFor(60000);
+  await page.waitForTimeout(300);
+  expect(shiftCalls(calls).length).toBe(before + 1);
+});
+
+test('shift times: a first read that fails says it could not reach the server, and the message goes when a read lands', async ({ page }) => {
+  let drop = true;
+  const w = shiftWorld();
+  await open(page, { token: 'tok-jordan', snow: fakeSnow(w), clockAt: STORM_CLOCK, abortIf: (b) => { if (drop && b.action === 'getShiftLog') { drop = false; return true; } return false; } });
+  await expect(page.locator('#shiftOffline')).toHaveText("Couldn't reach the server. Try again.");
+  await expect(page.locator('#shiftStart')).toHaveCount(0);   // nothing is offered before the rows are known
+  await page.click('#refreshPost');
+  await expect(page.locator('#shiftOffline')).toHaveCount(0);
+  await expect(page.locator('#shiftStart')).toBeVisible();
+});
+
+test('shift times: Spanish for the card\'s could-not-reach line', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  let drop = true;
+  await open(page, { token: 'tok-jordan', snow: fakeSnow(shiftWorld()), clockAt: STORM_CLOCK, abortIf: (b) => { if (drop && b.action === 'getShiftLog') { drop = false; return true; } return false; } });
+  await expect(page.locator('#shiftOffline')).toHaveText('No se pudo conectar con el servidor. Intenta de nuevo.');
 });

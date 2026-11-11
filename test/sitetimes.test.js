@@ -136,18 +136,37 @@ test('shiftOffers: typed times have no Undo; a typed start is an open shift (End
   assert.deepEqual(T.shiftOffers([crow(1, 'typed', PREV, 'C1', { time_in: '2026-10-03T20:00' })], 'C1', NOW), { shift: PREV, earlier: true, start: false, end: true, undo: null });
   assert.deepEqual(T.shiftOffers([crow(1, 'typed', PREV, 'C1', { time_out: '2026-10-04T05:00' })], 'C1', NOW), { shift: PREV, earlier: true, start: true, end: false, undo: null });
 });
-test('shiftOffers: a Start taken back now, over an open start before, offers Start (the current shift is the shown one) and nothing to End', () => {
+test('shiftOffers (R34): a Start taken back now, over an open start before, offers NO Start (still on the clock last night) and an End that closes last night', () => {
   const rows = [crow(1, 'start', PREV), crow(2, 'start', NOW), crow(3, 'start_undone', NOW, 'C1', { undoes: 'K-2' })];
-  assert.deepEqual(T.shiftOffers(rows, 'C1', NOW), { shift: NOW, earlier: false, start: true, end: false, undo: null });
+  assert.deepEqual(T.shiftOffers(rows, 'C1', NOW), { shift: NOW, earlier: false, start: false, end: true, undo: null });
 });
 test('routeTaps: how many people a Start or End would cover, as the server counts them (End closes the open shift: now, else the one before)', () => {
-  // A started now (open); B started in the shift before (open); C nothing. Start covers B and C (no start NOW); End covers A (now) and B (before).
+  // A started now (open); B started in the shift before (open); C nothing. R34: Start covers C alone (A has a start now, B is still on the clock from the shift before);
+  // End covers A (now) and B (before).
   const rows = [crow(1, 'start', NOW, 'A'), crow(2, 'start', PREV, 'B')];
-  assert.deepEqual(T.routeTaps(rows, ['A', 'B', 'C'], NOW), { start: 2, end: 2 });
-  // A also ended now: Start still B and C; End now B alone.
+  assert.deepEqual(T.routeTaps(rows, ['A', 'B', 'C'], NOW), { start: 1, end: 2 });
+  // A also ended now: Start still C alone; End now B alone.
   rows.push(crow(3, 'end', NOW, 'A'));
-  assert.deepEqual(T.routeTaps(rows, ['A', 'B', 'C'], NOW), { start: 2, end: 1 });
+  assert.deepEqual(T.routeTaps(rows, ['A', 'B', 'C'], NOW), { start: 1, end: 1 });
   // a person listed twice counts once; nobody on the route covers nobody
   assert.deepEqual(T.routeTaps(rows, ['C', 'C'], NOW), { start: 1, end: 0 });
   assert.deepEqual(T.routeTaps(rows, [], NOW), { start: 0, end: 0 });
+});
+
+test('routeTaps (R34): the split crew at 9 AM: A and C open last night, B placed this morning', () => {
+  // NOW is a day shift, PREV the night before. A and C started at night and have not ended; B has nothing.
+  // Start covers B only (A and C are already on the clock) = 1. End covers A and C in the night = 2.
+  const rows = [crow(1, 'start', PREV, 'A'), crow(2, 'start', PREV, 'C')];
+  assert.deepEqual(T.routeTaps(rows, ['A', 'B', 'C'], NOW), { start: 1, end: 2 });
+  // B starts the day: Start now covers nobody (A, C on the clock from the night; B has a start) = 0; End covers all three = 3.
+  rows.push(crow(3, 'start', NOW, 'B'));
+  assert.deepEqual(T.routeTaps(rows, ['A', 'B', 'C'], NOW), { start: 0, end: 3 });
+  // A's night is closed: A may start the day again (1), End covers B and C (2).
+  rows.push(crow(4, 'end', PREV, 'A'));
+  assert.deepEqual(T.routeTaps(rows, ['A', 'B', 'C'], NOW), { start: 1, end: 2 });
+});
+test('shiftOffers (R34): the person who is placed late is offered Start; the one open last night is offered End and Undo, never Start', () => {
+  const rows = [crow(1, 'start', PREV, 'A')];
+  assert.deepEqual(T.shiftOffers(rows, 'B', NOW), { shift: NOW, earlier: false, start: true, end: false, undo: null });
+  assert.deepEqual(T.shiftOffers(rows, 'A', NOW), { shift: PREV, earlier: true, start: false, end: true, undo: 'start' });
 });

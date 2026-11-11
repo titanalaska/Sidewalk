@@ -8939,3 +8939,298 @@ test('shift times: Spanish for the card\'s could-not-reach line', async ({ page 
   await open(page, { token: 'tok-jordan', snow: fakeSnow(shiftWorld()), clockAt: STORM_CLOCK, abortIf: (b) => { if (drop && b.action === 'getShiftLog') { drop = false; return true; } return false; } });
   await expect(page.locator('#shiftOffline')).toHaveText('No se pudo conectar con el servidor. Intenta de nuevo.');
 });
+
+// ---------------- crew times sheet: Print sheets ends with the night's Crew times (times plan, Task 11) ----------------
+// Fixture (ctWorld), worked by hand. The phone's clock is 7:30 AM on 10/3, so the shift now is night-2026-10-02 and the one before it is
+// day-2026-10-02: that is the window (R10). The storm ST-1 starts 6:00 AM on 10/3, which is also night-2026-10-02. The post puts a crew on
+// N1 and N2 for that night, so Print sheets already holds TWO route sheets (derived from POST, not from the app). The Clock tab, night of 10/2:
+//   Alex Test    tapped start 10/2 22:00, tapped end 10/3 05:30 (same offset)   -> 22:00 to 05:30 = 7 h 30 min = "7:30"
+//   Jordan Demo  TYPED start 10/2 21:15, tapped end 10/3 05:45                  -> no offset on a typed time, so wall clock: 21:15 to 05:45 = 8 h 30 min = "8:30"
+//   Casey Third  tapped start 10/3 00:10, never ended                           -> still open: no hours
+// By name that order is Alex, Casey, Jordan. A tapped stamp prints "M/D h:mm AM" and a typed one adds " (typed)".
+const ctRow = (n, crew, name, kind, iso, extra = {}) => clockRow(n, crew, name, 'night-2026-10-02', kind, { at: iso, ...extra });
+const ctWorld = () => {
+  const w = stormWorld();
+  w.crew = w.crew.concat([{ id: 'C04', name: 'Casey Third', phone: '555-0104', is_lead: false, rev: 1, profile_id: '5' }]);
+  w.clockRows = [
+    ctRow(1, 'C01', 'Alex Test', 'start', '2026-10-02T22:00:00.000-08:00'),
+    ctRow(2, 'C01', 'Alex Test', 'end', '2026-10-03T05:30:00.000-08:00'),
+    ctRow(3, 'C03', 'Jordan Demo', 'typed', '2026-10-03T05:00:00.000-08:00', { time_in: '2026-10-02T21:15', time_out: '', by_name: 'Matthew', by_key: 'ADMIN' }),
+    ctRow(4, 'C03', 'Jordan Demo', 'end', '2026-10-03T05:45:00.000-08:00'),
+    ctRow(5, 'C04', 'Casey Third', 'start', '2026-10-03T00:10:00.000-08:00'),
+  ];
+  return w;
+};
+const ctPages = (page) => page.locator('#printsheets .sheet').filter({ has: page.locator('table.times') });
+const ctCells = (pageLoc) => pageLoc.locator('table.times tbody tr').evaluateAll((trs) => trs.map((tr) => Array.from(tr.children).map((td) => td.textContent)));
+const ctOpen = async (page, w, o = {}) => {
+  await stubPrint(page);
+  const calls = await openStorm(page, w, { token: 'tok-matt', ...o });
+  return calls;
+};
+const OLDER_NOTE = 'Crew times for earlier nights of this storm are in the saved sheets, not on this phone.';
+
+test('crew times sheet: Print sheets ends with a page headed Crew times, three people worked on paper, and the count includes it', async ({ page }) => {
+  await ctOpen(page, ctWorld());
+  await page.click('#printSheets');
+  await expect(page.locator('#printview')).toBeVisible();
+  await expect(page.locator('#printsheets .sheet')).toHaveCount(3);   // 2 route sheets (N1, N2 from the post) + 1
+  await expect(page.locator('#printbar .muted')).toHaveText('3 sheets');
+  await expect(page.locator('#printsheets .sheet').nth(0)).toContainText('Route N1');
+  await expect(page.locator('#printsheets .sheet').nth(1)).toContainText('Route N2');
+  const ct = ctPages(page);
+  await expect(ct).toHaveCount(1);
+  await expect(page.locator('#printsheets .sheet').nth(2)).toContainText('Crew times');   // it is the LAST page
+  await expect(ct.locator('h1')).toHaveText('Crew timesNight of 10/2');
+  expect(await ctCells(ct)).toEqual([
+    ['Alex Test', '10/2 10:00 PM', '10/3 5:30 AM', '7:30'],
+    ['Casey Third', '10/3 12:10 AM', '', ''],                      // open: no end, no hours
+    ['Jordan Demo', '10/2 9:15 PM (typed)', '10/3 5:45 AM', '8:30'],
+  ]);
+  await expect(page.locator('#clockOlder')).toHaveCount(0);        // the storm began inside the window: nothing to point at
+  // The sheet's table style reaches the page (scoped under #printsheets, as the route sheets' css is).
+  expect(await ct.locator('table.times').evaluate((e) => getComputedStyle(e).borderCollapse)).toBe('collapse');
+  // One page each: the route sheet before it breaks after itself, the last page does not.
+  expect(await page.locator('#printsheets .sheet').nth(1).evaluate((e) => getComputedStyle(e).breakAfter)).toBe('page');
+  expect(await page.locator('#printsheets .sheet').nth(2).evaluate((e) => getComputedStyle(e).breakAfter)).toBe('auto');
+});
+
+test('crew times sheet: with no Clock rows there is no such page and the count is the route sheets alone', async ({ page }) => {
+  const w = ctWorld(); w.clockRows = [];
+  await ctOpen(page, w);
+  await page.click('#printSheets');
+  await expect(page.locator('#printview')).toBeVisible();
+  await expect(page.locator('#printsheets .sheet')).toHaveCount(2);   // N1 and N2: the post names a crew on both
+  await expect(page.locator('#printbar .muted')).toHaveText('2 sheets');
+  await expect(ctPages(page)).toHaveCount(0);
+  await expect(page.locator('#printsheets')).not.toContainText('Crew times');
+  await expect(page.locator('#clockOlder')).toHaveCount(0);
+});
+
+test('crew times sheet: Print route lists is a different view and carries no Crew times page', async ({ page }) => {
+  await ctOpen(page, ctWorld());
+  await page.click('#printRouteLists');
+  await expect(page.locator('#printview')).toBeVisible();
+  await expect(page.locator('#printsheets .rl-page')).toHaveCount(2);   // the two live routes, N1 and N2
+  await expect(page.locator('#printsheets .sheet')).toHaveCount(0);
+  await expect(page.locator('#printsheets')).not.toContainText('Crew times');
+  await expect(page.locator('#clockOlder')).toHaveCount(0);
+});
+
+// R3: two storms can share a night, and the Clock tab is not cut at a storm. The rule that decides is CrewRouteSheet.clockSheetsFor's span: this
+// storm's span starts at the shift its own start row falls in (ST-1: night-2026-10-02), and the ONE shift before it counts only when a line there is
+// still open or ends at or after the storm's start (R19, snow-app-script test/routesheet.test.js "a crew on the clock before the storm was called").
+// ST-0 ran 10/2 10:00 to 15:00 (day-2026-10-02, the shift before ST-1's night). Alex worked it 9:30 AM to 2:30 PM and went home: 2:30 PM on 10/2
+// is before ST-1's start at 6:00 AM on 10/3, so ST-0's day is not on ST-1's paper. Jordan worked ST-1's night.
+const twoStorms = () => {
+  const w = ctWorld();
+  w.storms = [{ id: 'ST-0', seq: 1, kind: 'start', storm_id: 'ST-0', at: '2026-10-02T10:00:00.000-08:00', by_name: 'Matthew' },
+    { id: 'ST-0e', seq: 2, kind: 'end', storm_id: 'ST-0', at: '2026-10-02T15:00:00.000-08:00', by_name: 'Matthew' }, { ...START_ROW, seq: 3 }];
+  w.clockRows = [
+    clockRow(1, 'C01', 'Alex Test', 'day-2026-10-02', 'start', { at: '2026-10-02T09:30:00.000-08:00', storm_id: 'ST-0' }),
+    clockRow(2, 'C01', 'Alex Test', 'day-2026-10-02', 'end', { at: '2026-10-02T14:30:00.000-08:00', storm_id: 'ST-0' }),
+    ctRow(3, 'C03', 'Jordan Demo', 'start', '2026-10-02T22:00:00.000-08:00'),
+    ctRow(4, 'C03', 'Jordan Demo', 'end', '2026-10-03T05:00:00.000-08:00'),
+  ];
+  return w;
+};
+
+test("crew times sheet: two storms sharing a night print only this storm's nights (R3): the other storm's day, gone home, has no page", async ({ page }) => {
+  await ctOpen(page, twoStorms());
+  await page.click('#printSheets');
+  await expect(page.locator('#printview')).toBeVisible();
+  await expect.poll(async () => (await phoneState(page)).clock.length).toBe(4);   // the phone holds both nights' rows
+  const ct = ctPages(page);
+  await expect(ct).toHaveCount(1);
+  await expect(ct.locator('h1')).toHaveText('Crew timesNight of 10/2');
+  expect(await ctCells(ct)).toEqual([['Jordan Demo', '10/2 10:00 PM', '10/3 5:00 AM', '7:00']]);   // 22:00 to 05:00 = 7:00
+  await expect(ct).not.toContainText('Alex Test');   // (the route sheets name Alex as lead; the Crew times page must not)
+  await expect(page.locator('#printsheets')).not.toContainText('Day of 10/2');
+  await expect(page.locator('#printbar .muted')).toHaveText('3 sheets');
+});
+
+test('crew times sheet: a crew still on the clock when this storm was called gets the shift before on its paper (R19)', async ({ page }) => {
+  // Same two storms, but Alex never took an End on ST-0's day: her line is open at ST-1's start, so day-2026-10-02 prints, first (oldest first).
+  const w = twoStorms(); w.clockRows = w.clockRows.filter((r) => r.id !== 'K-2');
+  await ctOpen(page, w);
+  await page.click('#printSheets');
+  const ct = ctPages(page);
+  await expect(ct).toHaveCount(2);
+  await expect(ct.nth(0).locator('h1')).toHaveText('Crew timesDay of 10/2');
+  expect(await ctCells(ct.nth(0))).toEqual([['Alex Test', '10/2 9:30 AM', '', '']]);
+  await expect(ct.nth(1).locator('h1')).toHaveText('Crew timesNight of 10/2');
+  await expect(page.locator('#printbar .muted')).toHaveText('4 sheets');
+});
+
+// R37: the window is the current shift and the one before it (R10). ST-1 starts 10/1 22:00 = night-2026-10-01, which is two shifts back from
+// the night of 10/2 (night-10-01, day-10-02, night-10-02) and so older than the window.
+const olderStorm = () => {
+  const w = ctWorld();
+  w.storms = [{ ...START_ROW, at: '2026-10-01T22:00:00.000-08:00' }];
+  // A tap in the night of 10/2 (Alex, N1) makes that night one the storm's route sheets reach (a post alone names only the start shift):
+  // N1 by its tap and N2 by the posted crew = 2 route sheets.
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: at('06:30') })];
+  return w;
+};
+const oldNight = (n, crew, name, kind, iso, extra = {}) => clockRow(n, crew, name, 'night-2026-10-01', kind, { at: iso, ...extra });
+
+test('crew times sheet: a storm that began before the window prints only the window and ends with one plain line, not counted', async ({ page }) => {
+  const w = olderStorm();
+  await ctOpen(page, w);
+  // Rows of the old night arrive later through the cursor (a first load never carries them): they are on the phone, and still not a page.
+  w.clockRows.push(oldNight(6, 'C01', 'Alex Test', 'start', '2026-10-01T22:30:00.000-08:00'), oldNight(7, 'C01', 'Alex Test', 'end', '2026-10-02T04:30:00.000-08:00'));
+  await pollNow(page);
+  await expect.poll(async () => (await phoneState(page)).clock.map((r) => r.id)).toContain('K-7');
+  await page.click('#printSheets');
+  await expect(page.locator('#printview')).toBeVisible();
+  const ct = ctPages(page);
+  await expect(ct).toHaveCount(1);
+  await expect(ct.locator('h1')).toHaveText('Crew timesNight of 10/2');
+  await expect(page.locator('#printsheets')).not.toContainText('Night of 10/1');
+  await expect(page.locator('#printbar .muted')).toHaveText('3 sheets');   // 2 route + the one Crew times page; the line is not a sheet
+  await expect(page.locator('#clockOlder')).toBeVisible();
+  await expect(page.locator('#clockOlder')).toHaveText(OLDER_NOTE);
+  expect(await page.locator('#printsheets').evaluate((e) => e.lastElementChild.id)).toBe('clockOlder');   // after the pages
+  // It is part of the paper: the print stylesheet does not hide it.
+  expect(await page.locator('#clockOlder').evaluate((e) => getComputedStyle(e).display)).not.toBe('none');
+});
+
+test('crew times sheet: a storm that began in the shift before the current one fits the window, so there is no older-nights line', async ({ page }) => {
+  // ST-1 starts 10/2 12:00 = day-2026-10-02, the shift before the night of 10/2: inside the window.
+  const w = ctWorld(); w.storms = [{ ...START_ROW, at: '2026-10-02T12:00:00.000-08:00' }];
+  await ctOpen(page, w);
+  await page.click('#printSheets');
+  await expect(page.locator('#printview')).toBeVisible();
+  await expect(ctPages(page)).toHaveCount(1);
+  await expect(page.locator('#clockOlder')).toHaveCount(0);
+});
+
+test('crew times sheet: a partial old night that arrives through the cursor never prints as a page', async ({ page }) => {
+  // One typed row for Jordan on the night of 10/1 (outside the window), nothing else of that night. The phone holds it; the sheet must not look whole.
+  const w = olderStorm();
+  await ctOpen(page, w);
+  w.clockRows.push(oldNight(6, 'C03', 'Jordan Demo', 'typed', '2026-10-02T06:00:00.000-08:00', { time_in: '2026-10-01T23:00', time_out: '', by_name: 'Matthew', by_key: 'ADMIN' }));
+  await pollNow(page);
+  await expect.poll(async () => (await phoneState(page)).clock.map((r) => r.id)).toContain('K-6');
+  await page.click('#printSheets');
+  await expect(page.locator('#printview')).toBeVisible();
+  await expect(ctPages(page)).toHaveCount(1);                      // the night of 10/2 only
+  await expect(page.locator('#printsheets')).not.toContainText('Night of 10/1');
+  await expect(page.locator('#printsheets')).not.toContainText('11:00 PM');
+  await expect(page.locator('#clockOlder')).toBeVisible();
+});
+
+test('crew times sheet: a person archived from the roster, or with no card at all, still prints their worked shift (R17)', async ({ page }) => {
+  const w = ctWorld();
+  w.crew = w.crew.map((c) => (c.id === 'C03' ? { ...c, archived: true } : c));   // Jordan: archived, the card still names him
+  w.clockRows.push(ctRow(6, 'C09', 'Old Hand', 'start', '2026-10-02T23:00:00.000-08:00'), ctRow(7, 'C09', 'Old Hand', 'end', '2026-10-03T04:00:00.000-08:00'));
+  await ctOpen(page, w);
+  await page.click('#printSheets');
+  const ct = ctPages(page);
+  await expect(ct).toHaveCount(1);
+  // By name, case-insensitive: "alex test" < "c09" ('0' sorts before 'a') < "casey third" < "jordan demo". C09 has no card: the crew id. 23:00 to 04:00 = 5:00.
+  expect(await ctCells(ct)).toEqual([
+    ['Alex Test', '10/2 10:00 PM', '10/3 5:30 AM', '7:30'],
+    ['C09', '10/2 11:00 PM', '10/3 4:00 AM', '5:00'],
+    ['Casey Third', '10/3 12:10 AM', '', ''],
+    ['Jordan Demo', '10/2 9:15 PM (typed)', '10/3 5:45 AM', '8:30'],
+  ]);
+});
+
+test("crew times sheet: if the Crew times page cannot be built the route sheets still open, with a toast", async ({ page }) => {
+  await ctOpen(page, ctWorld());
+  await page.evaluate(() => { CrewRouteSheet.clockSheetData = () => { throw new Error('boom'); }; });
+  await page.click('#printSheets');
+  await expect(page.locator('#printview')).toBeVisible();
+  await expect(page.locator('#printsheets .sheet')).toHaveCount(2);
+  await expect(page.locator('#printbar .muted')).toHaveText('2 sheets');
+  await expect(ctPages(page)).toHaveCount(0);
+  await expect(page.locator('#toast')).toHaveText("The Crew times sheet couldn't be built on this phone.");
+});
+
+test('crew times sheet: in Spanish the older-nights line and the build-failed toast are Spanish', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await ctOpen(page, olderStorm());
+  await page.evaluate(() => { CrewRouteSheet.clockSheetData = () => { throw new Error('boom'); }; });
+  await page.click('#printSheets');
+  await expect(page.locator('#printview')).toBeVisible();
+  const toast = 'No se pudo armar la hoja de horas del equipo en este teléfono.';
+  await expect(page.locator('#toast')).toHaveText(toast);
+  await expect(page.locator('#clockOlder')).toHaveText('Las horas del equipo de las noches anteriores de esta tormenta están en las hojas guardadas, no en este teléfono.');
+  await expect(page.locator('#printsheets')).not.toContainText('earlier nights');
+  await expect(page.getByText("couldn't be built", { exact: false })).toHaveCount(0);
+});
+
+// ---- the Sheets status line learns about Crew times records (R22) ----
+// endedAt8: the storm ended 8:00; the post names a crew on N1 and N2, so this phone EXPECTS two route sheets. The server's Crew times rows are
+// kind 'clock', route_id '' and a shift_id (a blank one is the "could not be worked out" placeholder), made_for 'end' / for_seq 2 like the End's
+// other rows; its clearing row is status 'saved', cleared true, no file, the placeholder's key (clock||'').
+const ctSheet = (n, over = {}) => ({ id: 'SH-' + n, seq: n, storm_id: 'ST-1', made_for: 'end', for_seq: 2, kind: 'clock', route_id: '', shift_id: SHIFT, end_seq: 2,
+  file_id: 'f' + n, url: 'https://drive.example/f' + n, name: 'Crew times Night of 10-2.pdf', made_at: at('08:02'), status: 'saved', error: '', updated: false,
+  by_name: 'Sidewalk', clock_seq: 7, ...over });
+const ctFailed = (n, over = {}) => ctSheet(n, { status: 'failed', file_id: '', url: '', error: 'Drive said no', ...over });
+const ctPlaceholder = (n) => ctFailed(n, { shift_id: '', name: 'Crew times (could not be worked out).pdf', clock_seq: undefined, error: 'Clock read failed' });
+const ctClearing = (n) => ctSheet(n, { shift_id: '', file_id: '', url: '', name: 'Crew times (worked out).pdf', cleared: true, clock_seq: undefined });
+
+test('crew times sheet: status: a saved Crew times row never stands in for a missing route sheet', async ({ page }) => {
+  // Expected route sheets: 2 (N1, N2). Saved: N1 and one Crew times row. Route count is 1 of 2, not 2 of 2.
+  const w = endedAt8(); w.sheets = [savedRow(1, 'R1'), ctSheet(2)];
+  await openStorm(page, w, { token: 'tok-matt', clockAt: at('08:09') });
+  await expect(page.locator('#sheetsstatus')).toHaveText('Sheets: 1 of 2 saved · making…');
+  await expect(page.locator('#retrySheets')).toHaveCount(0);
+  await page.clock.fastForward(2 * 60 * 1000);   // 8:11
+  await pollNow(page);
+  await expect(page.locator('#sheetsstatus')).toHaveText('Sheets: 1 of 2 saved · Retry');
+});
+
+test('crew times sheet: status: all route sheets saved plus a saved Crew times row reads "Sheets: 3 saved"', async ({ page }) => {
+  // 2 route sheets + 1 Crew times sheet = 3 saved.
+  const w = endedAt8(); w.sheets = [savedRow(1, 'R1'), savedRow(2, 'R2'), ctSheet(3)];
+  await openStorm(page, w, { token: 'tok-matt', clockAt: at('08:09') });
+  await expect(page.locator('#sheetsstatus')).toHaveText('Sheets: 3 saved');
+  await expect(page.locator('#retrySheets')).toHaveCount(0);
+});
+
+test('crew times sheet: status: a failed Crew times row, the placeholder included, is "not saved" with Retry', async ({ page }) => {
+  const w = endedAt8(); w.sheets = [savedRow(1, 'R1'), savedRow(2, 'R2'), ctPlaceholder(3)];
+  await openStorm(page, w, { token: 'tok-matt', clockAt: at('08:09') });
+  await expect(page.locator('#sheetsstatus')).toHaveText('Sheets: 1 not saved · Retry');
+  // A failed row for a named night is the same, and the newest row per night stands: failed (4), then saved (5) -> no failure left.
+  w.sheets = [savedRow(1, 'R1'), savedRow(2, 'R2'), ctFailed(4)];
+  await pollNow(page);
+  await expect(page.locator('#sheetsstatus')).toHaveText('Sheets: 1 not saved · Retry');
+  w.sheets.push(ctSheet(5));
+  await pollNow(page);
+  await expect(page.locator('#sheetsstatus')).toHaveText('Sheets: 3 saved');
+  await expect(page.locator('#retrySheets')).toHaveCount(0);
+});
+
+test('crew times sheet: status: a clearing row cancels the placeholder it clears and is not counted as a saved sheet', async ({ page }) => {
+  // Placeholder (seq 3, failed) then its clearing row (seq 4, saved, cleared) share one key: the newest, the clearing row, stands, and is neither
+  // saved nor failed. Two route sheets saved: "2 saved" (a counted clearing row would read 3).
+  const w = endedAt8(); w.sheets = [savedRow(1, 'R1'), savedRow(2, 'R2'), ctPlaceholder(3)];
+  await openStorm(page, w, { token: 'tok-matt', clockAt: at('08:09') });
+  await expect(page.locator('#sheetsstatus')).toHaveText('Sheets: 1 not saved · Retry');
+  w.sheets.push(ctClearing(4));
+  await pollNow(page);
+  await expect(page.locator('#sheetsstatus')).toHaveText('Sheets: 2 saved');
+  await expect(page.locator('#retrySheets')).toHaveCount(0);
+  // The clearing row does not stand in for a route sheet either: with N2 missing it is "1 of 2".
+  w.sheets = [savedRow(1, 'R1'), ctPlaceholder(3), ctClearing(4)];
+  await pollNow(page);
+  await expect(page.locator('#sheetsstatus')).toHaveText('Sheets: 1 of 2 saved · making…');
+  // A clearing row as a string cell ("TRUE") reads the same as the boolean.
+  w.sheets = [savedRow(1, 'R1'), savedRow(2, 'R2'), ctPlaceholder(3), { ...ctClearing(4), cleared: 'TRUE' }];
+  await pollNow(page);
+  await expect(page.locator('#sheetsstatus')).toHaveText('Sheets: 2 saved');
+});
+
+test('crew times sheet: status: a stray clock row never changes the handoff line (a handoff run writes none)', async ({ page }) => {
+  // The server writes kind clock only in an End's set (Code.js clockOwed_ is called from owedSheets_ under `if (s.ended)`). Were one to land with
+  // made_for 'handoff', the handoff line must read what it read without it: 1 of 2 night sheets saved.
+  const w = handoffWorld();
+  w.sheets = [hoSheet(1, 'route', 'R1', SHIFT, 'N1 Night of 10-2.pdf', 'saved'), { ...hoSheet(2, 'route', '', SHIFT, 'Crew times Night of 10-2.pdf', 'failed'), kind: 'clock' }];
+  await openStorm(page, w, { token: 'tok-matt', clockAt: at('08:05') });
+  await expect(page.locator('#sheetsstatus')).toHaveText('Handoff sheets: 1 of 2 saved · making…');
+  await expect(page.locator('#retrySheets')).toHaveCount(0);
+});

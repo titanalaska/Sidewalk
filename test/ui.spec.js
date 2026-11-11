@@ -8539,7 +8539,9 @@ test('shift times: Matt\'s Board lists each placed person\'s line; a route Start
   const w = shiftWorld();
   const calls = await openShift(page, w, { token: 'tok-matt' });
   await goBoard(page);
-  for (const id of ['C01', 'C03', 'C04']) { await expect(clockLine(page, id)).toHaveText(''); await expect(page.locator('[data-setshift="' + id + '"]')).toBeVisible(); }
+  // M3 (final review): a placed person with no times for the shown shift reads "Not started" on the Board (it used to read nothing, which
+  // looked like a line that had not loaded). The crew's own card on Tonight is unchanged.
+  for (const id of ['C01', 'C03', 'C04']) { await expect(clockLine(page, id)).toHaveText('Not started'); await expect(page.locator('[data-setshift="' + id + '"]')).toBeVisible(); }
   await expect(page.locator('[data-clockstart="R1"]')).toBeVisible();
   await expect(page.locator('[data-clockend="R1"]')).toHaveCount(0);   // nobody is on the clock to end
   await expect(page.locator('[data-clockstart="R2"]')).toHaveCount(0); // R2 has nobody
@@ -8566,7 +8568,7 @@ test('shift times: the Board shows only the people the Clock rules would cover: 
   await openShift(page, w, { token: 'tok-matt' });
   await goBoard(page);
   await expect(clockLine(page, 'C01')).toHaveText('On the clock since 2:00 AM');
-  await expect(clockLine(page, 'C03')).toHaveText('');
+  await expect(clockLine(page, 'C03')).toHaveText('Not started');
   await expect(page.locator('[data-clockstart="R1"]')).toBeVisible();   // Jordan and Casey have no start
   await expect(page.locator('[data-clockend="R1"]')).toBeVisible();     // Alex is open
   await page.locator('[data-clockstart="R1"]').click();
@@ -8664,7 +8666,7 @@ test('shift times: Set shift for a shift outside the two the phone holds stays o
   await expect(page.locator('#ss_held')).toHaveText('Held: not shown for a shift this old');   // F4: the phone holds no rows that old, so it does not guess
   await expect(page.locator('#ss_in')).toHaveValue('');
   await expect(page.locator('#ss_save')).toBeEnabled();
-  await expect(clockLine(page, 'C04')).toHaveText('');   // the Board line is the shown shift's: nothing there
+  await expect(clockLine(page, 'C04')).toHaveText('Not started');   // the Board line is the shown shift's: nothing there
   await page.selectOption('#ss_shift', NIGHT);
   await expect(page.locator('#ss_held')).toHaveText('Held: nothing yet');
   // Reopened, the shift is the one last saved.
@@ -8680,7 +8682,7 @@ test('shift times: a person on no route still has a line and a Set shift in Unas
   const calls = await openShift(page, w, { token: 'tok-matt' });
   await goBoard(page);
   await expect(page.locator('section:has(h2:text("Unassigned")) [data-setshift="C05"]')).toBeVisible();
-  await expect(clockLine(page, 'C05')).toHaveText('');
+  await expect(clockLine(page, 'C05')).toHaveText('');   // M3: only a PLACED person reads "Not started"; an unassigned one has no shift to start
   await openSetShift(page, 'C05');
   await page.fill('#ss_in', '01:00');
   await page.click('#ss_save');
@@ -8862,7 +8864,7 @@ test('shift times: a late Start after 9 AM leaves the night crew\'s shifts alone
   const calls = await openShift(page, w, { token: 'tok-matt', clockAt: AT_910 });
   await goBoard(page);
   for (const id of ['C01', 'C04']) await expect(clockLine(page, id)).toHaveText('Night of 10/2: On the clock since 8:00 PM');
-  await expect(clockLine(page, 'C03')).toHaveText('');
+  await expect(clockLine(page, 'C03')).toHaveText('Not started');
   await expect(page.locator('[data-clockstart="R1"]')).toBeVisible();   // Jordan has nothing
   await expect(page.locator('[data-clockend="R1"]')).toBeVisible();     // Alex and Casey are open
   await page.locator('[data-clockstart="R1"]').click();
@@ -8968,6 +8970,19 @@ test('shift times: a first read that fails says it could not reach the server, a
   await page.click('#refreshPost');
   await expect(page.locator('#shiftOffline')).toHaveCount(0);
   await expect(page.locator('#shiftStart')).toBeVisible();
+});
+
+test('shift times: M3 the Board reads Sin empezar in Spanish for a placed person with no times', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await openShift(page, shiftWorld(), { token: 'tok-matt' });
+  await goBoard(page);
+  for (const id of ['C01', 'C03', 'C04']) await expect(clockLine(page, id)).toHaveText('Sin empezar');
+});
+
+test('shift times: M3 the crew card on Tonight still reads nothing before the person starts', async ({ page }) => {
+  await openShift(page, shiftWorld());
+  await expect(page.locator('#shiftStart')).toBeVisible();
+  await expect(shiftLine(page)).toHaveText('');
 });
 
 test('shift times: Spanish for the card\'s could-not-reach line', async ({ page }) => {

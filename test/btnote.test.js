@@ -215,3 +215,23 @@ test('R38 BT: a typed time filed before the pass began is not the pass; one file
   n = N.btNote(o, 'night-2026-12-04');
   assert.deepEqual([n.timeIn, n.timeOut], ['2:10 AM', '2:45 AM']);
 });
+
+// I4 (final review): the note says HOW each time was entered, so the post can mark a typed one the way every other screen does.
+// how is 'typed' (with who typed it) | 'tapped' (with who tapped, which the post does not print) | 'walk' | null.
+test('I4 BT: each side says how it was entered and who typed it', () => {
+  // Walk taps 11:55 PM (seq 1) and 12:53 AM (seq 2). Arrived tapped 10:05 PM (seq 3). In typed 9:40 PM by Matt (seq 4); Out nobody entered.
+  const o = base();
+  o.log = [row(1, 'Z1', 'cleared'), row(2, 'Z2', 'checked', { at: '2026-12-05T00:53:00.000-09:00' }),
+    row(3, '*', 'arrived', { at: '2026-12-04T22:05:00.000-09:00', by_name: 'Dana Test' }),
+    row(4, '*', 'typed', { time_in: '2026-12-04T21:40', time_out: '', by_name: 'Matt', at: '2026-12-05T07:00:00.000-09:00' })];
+  let n = N.btNote(o, 'night-2026-12-04');
+  assert.deepEqual([n.timeIn, n.inHow, n.inBy, n.timeOut, n.outHow, n.outBy], ['9:40 PM', 'typed', 'Matt', '12:53 AM', 'walk', null]);
+  // The same In tapped (no typed row): tapped, and the walk Out stays walk.
+  o.log = o.log.slice(0, 3);
+  n = N.btNote(o, 'night-2026-12-04');
+  assert.deepEqual([n.timeIn, n.inHow, n.outHow], ['10:05 PM', 'tapped', 'walk']);
+  // No tap of any kind: both blank, how null.
+  o.log = [];
+  n = N.btNote(o, 'night-2026-12-04');
+  assert.deepEqual([n.timeIn, n.inHow, n.inBy, n.timeOut, n.outHow, n.outBy], ['', null, null, '', null, null]);
+});

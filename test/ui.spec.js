@@ -7842,6 +7842,9 @@ test('site times: the Site card and the BT post read the same In and Out as the 
   await page.locator('[data-bt="S1"]').click();
   await expect(page.locator('#bt_in')).toHaveText('2:55 AM');
   await expect(page.locator('#bt_out')).toHaveText('6:10 AM');
+  // CHANGED by I4 (final review): the BT post used to print this typed In bare ("Time In 2:55 AM"), the one screen that did not mark
+  // it. It now reads like the line and the card: typed by Matthew. Out was tapped, so it stays bare.
+  expect((await page.locator('#bt_times').textContent()).replace(/\s+/g, ' ')).toBe('Time In 2:55 AM (typed by Matthew) · Time Out 6:10 AM');
 });
 
 test('site times: the Site card of an untyped, untapped site still reads the first and last walk tap', async ({ page }) => {
@@ -9377,4 +9380,30 @@ test('site times: a return visit can be tapped', async ({ page }) => {
   expect(siteActionCalls(calls, 'undoSiteMark').map((c) => c.body.kind)).toEqual(['left', 'arrived']);
   const log = (await phoneState(page)).log;
   expect(log.map((r) => [r.seq, r.state, r.undoes])).toEqual([[1, 'arrived', null], [2, 'left', null], [3, 'arrived', null], [4, 'left', null], [5, 'left_undone', 'L-4'], [6, 'arrived_undone', 'L-3']]);
+});
+
+test('site times: I4 the BT post marks a typed Out too, bare for tapped and walk times, and in Spanish the mark is Spanish while the name stays', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  // In tapped 3:02 AM (seq 1); Out typed 6:20 AM by Matthew (seq 2). In bare, Out marked.
+  const w = timesWorld();
+  w.log = [seedMark(1, 'arrived', { at: tAt('03:02:00') }),
+    seedMark(2, 'typed', { time_in: '', time_out: '2026-10-03T06:20', by_name: 'Matthew', at: tAt('07:00:00') })];
+  await openStorm(page, w, { token: 'tok-matt' });
+  await openRoute(page, 'R1');
+  await page.locator('[data-bt="S1"]').click();
+  await expect(page.locator('#bt_in')).toHaveText('3:02 AM');
+  const row = (await page.locator('#bt_times').textContent()).replace(/\s+/g, ' ');
+  expect(row).toContain('3:02 AM · ');
+  expect(row).toContain('6:20 AM (escrito por Matthew)');
+  expect(row).not.toContain('3:02 AM (');
+});
+
+test('site times: I4 a walk-tap-only site posts its times bare', async ({ page }) => {
+  const w = timesWorld();
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: tAt('06:30:00') }), logRow(2, 'S1', 'Z2', 'checked', 'Alex Test', { at: tAt('07:10:00') })];
+  await openStorm(page, w, { token: 'tok-matt' });
+  await openRoute(page, 'R1');
+  await page.locator('[data-bt="S1"]').click();
+  expect((await page.locator('#bt_times').textContent()).replace(/\s+/g, ' ')).toBe('Time In 6:30 AM · Time Out 7:10 AM');
+  await expect(page.locator('#bt_times .typed-mark')).toHaveCount(0);
 });

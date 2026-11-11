@@ -8971,7 +8971,13 @@ const ctOpen = async (page, w, o = {}) => {
   const calls = await openStorm(page, w, { token: 'tok-matt', ...o });
   return calls;
 };
-const OLDER_NOTE = 'Crew times here cover the last two shifts only. Earlier nights, if any were recorded, are in the saved sheets.';
+// I2 / R37 amended 2 (final review): while the storm is OPEN the line says the earlier nights are saved when the storm ends (the saved
+// sheets do not exist yet, so the old wording pointed at nothing); once it is ENDED the old sentence stands. These tests ran an open
+// storm and used the old sentence as OLDER_NOTE; they now read the open wording.
+const OLDER_NOTE = 'Crew times here cover the last two shifts only. Earlier nights are saved when the storm ends.';
+const OLDER_NOTE_ENDED = 'Crew times here cover the last two shifts only. Earlier nights, if any were recorded, are in the saved sheets.';
+const OLDER_NOTE_ES = 'Aquí las horas del equipo cubren solo los dos últimos turnos. Las noches anteriores se guardan cuando termina la tormenta.';
+const OLDER_NOTE_ES_ENDED = 'Aquí las horas del equipo cubren solo los dos últimos turnos. Las noches anteriores, si se registraron, están en las hojas guardadas.';
 
 test('crew times sheet: Print sheets ends with a page headed Crew times, three people worked on paper, and the count includes it', async ({ page }) => {
   await ctOpen(page, ctWorld());
@@ -9189,7 +9195,7 @@ test("crew times sheet: if the Crew times page cannot be built the route sheets 
   await expect(page.locator('#toast')).toHaveText("The Crew times sheet couldn't be built on this phone.");
 });
 
-test('crew times sheet: in Spanish the older-nights line and the build-failed toast are Spanish', async ({ page }) => {
+test('crew times sheet: in Spanish the older-nights line (open storm) and the build-failed toast are Spanish', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
   await ctOpen(page, olderStorm());
   await page.evaluate(() => { CrewRouteSheet.clockSheetData = () => { throw new Error('boom'); }; });
@@ -9197,9 +9203,31 @@ test('crew times sheet: in Spanish the older-nights line and the build-failed to
   await expect(page.locator('#printview')).toBeVisible();
   const toast = 'No se pudo armar la hoja de horas del equipo en este teléfono.';
   await expect(page.locator('#toast')).toHaveText(toast);
-  await expect(page.locator('#clockOlder')).toHaveText('Aquí las horas del equipo cubren solo los dos últimos turnos. Las noches anteriores, si se registraron, están en las hojas guardadas.');
+  await expect(page.locator('#clockOlder')).toHaveText(OLDER_NOTE_ES);
   await expect(page.locator('#printsheets')).not.toContainText('Earlier nights');
   await expect(page.getByText("couldn't be built", { exact: false })).toHaveCount(0);
+});
+
+// I2: the same storm ENDED (an End row after the Start): the line points at the saved sheets, in both languages. Paper: ST-1 starts 10/1
+// 22:00 (the night of 10/1, outside the window of the night of 10/2 and the day before it) and is ended 10/3 7:00 AM.
+const endedOlderStorm = () => {
+  const w = olderStorm();
+  w.storms = w.storms.concat([{ id: 'ST-2', seq: 2, kind: 'end', storm_id: 'ST-1', at: '2026-10-03T07:00:00.000-08:00', by_name: 'Matthew' }]);
+  return w;
+};
+test('crew times sheet: I2 an ENDED storm keeps the sentence that points at the saved sheets; an open one says they are saved when it ends', async ({ page }) => {
+  await ctOpen(page, endedOlderStorm());
+  await page.click('#printSheets');
+  await expect(page.locator('#printview')).toBeVisible();
+  await expect(page.locator('#clockOlder')).toHaveText(OLDER_NOTE_ENDED);
+  await expect(page.locator('#printsheets')).not.toContainText('saved when the storm ends');
+});
+
+test('crew times sheet: I2 in Spanish the ended storm and the open storm each read their own sentence', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await ctOpen(page, endedOlderStorm());
+  await page.click('#printSheets');
+  await expect(page.locator('#clockOlder')).toHaveText(OLDER_NOTE_ES_ENDED);
 });
 
 // ---- the Sheets status line learns about Crew times records (R22) ----

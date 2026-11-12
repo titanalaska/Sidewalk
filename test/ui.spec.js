@@ -7989,8 +7989,11 @@ test('the fake: a Left after 9 AM closes the night\'s open visit in the night (R
   // The day has no standing tapped Arrived, the night has one and no Left: the Left is the night's.
   const left = asTok(f, 'tok-jordan', { action: 'siteMark', kind: 'left', site_id: 'S1' });
   expect(left.record).toMatchObject({ state: 'left', shift_id: 'night-2026-10-02', storm_id: 'ST-1' });
-  // The night's visit is now closed: another Left goes to the day.
-  expect(asTok(f, 'tok-jordan', { action: 'siteMark', kind: 'left', site_id: 'S1' }).record.shift_id).toBe('day-2026-10-03');
+  // CHANGED by R48 (was: "another Left goes to the day"). The night's visit is now closed, its latest mark is the 9:10 Left, so another Left answers
+  // THAT row and writes nothing (a Retry, or a partner's phone): no Out with no In in the day.
+  const again = asTok(f, 'tok-jordan', { action: 'siteMark', kind: 'left', site_id: 'S1' });
+  expect(again.record.id).toBe(left.record.id);
+  expect(w.log.filter((r) => r.state === 'left' && r.site_id === 'S1')).toHaveLength(1);
   // An Arrived on a site with no earlier Arrived: a Left stays in the current shift.
   expect(asTok(f, 'tok-matt', { action: 'siteMark', kind: 'left', site_id: 'S2' }).record.shift_id).toBe('day-2026-10-03');
 });

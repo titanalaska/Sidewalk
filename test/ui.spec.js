@@ -336,6 +336,18 @@ function fakeSnow(state, opts = {}) {
         }
         // R4 / R14 (undoSiteMark_): the current shift first; only when it holds NO mark of that kind here, standing or undone, the
         // shift before it. The undo row takes the TARGET's shift and storm.
+        // R41 (undoSiteMark_): a request that NAMES its row takes back that row or nothing.
+        if (typeof body.target === 'string' && body.target !== '') {
+          const named = state.log.find((r) => r.id === body.target && r.storm_id === st0.storm_id && r.site_id === siteId && r.zone_id === '*' && r.state === body.kind);
+          if (!named) return refuse('conflict', body.kind === 'arrived' ? 'No Arrived to take back' : 'No Left to take back');
+          const gone = state.log.find((r) => r.zone_id === '*' && r.state === body.kind + '_undone' && r.undoes === named.id);
+          if (gone) return { ok: true, record: markShown(gone), ...v };
+          const lat = SL.latestMark(state.log, st0.storm_id, siteId, named.shift_id);
+          if ((named.shift_id !== now && named.shift_id !== shiftBefore(now)) || !lat || lat.id !== named.id) return refuse('conflict', 'That cannot be undone');
+          const nrow = markRow({ storm_id: named.storm_id, shift_id: named.shift_id, site_id: siteId, state: body.kind + '_undone', undoes: named.id });
+          state.log.push(nrow);
+          return { ok: true, record: markShown(nrow), ...v };
+        }
         let t = SL.markUndoTarget(state.log, st0.storm_id, siteId, now, body.kind);
         const here = state.log.some((r) => r.storm_id === st0.storm_id && r.site_id === siteId && r.shift_id === now && (r.state === body.kind || r.state === body.kind + '_undone'));
         if (!t.ok && !here) { const t2 = SL.markUndoTarget(state.log, st0.storm_id, siteId, shiftBefore(now), body.kind); if (t2.ok) t = t2; }
@@ -7598,8 +7610,9 @@ test('site times: a crew member on the route taps Arrived, then Left, and takes 
   await expect(timesLine(page, 'S1')).toHaveText('In 3:02 AM · Out');
   await expect(leftBtn(page, 'S1')).toBeVisible();
   const u = siteActionCalls(calls, 'undoSiteMark')[0].body;
-  expect(Object.keys(u).sort()).toEqual(['action', 'kind', 'site_id', 'token']);
-  expect([u.site_id, u.kind]).toEqual(['S1', 'left']);
+  // CHANGED by R41: an Undo also names the row it takes back (here the Left, the second row written: L-2). It used to carry only these four.
+  expect(Object.keys(u).sort()).toEqual(['action', 'kind', 'site_id', 'target', 'token']);
+  expect([u.site_id, u.kind, u.target]).toEqual(['S1', 'left', 'L-2']);
   // Undo Arrived: back to the start, no line, Arrived again.
   await markUndoBtn(page, 'S1', 'arrived').click();
   await expect(timesLine(page, 'S1')).toHaveCount(0);
@@ -9457,4 +9470,27 @@ test('site times: I4 a walk-tap-only site posts its times bare', async ({ page }
   await page.locator('[data-bt="S1"]').click();
   expect((await page.locator('#bt_times').textContent()).replace(/\s+/g, ' ')).toBe('Time In 6:30 AM · Time Out 7:10 AM');
   await expect(page.locator('#bt_times .typed-mark')).toHaveCount(0);
+});
+
+// R41 (final fix round B): the Undo button names the mark it was showing, and a Retry sends the same one. Paper (night of 10/2, ids by seq):
+// L-1 Arrived 3:02, L-2 Left 6:10, L-3 Arrived 6:20 (a return visit). The latest standing mark is L-3, so the button's body names L-3. The first
+// Undo REACHES the server (L-4 undoes L-3) and its reply is lost; Retry resends target L-3 and the server answers the undo it already wrote. Four
+// rows, not five: L-1 and L-2 still stand, so the line reads In 3:02 AM and Out 6:10 AM (without the target the replay took L-1 back).
+test('site times: R41 an Undo names its row and a Retry sends the same one', async ({ page }) => {
+  const w = timesWorld(); w.clock = tAt('06:30:00');
+  w.log = [seedMark(1, 'arrived', { at: tAt('03:02:00') }), seedMark(2, 'left', { at: tAt('06:10:00') }), seedMark(3, 'arrived', { at: tAt('06:20:00') })];
+  const f = fakeSnow(w);
+  let drop = true;
+  const calls = await open(page, { token: 'tok-jordan', snow: f, clockAt: STORM_CLOCK, abortIf: (b) => { if (drop && b.action === 'undoSiteMark') { drop = false; f(b); return true; } return false; } });
+  await page.click('nav [data-tab="storm"]');
+  await expect(timesLine(page, 'S1')).toHaveText('In 3:02 AM · Out');
+  await markUndoBtn(page, 'S1', 'arrived').click();
+  await expect(page.locator('[data-markrow="S1"] .walk-fail')).toContainText('Not saved: no signal');
+  expect(w.log.map((r) => r.state)).toEqual(['arrived', 'left', 'arrived', 'arrived_undone']);   // it landed
+  await page.locator('[data-retry="mark:S1"]').click();
+  await expect(page.locator('[data-markrow="S1"] .walk-fail')).toHaveCount(0);
+  await expect(timesLine(page, 'S1')).toHaveText('In 3:02 AM · Out 6:10 AM');
+  const sent = siteActionCalls(calls, 'undoSiteMark').map((c) => c.body);
+  expect(sent.map((b) => [b.kind, b.site_id, b.target])).toEqual([['arrived', 'S1', 'L-3'], ['arrived', 'S1', 'L-3']]);
+  expect(w.log).toHaveLength(4);
 });

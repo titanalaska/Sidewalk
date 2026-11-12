@@ -186,3 +186,11 @@ test('shiftOffers (R34): the person who is placed late is offered Start; the one
   assert.deepEqual(T.shiftOffers(rows, 'B', NOW, NOW_AT), { shift: NOW, earlier: false, start: true, end: false, undo: null });
   assert.deepEqual(T.shiftOffers(rows, 'A', NOW, NOW_AT), { shift: PREV, earlier: true, start: false, end: true, undo: 'start' });
 });
+
+test('routeTaps (R44): a start past the 18 h limit is not on the clock: a Start covers that person and an End does not', () => {
+  // A started in PREV at 20:00 on 10/3 (13 h 10 min before NOW_AT): on the clock, End covers A, Start covers nobody. B started at 14:00 on 10/3
+  // (19 h 10 min): not on the clock, so Start covers B and End covers nobody of B.
+  const rows = [crow(1, 'start', PREV, 'A'), crow(2, 'start', PREV, 'B', { at: '2026-10-03T14:00:00.000-08:00' })];
+  assert.deepEqual(T.routeTaps(rows, ['A'], NOW, NOW_AT), { start: 0, end: 1 });
+  assert.deepEqual(T.routeTaps(rows, ['B'], NOW, NOW_AT), { start: 1, end: 0 });
+});

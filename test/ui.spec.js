@@ -9192,11 +9192,11 @@ test('crew times sheet: F1 on paper: the last sheet does not break before the ol
 });
 
 test('crew times sheet: R37 (b): a shift outside the window that clockSheetsFor names gets no page, and the line shows; without such rows there is no line', async ({ page }) => {
-  // ST-1 starts 10/1 22:00 = night-2026-10-01, the third shift of the window: the storm fits it, so rule (a) is silent.
+  // ST-1 starts 10/2 01:00 = night-2026-10-01 (before 9 AM, so the night of 10/1), the third shift of the window: the storm fits it, so rule (a) is silent.
   // R19: the ONE shift before the storm's start shift is day-2026-10-01. clockSheetsFor names it when a line there is still open at the storm's
   // start (a Start and no End). Alex tapped Start 10/1 15:00 in day-2026-10-01 and never ended: open -> named. It is three shifts back from the
   // current night, outside the window, and its row reaches the phone later through the cursor (a first load never carries it). No page, but the line.
-  const w = ctWorld(); w.storms = [{ ...START_ROW, at: '2026-10-01T22:00:00.000-08:00' }];
+  const w = ctWorld(); w.storms = [{ ...START_ROW, at: '2026-10-02T01:00:00.000-08:00' }];
   w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: at('06:30') })];   // a tap in the night of 10/2: N1 by the tap, N2 by the post = 2 route sheets
   await ctOpen(page, w);
   await expect(page.locator('#printSheets')).toBeVisible();
@@ -9593,4 +9593,21 @@ test('shift times: R44 P2 a minute past the limit the card offers Start, not End
   await page.click('#shiftStart');
   await expect(shiftLine(page)).toHaveText('On the clock since 2:01 PM');
   expect(w.clockRows.filter((r) => r.crew_id === 'C03').map((r) => [r.kind, r.shift_id])).toEqual([['start', 'day-2026-10-02'], ['start', 'day-2026-10-03']]);
+});
+
+// R44 (round C): the Print window is THREE shifts. ST-1 starts 10/2 01:00 = night-2026-10-01, the third shift of the window (night-10-01, day-10-02,
+// night-10-02). Alex's night of 10/1 (a Start 10/1 22:30, an End 10/2 04:30) arrives with the first load and prints as its own page BEFORE the night of
+// 10/2's; there is no older-nights line, because the storm began inside the window. (Before R44 the window was two shifts and that night was dropped.)
+test('crew times sheet: R44 the window is three shifts: the third shift back prints a page and the storm that began there has no older-nights line', async ({ page }) => {
+  const w = ctWorld(); w.storms = [{ ...START_ROW, at: '2026-10-02T01:00:00.000-08:00' }];
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: at('06:30') })];
+  w.clockRows.push(clockRow(6, 'C01', 'Alex Test', 'night-2026-10-01', 'start', { at: '2026-10-01T22:30:00.000-08:00' }),
+    clockRow(7, 'C01', 'Alex Test', 'night-2026-10-01', 'end', { at: '2026-10-02T04:30:00.000-08:00' }));
+  await ctOpen(page, w);
+  await page.click('#printSheets');
+  await expect(page.locator('#printview')).toBeVisible();
+  await expect(ctPages(page)).toHaveCount(2);
+  await expect(ctPages(page).nth(0).locator('h1')).toHaveText('Crew timesNight of 10/1');
+  await expect(ctPages(page).nth(1).locator('h1')).toHaveText('Crew timesNight of 10/2');
+  await expect(page.locator('#clockOlder')).toHaveCount(0);
 });

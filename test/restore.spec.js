@@ -331,7 +331,8 @@ test('the editor lists the site\'s archived zones; the map does not draw them; R
   expect((await keptNow(page)).sites.S1.rings).toEqual({ Z1: Z1_RING }); // the archived outline is not kept either
 
   await page.click('#ed_arch [data-zrestore="Z9"]');
-  await expect.poll(() => drawn(page)).toEqual([{ id: 'Z1', ring: Z1_RING }, { id: 'Z9', ring: Z9_RING }]);
+  // In paint order (11/12/26): the restored Z9 is a hand zone, painted under the walk Z1, so it lists first.
+  await expect.poll(() => drawn(page)).toEqual([{ id: 'Z9', ring: Z9_RING }, { id: 'Z1', ring: Z1_RING }]);
   expect((await keptNow(page)).sites.S1.rings).toEqual({ Z1: Z1_RING, Z9: Z9_RING }); // lands in the kept copy, as a save does
   await expect(page.locator('#ed_arch')).toBeHidden(); // none left
   await expect(page.locator('#toast')).toHaveText('Zone restored');
@@ -405,7 +406,7 @@ test('the health check\'s reply to a zone save is "not saved": the form stays op
   ctl.instead = null;
   await page.click('#z_save');
   await expect(page.locator('#toast')).toHaveText('Zone saved');
-  await expect.poll(async () => (await drawn(page)).map((z) => z.id)).toEqual(['Z1', 'X91']);
+  await expect.poll(async () => (await drawn(page)).map((z) => z.id)).toEqual(['X91', 'Z1']); // paint order (11/12/26): the new hand zone under the walk
   expect(calls.errors).toEqual([]);
 });
 
@@ -432,7 +433,7 @@ test('an older server\'s reply (curbs-1, no action) is not refused by the guard:
   await editorOn(page);
   await drawZone(page, 'Side door');
   await expect(page.locator('#toast')).toHaveText('Zone saved');
-  await expect.poll(async () => (await drawn(page)).map((z) => z.id)).toEqual(['Z1', 'X91']);
+  await expect.poll(async () => (await drawn(page)).map((z) => z.id)).toEqual(['X91', 'Z1']); // paint order (11/12/26): the new hand zone under the walk
   await expect(page.locator('#z_err')).toHaveCount(0);
   expect(calls.errors).toEqual([]);
 });

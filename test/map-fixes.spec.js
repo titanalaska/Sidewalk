@@ -162,9 +162,10 @@ test('a zone saved on a map whose style is still unparsed closes its form, and i
   expect(errors).toEqual([]);
   await releaseFrames(page);
   await page.waitForFunction(() => window.SnowMapView.getSource('zones'));
-  // The three the map opened with and the one just saved (the fake's first new id is X91).
+  // The three the map opened with and the one just saved (the fake's first new id is X91), in paint order (11/12/26:
+  // storage, hand, sidewalk, heated, no_touch, bottom to top), so the new hand zone lists first.
   await expect.poll(() => zoneSource(page)).toEqual([
-    { id: 'Z1', type: 'sidewalk' }, { id: 'Z2', type: 'heated' }, { id: 'Z3', type: 'no_touch' }, { id: 'X91', type: 'hand' }]);
+    { id: 'X91', type: 'hand' }, { id: 'Z1', type: 'sidewalk' }, { id: 'Z2', type: 'heated' }, { id: 'Z3', type: 'no_touch' }]);
   expect(errors).toEqual([]);
 });
 

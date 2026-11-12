@@ -6462,12 +6462,16 @@ for (const lang of ['en', 'es']) {
     await page.addInitScript((l) => localStorage.setItem('snow-lang', l), lang);
     const w = stormWorld();
     w.zones.push(...[1, 2, 3, 4, 5].map((n) => ({ id: 'ZC' + n, site_id: 'S1', type: 'hand', name: 'Curb - ' + n, area_sqft: 5000, from: 'bootprint:J1:' + (20 + n), rev: 1 })));
+    // Names a person typed (not roll-up items) must stay exactly as typed in both languages, even when a Spanish rule could touch them.
+    w.zones.push({ id: 'ZF', site_id: 'S1', type: 'sidewalk', name: 'Front walk', rev: 1 }, { id: 'ZB', site_id: 'S1', type: 'sidewalk', name: 'Back stairs', rev: 1 }, { id: 'ZD', site_id: 'S1', type: 'sidewalk', name: 'Curbs at dock', rev: 1 });
     await openStorm(page, w);
     const last = walkRow(page, 'S1|curbs-5');
     await expect(last).toBeVisible();
-    // The Storm tab prints a walk's name under data-no-es (lib/shiftlogui.js walkHtml: zone names are typed by people), so in Spanish the
-    // curb item's name still reads in English here; the Spanish rule in lib/es.js is covered by es.test.js. Reported to Matt's coordinator 11/12/26.
-    await expect(last).toContainText('Curbs 5 of 5: clear 4 ft back (about 1,250 ft)');
+    // Matt's ruling 11/12/26: the roll-up item the app named itself is translated (Spanish crew must read what orange asks); every real zone stays as typed.
+    await expect(last.locator('.walk-name')).toHaveText(lang === 'en' ? 'Curbs 5 of 5: clear 4 ft back (about 1,250 ft)' : 'Bordillos 5 de 5: despejar 4 pies (1.2 m) (unos 1,250 pies)');
+    await expect(walkRow(page, 'S1|ZF').locator('.walk-name')).toHaveText('Front walk');
+    await expect(walkRow(page, 'S1|ZB').locator('.walk-name')).toHaveText('Back stairs'); // the dictionary WOULD turn this into "Atras stairs"
+    await expect(walkRow(page, 'S1|ZD').locator('.walk-name')).toHaveText('Curbs at dock');
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
   });
 }

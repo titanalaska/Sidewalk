@@ -203,6 +203,15 @@ test('visitShift (R45): two back is shown only for an open Arrived within the li
   assert.deepEqual(T.visitShift(open, 'S1', NOW, NOW_AT), { shift: TWO, earlier: true });
   assert.deepEqual(T.visitShift(open, 'S1', NOW, '2026-10-04T14:00:00.000-08:00'), { shift: TWO, earlier: true });     // 18 h exactly
   assert.deepEqual(T.visitShift(open, 'S1', NOW, '2026-10-04T14:01:00.000-08:00'), { shift: NOW, earlier: false });    // 18 h 01 min
-  assert.deepEqual(T.visitShift(open.concat([r(2, 'left', '2026-10-03T21:00:00.000-08:00')]), 'S1', NOW, NOW_AT), { shift: NOW, earlier: false });   // closed
+  // R46 (changed from "closed is never shown"): a visit two back that was just CLOSED stays shown while its Left is within 18 h, so the crew sees the Out
+  // they tapped and can take it back. Left 10/3 9:00 PM is 12 h 10 min before NOW_AT: shown.
+  assert.deepEqual(T.visitShift(open.concat([r(2, 'left', '2026-10-03T21:00:00.000-08:00')]), 'S1', NOW, NOW_AT), { shift: TWO, earlier: true });
+  // Arrived 10/3 2:00 PM, Left 3:10 PM: at NOW_AT (10/4 9:10 AM) the Left is 18 h 00 min old: shown. Left 3:09 PM is 18 h 01 min old: not shown.
+  const early = r(1, 'arrived', '2026-10-03T14:00:00.000-08:00');
+  assert.deepEqual(T.visitShift([early, r(2, 'left', '2026-10-03T15:10:00.000-08:00')], 'S1', NOW, NOW_AT), { shift: TWO, earlier: true });
+  assert.deepEqual(T.visitShift([early, r(2, 'left', '2026-10-03T15:09:00.000-08:00')], 'S1', NOW, NOW_AT), { shift: NOW, earlier: false });
+  // A Left taken back leaves the Arrived as the latest mark: 8:00 PM, 13 h 10 min, open and shown.
+  assert.deepEqual(T.visitShift(open.concat([r(2, 'left', '2026-10-03T21:00:00.000-08:00'),
+    Object.assign(r(3, 'left_undone', '2026-10-04T09:05:00.000-08:00'), { undoes: 'L-2' })]), 'S1', NOW, NOW_AT), { shift: TWO, earlier: true });
   assert.deepEqual(T.visitShift([], 'S1', NOW, NOW_AT), { shift: NOW, earlier: false });
 });

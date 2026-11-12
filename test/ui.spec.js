@@ -9623,9 +9623,12 @@ test('site times: R45 S2 at 9:10 AM a Left on the Arrived of 8 PM two names back
   await expect(leftBtn(page, 'S1')).toBeVisible();
   await expect(arrivedBtn(page, 'S1')).toBeVisible();
   await leftBtn(page, 'S1').click();
-  // The visit is closed now; a closed visit two names back is no longer shown on the Storm tab (only an OPEN one is: R45), so the line goes. The Left is
-  // in the row's own shift, which is what the sheet and the BT note read.
-  await expect(timesLine(page, 'S1')).toHaveCount(0);
+  // R46 (changed from "the line goes"): the visit is closed now and STAYS on the Storm tab while its Left is within 18 h: the crew sees the Out they
+  // tapped, can take it back, and can arrive again. No second Left is offered.
+  await expect(timesLine(page, 'S1')).toHaveText('Day of 10/2: In 8:00 PM · Out 9:10 AM');
+  await expect(markUndoBtn(page, 'S1', 'left')).toBeVisible();
+  await expect(arrivedBtn(page, 'S1')).toBeVisible();
+  await expect(leftBtn(page, 'S1')).toBeHidden();
   expect(w.log[1].at.slice(11, 16)).toBe('09:10');
   expect(w.log.map((r) => [r.state, r.shift_id])).toEqual([['arrived', 'day-2026-10-02'], ['left', 'day-2026-10-02']]);
   expect(siteActionCalls(calls, 'siteMark')).toHaveLength(1);

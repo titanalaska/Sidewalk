@@ -9849,6 +9849,25 @@ test('print crew times: a double tap sends one request, on the button and on a n
   expect(cnBodies(calls)).toEqual([{}, { shift_id: 'night-2026-12-04' }]);
 });
 
+// Round D review, finding 1: the list read is out for 600 ms; the admin taps Print route lists meanwhile, so a print view is open when the list lands.
+// The late list is dropped: ONE print view (the route lists), no night buttons over it, and after Back the button works again.
+test('print crew times: a list that lands after another print view opened is dropped, and the button works again after Back', async ({ page }) => {
+  const calls = await cnOpen(page, cnWorld(), { delay: { getClockNights: 600 } });
+  await page.locator('#printCrewTimes').click();
+  await page.locator('#printRouteLists').click();
+  await expect(page.locator('#printview')).toHaveAttribute('aria-label', 'Print route lists');
+  await page.waitForTimeout(1000);   // the list reply (600 ms) has landed
+  expect(cnBodies(calls)).toEqual([{}]);
+  await expect(page.locator('#printview')).toHaveCount(1);
+  await expect(page.locator('#printview')).toHaveAttribute('aria-label', 'Print route lists');
+  await expect(NIGHT_BTNS(page)).toHaveCount(0);
+  await page.locator('#printBack').click();
+  await expect(page.locator('#printview')).toHaveCount(0);
+  await expect(page.locator('#printCrewTimes')).toBeEnabled();
+  await page.locator('#printCrewTimes').click();
+  await expect(NIGHT_BTNS(page)).toHaveCount(3);
+});
+
 test('print crew times: at 320 px wide the button row stays on screen, in English and in Spanish', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 640 });
   await cnOpen(page, cnWorld());

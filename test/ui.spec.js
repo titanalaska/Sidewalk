@@ -9661,3 +9661,13 @@ test('site times: R45 an earlier Arrived PAST the limit (shown as the shift befo
   await expect(markUndoBtn(page, 'S1', 'arrived')).toBeVisible();
   await expect(leftBtn(page, 'S1')).toHaveCount(0);
 });
+test('site times: R45 the Undo of an Arrived two names back names its row and the server takes it back', async ({ page }) => {
+  const w = timesWorld(); w.clock = tAt('09:10:00');
+  w.log = [r45Arrived()];
+  const calls = await openStorm(page, w, { token: 'tok-matt', clockAt: '2026-10-03T09:10:00-08:00' });
+  await openRoute(page, 'R1');
+  await markUndoBtn(page, 'S1', 'arrived').click();
+  await expect(timesLine(page, 'S1')).toHaveCount(0);
+  expect(siteActionCalls(calls, 'undoSiteMark').map((c) => c.body.target)).toEqual(['L-1']);
+  expect(w.log.map((r) => [r.state, r.shift_id, r.undoes])).toEqual([['arrived', 'day-2026-10-02', null], ['arrived_undone', 'day-2026-10-02', 'L-1']]);
+});

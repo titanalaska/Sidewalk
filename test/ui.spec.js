@@ -198,7 +198,7 @@ function fakeSnow(state, opts = {}) {
           let crows;
           if (creset || (ccur === 0 && total > 0)) {
             const now = SL.shiftFor(stamp, state.storms);
-            crows = cr.filter((r) => [now, shiftBefore(now)].includes(r.shift_id));
+            crows = cr.filter((r) => [now, shiftBefore(now), shiftBefore(shiftBefore(now))].includes(r.shift_id));   // R44: three shifts
             creset = true;
           } else crows = cr.slice(ccur);
           out.clock = clockShown(crows); out.cursor.clock = total; out.reset.clock = creset;
@@ -285,10 +285,10 @@ function fakeSnow(state, opts = {}) {
           if (body.action === 'clockTap') {
             // R34 / R13: the SAME function the server calls (clock.js tapShifts): no second Start for someone still open in the shift
             // before; an End closes whichever shift is open (now, else the one before)
-            const shiftOf = CK.tapShifts(cr, ids, now, shiftBefore(now), kind);
+            const shiftOf = CK.tapShifts(cr, ids, now, stamp, kind);
             ids.filter((id) => shiftOf[id] !== undefined).forEach((id) => push({ shift_id: shiftOf[id], kind, crew_id: id, name: byId[id].name, undoes: '' }));
           } else {
-            const targets = CK.undoTargets(cr, ids, now, shiftBefore(now), kind); // R35 / R14, per person: the server's own function
+            const targets = CK.undoTargets(cr, ids, now, shiftBefore(now), shiftBefore(shiftBefore(now)), stamp, kind); // R35 / R14, per person: the server's own function
             if (!targets.length) return refuse('conflict', 'Nothing to take back');
             targets.forEach((id) => { const t = cr.find((r) => r.id === id); push({ shift_id: t.shift_id, kind: kind + '_undone', crew_id: t.crew_id, name: t.name, route_id: t.route_id, undoes: t.id }); });
           }
@@ -8918,7 +8918,7 @@ test('shift times: a crew member still open from last night is offered End and n
   await expect(page.locator('#shiftStart')).toHaveCount(0);
 });
 
-test('shift times: Set shift says the older shifts are not shown, and shows the real times for the two the phone holds', async ({ page }) => {
+test('shift times: Set shift says the older shifts are not shown, and shows the real times for the three the phone holds', async ({ page }) => {
   const w = shiftWorld();
   await openShift(page, w, { token: 'tok-matt' });
   await goBoard(page);
@@ -8928,7 +8928,11 @@ test('shift times: Set shift says the older shifts are not shown, and shows the 
   await expect(page.locator('#ss_held')).toHaveText('Held: In 3:05 AM · Out');                 // the shift now
   await page.selectOption('#ss_shift', 'day-2026-10-02');
   await expect(page.locator('#ss_held')).toHaveText('Held: nothing yet');                       // the shift before: held, and empty
-  await page.selectOption('#ss_shift', 'night-2026-10-01');                                      // the third: older than the phone holds
+  // CHANGED by R44 (round C): the phone holds THREE shifts (18 hours reach two names back). night-2026-10-01, the third, is held and empty; the fourth
+  // (day-2026-10-01) is the first one older than the phone holds.
+  await page.selectOption('#ss_shift', 'night-2026-10-01');
+  await expect(page.locator('#ss_held')).toHaveText('Held: nothing yet');
+  await page.selectOption('#ss_shift', 'day-2026-10-01');
   await expect(page.locator('#ss_held')).toHaveText('Held: not shown for a shift this old');
   await expect(page.locator('#ss_held')).not.toContainText('nothing yet');
   await page.selectOption('#ss_shift', NIGHT);
@@ -8940,7 +8944,7 @@ test('shift times: Spanish for the not-shown Held line', async ({ page }) => {
   await openShift(page, shiftWorld(), { token: 'tok-matt' });
   await goBoard(page);
   await openSetShift(page, 'C03');
-  await page.selectOption('#ss_shift', 'night-2026-10-01');
+  await page.selectOption('#ss_shift', 'day-2026-10-01');   // R44: the fourth shift back; three are held
   await expect(page.locator('#ss_held')).toHaveText('Registrado: no se muestra para un turno tan antiguo');
 });
 
@@ -9038,10 +9042,10 @@ const ctOpen = async (page, w, o = {}) => {
 // I2 / R37 amended 2 (final review): while the storm is OPEN the line says the earlier nights are saved when the storm ends (the saved
 // sheets do not exist yet, so the old wording pointed at nothing); once it is ENDED the old sentence stands. These tests ran an open
 // storm and used the old sentence as OLDER_NOTE; they now read the open wording.
-const OLDER_NOTE = 'Crew times here cover the last two shifts only. Earlier nights are saved when the storm ends.';
-const OLDER_NOTE_ENDED = 'Crew times here cover the last two shifts only. Earlier nights, if any were recorded, are in the saved sheets.';
-const OLDER_NOTE_ES = 'Aquí las horas del equipo cubren solo los dos últimos turnos. Las noches anteriores se guardan cuando termina la tormenta.';
-const OLDER_NOTE_ES_ENDED = 'Aquí las horas del equipo cubren solo los dos últimos turnos. Las noches anteriores, si se registraron, están en las hojas guardadas.';
+const OLDER_NOTE = 'Crew times here cover the last three shifts only. Earlier nights are saved when the storm ends.';
+const OLDER_NOTE_ENDED = 'Crew times here cover the last three shifts only. Earlier nights, if any were recorded, are in the saved sheets.';
+const OLDER_NOTE_ES = 'Aquí las horas del equipo cubren solo los tres últimos turnos. Las noches anteriores se guardan cuando termina la tormenta.';
+const OLDER_NOTE_ES_ENDED = 'Aquí las horas del equipo cubren solo los tres últimos turnos. Las noches anteriores, si se registraron, están en las hojas guardadas.';
 
 test('crew times sheet: Print sheets ends with a page headed Crew times, three people worked on paper, and the count includes it', async ({ page }) => {
   await ctOpen(page, ctWorld());
@@ -9135,17 +9139,18 @@ test('crew times sheet: a crew still on the clock when this storm was called get
   await expect(page.locator('#printbar .muted')).toHaveText('4 sheets');
 });
 
-// R37: the window is the current shift and the one before it (R10). ST-1 starts 10/1 22:00 = night-2026-10-01, which is two shifts back from
-// the night of 10/2 (night-10-01, day-10-02, night-10-02) and so older than the window.
+// R37: the window is the current shift and the TWO before it (R10, R44: 18 hours reach two names back). ST-1 starts 10/1 12:00 = day-2026-10-01, which is
+// three shifts back from the night of 10/2 (day-10-01, night-10-01, day-10-02, night-10-02) and so older than the window. (Before R44 the window was two
+// shifts and these tests used night-2026-10-01.)
 const olderStorm = () => {
   const w = ctWorld();
-  w.storms = [{ ...START_ROW, at: '2026-10-01T22:00:00.000-08:00' }];
+  w.storms = [{ ...START_ROW, at: '2026-10-01T12:00:00.000-08:00' }];
   // A tap in the night of 10/2 (Alex, N1) makes that night one the storm's route sheets reach (a post alone names only the start shift):
   // N1 by its tap and N2 by the posted crew = 2 route sheets.
   w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: at('06:30') })];
   return w;
 };
-const oldNight = (n, crew, name, kind, iso, extra = {}) => clockRow(n, crew, name, 'night-2026-10-01', kind, { at: iso, ...extra });
+const oldNight = (n, crew, name, kind, iso, extra = {}) => clockRow(n, crew, name, 'day-2026-10-01', kind, { at: iso, ...extra });
 
 test('crew times sheet: a storm that began before the window prints only the window and ends with one plain line, not counted', async ({ page }) => {
   const w = olderStorm();
@@ -9159,7 +9164,7 @@ test('crew times sheet: a storm that began before the window prints only the win
   const ct = ctPages(page);
   await expect(ct).toHaveCount(1);
   await expect(ct.locator('h1')).toHaveText('Crew timesNight of 10/2');
-  await expect(page.locator('#printsheets')).not.toContainText('Night of 10/1');
+  await expect(page.locator('#printsheets')).not.toContainText('Day of 10/1');
   await expect(page.locator('#printbar .muted')).toHaveText('3 sheets');   // 2 route + the one Crew times page; the line is not a sheet
   await expect(page.locator('#clockOlder')).toBeVisible();
   await expect(page.locator('#clockOlder')).toHaveText(OLDER_NOTE);
@@ -9187,27 +9192,27 @@ test('crew times sheet: F1 on paper: the last sheet does not break before the ol
 });
 
 test('crew times sheet: R37 (b): a shift outside the window that clockSheetsFor names gets no page, and the line shows; without such rows there is no line', async ({ page }) => {
-  // ST-1 starts 10/2 12:00 = day-2026-10-02, the shift before the current night: the storm fits the window, so rule (a) is silent.
-  // R19: the ONE shift before the storm's start shift is night-2026-10-01. clockSheetsFor names it when a line there is still open at the storm's
-  // start (a Start and no End). Alex tapped Start 10/2 04:00 in night-2026-10-01 and never ended: open -> named. It is two shifts back from the
+  // ST-1 starts 10/1 22:00 = night-2026-10-01, the third shift of the window: the storm fits it, so rule (a) is silent.
+  // R19: the ONE shift before the storm's start shift is day-2026-10-01. clockSheetsFor names it when a line there is still open at the storm's
+  // start (a Start and no End). Alex tapped Start 10/1 15:00 in day-2026-10-01 and never ended: open -> named. It is three shifts back from the
   // current night, outside the window, and its row reaches the phone later through the cursor (a first load never carries it). No page, but the line.
-  const w = ctWorld(); w.storms = [{ ...START_ROW, at: '2026-10-02T12:00:00.000-08:00' }];
+  const w = ctWorld(); w.storms = [{ ...START_ROW, at: '2026-10-01T22:00:00.000-08:00' }];
   w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: at('06:30') })];   // a tap in the night of 10/2: N1 by the tap, N2 by the post = 2 route sheets
   await ctOpen(page, w);
   await expect(page.locator('#printSheets')).toBeVisible();
-  w.clockRows.push(oldNight(6, 'C01', 'Alex Test', 'start', '2026-10-02T04:00:00.000-08:00'));
+  w.clockRows.push(oldNight(6, 'C01', 'Alex Test', 'start', '2026-10-01T15:00:00.000-08:00'));
   await pollNow(page);
   await expect.poll(async () => (await phoneState(page)).clock.map((r) => r.id)).toContain('K-6');
   await page.click('#printSheets');
   await expect(page.locator('#printview')).toBeVisible();
   await expect(ctPages(page)).toHaveCount(1);
-  await expect(page.locator('#printsheets')).not.toContainText('Night of 10/1');
+  await expect(page.locator('#printsheets')).not.toContainText('Day of 10/1');
   await expect(page.locator('#clockOlder')).toHaveText(OLDER_NOTE);
   await expect(page.locator('#printbar .muted')).toHaveText('3 sheets');
 });
 
 test('crew times sheet: a storm that began in the shift before the current one fits the window, so there is no older-nights line', async ({ page }) => {
-  // ST-1 starts 10/2 12:00 = day-2026-10-02, the shift before the night of 10/2: inside the window.
+  // ST-1 starts 10/2 12:00 = day-2026-10-02, the shift before the night of 10/2: inside the window. (And 10/1 22:00, the third, is inside too.)
   const w = ctWorld(); w.storms = [{ ...START_ROW, at: '2026-10-02T12:00:00.000-08:00' }];
   await ctOpen(page, w);
   await page.click('#printSheets');
@@ -9226,7 +9231,7 @@ test('crew times sheet: a partial old night that arrives through the cursor neve
   await page.click('#printSheets');
   await expect(page.locator('#printview')).toBeVisible();
   await expect(ctPages(page)).toHaveCount(1);                      // the night of 10/2 only
-  await expect(page.locator('#printsheets')).not.toContainText('Night of 10/1');
+  await expect(page.locator('#printsheets')).not.toContainText('Day of 10/1');
   await expect(page.locator('#printsheets')).not.toContainText('11:00 PM');
   await expect(page.locator('#clockOlder')).toBeVisible();
 });
@@ -9535,4 +9540,57 @@ test('site times: R43 at 9:10 AM the night crew taps Left on a return visit and 
   await expect(leftBtn(page, 'S1')).toHaveCount(0);
   await expect(arrivedBtn(page, 'S1')).toBeVisible();
   await expect(markUndoBtn(page, 'S1', 'left')).toBeVisible();
+});
+
+// ---- R44 (final fix round C): on the clock by TIME ----
+// P1. Jordan tapped Start 10/2 8:00 PM before Night shift was switched on, so the row is filed under day-2026-10-02. It is now 9:20 AM on 10/3
+// (the clock's shift is day-2026-10-03, and Night shift was never logged): 13 h 20 min later, inside the 18 h limit. The card shows THAT shift, earlier,
+// with its label; End and Undo are offered and Start is not. End writes in day-2026-10-02 (13:20 on the sheet); Undo end at 9:25 takes it back (the card still
+// shows that shift: rule 4); End again, then a Start at 9:27 AM is offered and writes in day-2026-10-03.
+test('shift times: R44 P1 a Start filed under the day at 8 PM is ended at 9:20 AM in THAT shift; Undo end and a new Start follow', async ({ page }) => {
+  const w = shiftWorld();
+  w.clockRows = [clockRow(1, 'C03', 'Jordan Demo', 'day-2026-10-02', 'start')];
+  w.clock = tAt('09:20:00');
+  const calls = await openShift(page, w, { token: 'tok-jordan', clockAt: '2026-10-03T09:20:00-08:00' });
+  await expect(shiftLine(page)).toHaveText('Day of 10/2: On the clock since 8:00 PM');
+  await expect(page.locator('#shiftEnd')).toBeVisible();
+  await expect(page.locator('#shiftUndo')).toBeVisible();
+  await expect(page.locator('#shiftStart')).toHaveCount(0);
+  await page.click('#shiftEnd');
+  await expect(shiftLine(page)).toHaveText('Day of 10/2: Ended 9:20 AM');
+  expect(w.clockRows.slice(1).map((r) => [r.kind, r.shift_id, r.crew_id])).toEqual([['end', 'day-2026-10-02', 'C03']]);
+  await expect(page.locator('#shiftStart')).toBeVisible();
+  w.clock = tAt('09:25:00');
+  await expect(page.locator('#shiftUndo')).toHaveText('Undo end');
+  await page.click('#shiftUndo');
+  await expect(shiftLine(page)).toHaveText('Day of 10/2: On the clock since 8:00 PM');
+  expect(w.clockRows.slice(-1).map((r) => [r.kind, r.shift_id])).toEqual([['end_undone', 'day-2026-10-02']]);
+  await expect(page.locator('#shiftEnd')).toBeVisible();
+  w.clock = tAt('09:26:00');
+  await page.click('#shiftEnd');
+  await expect(shiftLine(page)).toHaveText('Day of 10/2: Ended 9:26 AM');
+  w.clock = tAt('09:27:00');
+  await page.click('#shiftStart');
+  await expect(shiftLine(page)).toHaveText('On the clock since 9:27 AM');
+  expect(w.clockRows.filter((r) => r.crew_id === 'C03').slice(-1).map((r) => [r.kind, r.shift_id])).toEqual([['start', 'day-2026-10-03']]);   // the Start covers the crew (Alex, Casey too)
+  expect(clockCalls(calls, 'clockTap').map((c) => c.body.kind)).toEqual(['end', 'end', 'start']);
+});
+
+// P2. The edge on the phone: the Start 8:00 PM is 18 h exactly at 2:00 PM (End offered, no Start) and 18 h 01 min at 2:01 PM (no End, Start offered,
+// and the old shift keeps its start with no end). A Start then writes in the current shift.
+test('shift times: R44 P2 the card offers End up to 18 hours exactly and Start a minute later', async ({ page }) => {
+  const ON = shiftWorld(); ON.clockRows = [clockRow(1, 'C03', 'Jordan Demo', 'day-2026-10-02', 'start')]; ON.clock = tAt('14:00:00');
+  await openShift(page, ON, { token: 'tok-jordan', clockAt: '2026-10-03T14:00:00-08:00' });
+  await expect(page.locator('#shiftEnd')).toBeVisible();
+  await expect(page.locator('#shiftStart')).toHaveCount(0);
+});
+test('shift times: R44 P2 a minute past the limit the card offers Start, not End, and the Start goes to the current shift', async ({ page }) => {
+  const w = shiftWorld(); w.clockRows = [clockRow(1, 'C03', 'Jordan Demo', 'day-2026-10-02', 'start')]; w.clock = tAt('14:01:00');
+  await openShift(page, w, { token: 'tok-jordan', clockAt: '2026-10-03T14:01:00-08:00' });
+  await expect(page.locator('#shiftStart')).toBeVisible();
+  await expect(page.locator('#shiftEnd')).toHaveCount(0);
+  await expect(shiftLine(page)).toHaveText('');
+  await page.click('#shiftStart');
+  await expect(shiftLine(page)).toHaveText('On the clock since 2:01 PM');
+  expect(w.clockRows.filter((r) => r.crew_id === 'C03').map((r) => [r.kind, r.shift_id])).toEqual([['start', 'day-2026-10-02'], ['start', 'day-2026-10-03']]);
 });

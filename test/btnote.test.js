@@ -235,3 +235,50 @@ test('I4 BT: each side says how it was entered and who typed it', () => {
   n = N.btNote(o, 'night-2026-12-04');
   assert.deepEqual([n.timeIn, n.inHow, n.inBy, n.timeOut, n.outHow, n.outBy], ['', null, null, '', null, null]);
 });
+
+// R42 (final fix round B 6): a pass reads every site mark above its sinceSeq PLUS, when the latest standing tapped mark at or below it is an
+// ARRIVED, that one Arrived (the crew is still on site when the lead taps Clean again). A typed row at or below sinceSeq stays out. Night of
+// 12/4; the first visit is Arrived 8:30 PM (seq 3), Left 9:15 PM (seq 4); a walk tap in pass 1 at 8:40 PM (seq 1).
+const R42_V1 = () => [row(1, 'Z1', 'cleared', { at: '2026-12-04T20:40:00.000-09:00' }),
+  row(3, '*', 'arrived', { at: '2026-12-04T20:30:00.000-09:00' }), row(4, '*', 'left', { at: '2026-12-04T21:15:00.000-09:00' })];
+const R42_WALK = row(8, 'Z1', 'cleared', { at: '2026-12-05T02:10:00.000-09:00' });
+test('R42 BT (a): the crew arrives at 2:05, the lead taps Clean again at 2:06, Left 2:30: In 2:05 AM, Out 2:30 AM', () => {
+  // Order one. Rows at or below sinceSeq 6: A1, L1, A2 (seq 5, 2:05). The latest standing mark there is A2, an Arrived: it is kept, A1 is not.
+  const o = base();
+  o.log = R42_V1().concat([row(5, '*', 'arrived', { at: '2026-12-05T02:05:00.000-09:00' }), row(6, '*', 'again', { at: '2026-12-05T02:06:00.000-09:00' }),
+    R42_WALK, row(9, '*', 'left', { at: '2026-12-05T02:30:00.000-09:00' })]);
+  const n = N.btNote(o, 'night-2026-12-04');
+  assert.deepEqual([n.timeIn, n.timeOut], ['2:05 AM', '2:30 AM']);
+});
+test('R42 BT (b): Clean again first (2:04), the Arrived after it (2:05): the same answer', () => {
+  const o = base();
+  o.log = R42_V1().concat([row(5, '*', 'again', { at: '2026-12-05T02:04:00.000-09:00' }), row(6, '*', 'arrived', { at: '2026-12-05T02:05:00.000-09:00' }),
+    R42_WALK, row(9, '*', 'left', { at: '2026-12-05T02:30:00.000-09:00' })]);
+  const n = N.btNote(o, 'night-2026-12-04');
+  assert.deepEqual([n.timeIn, n.timeOut], ['2:05 AM', '2:30 AM']);
+});
+test('R42 BT (c): the crew never left: Arrived 8:30 PM, Clean again, a walk tap at 2:10 AM, no Left: In 8:30 PM, Out the walk tap 2:10 AM', () => {
+  const o = base();
+  o.log = [row(1, 'Z1', 'cleared', { at: '2026-12-04T20:40:00.000-09:00' }), row(3, '*', 'arrived', { at: '2026-12-04T20:30:00.000-09:00' }),
+    row(6, '*', 'again', { at: '2026-12-05T02:00:00.000-09:00' }), R42_WALK];
+  const n = N.btNote(o, 'night-2026-12-04');
+  assert.deepEqual([n.timeIn, n.timeOut], ['8:30 PM', '2:10 AM']);
+});
+test('R42 BT (d): a closed first visit, Clean again, a walk tap only: the walk tap on both sides, as today', () => {
+  const o = base();
+  o.log = R42_V1().concat([row(6, '*', 'again', { at: '2026-12-05T02:00:00.000-09:00' }), R42_WALK]);
+  const n = N.btNote(o, 'night-2026-12-04');
+  assert.deepEqual([n.timeIn, n.timeOut], ['2:10 AM', '2:10 AM']);
+});
+test('R42 BT: a typed row at or below the pass start stays out even with an Arrived kept, and an undone Arrived is not kept', () => {
+  // Arrived seq 3 (8:30 PM), typed In 8:00 PM seq 4 (the earlier visit's), Clean again seq 6, walk tap 2:10. The Arrived is kept (In 8:30 PM, not the
+  // typed 8:00 PM). With the Arrived undone (seq 5) nothing is kept: In is the walk tap.
+  const o = base();
+  o.log = [row(3, '*', 'arrived', { at: '2026-12-04T20:30:00.000-09:00' }), row(4, '*', 'typed', { time_in: '2026-12-04T20:00', time_out: '', by_name: 'Matt' }),
+    row(6, '*', 'again', { at: '2026-12-05T02:00:00.000-09:00' }), R42_WALK];
+  assert.deepEqual([N.btNote(o, 'night-2026-12-04').timeIn, N.btNote(o, 'night-2026-12-04').timeOut], ['8:30 PM', '2:10 AM']);
+  o.log = o.log.concat([]);
+  o.log.splice(1, 0, row(5, '*', 'arrived_undone', { undoes: 'L-3' }));
+  assert.deepEqual([N.btNote(o, 'night-2026-12-04').timeIn], ['2:10 AM']);
+});
+

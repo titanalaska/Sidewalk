@@ -34,10 +34,24 @@ test('leading and trailing spaces survive ("Tonight: " before a bold name)', () 
 test('number rules: the weather hint and the curb items', () => {
   assert.equal(Es.translateString('Snow until 10 AM'), 'Nieve hasta las 10 AM');
   assert.equal(Es.translateString('No snow in the next 12 h'), 'Sin nieve en las próximas 12 h');
-  // lib/shiftlog.js curbItems(): 'Curbs' or 'Curbs <g> of <k>', then ' (about <commas(feet)> ft)'
-  assert.equal(Es.translateString('Curbs (about 690 ft)'), 'Bordillos (unos 690 ft)');
-  assert.equal(Es.translateString('Curbs 1 of 2 (about 470 ft)'), 'Bordillos 1 de 2 (unos 470 ft)');
-  assert.equal(Es.translateString('Curbs (about 2,730 ft)'), 'Bordillos (unos 2,730 ft)');
+  // lib/shiftlog.js curbItems(): 'Curbs' or 'Curbs <g> of <k>', then ': clear <width> ft back', then ' (about <commas(feet)> ft)'
+  // Wording changed on Matt's word 11/12/26. Metres are feet x 0.3048 to one decimal:
+  //   4 ft = 1.2192 -> 1.2 m;  3 ft = 0.9144 -> 0.9 m;  5 ft = 1.524 -> 1.5 m.
+  assert.equal(Es.translateString('Curbs: clear 4 ft back (about 1,200 ft)'), 'Bordillos: despejar 4 pies (1.2 m) (unos 1,200 pies)');
+  assert.equal(Es.translateString('Curbs 2 of 3: clear 4 ft back (about 750 ft)'), 'Bordillos 2 de 3: despejar 4 pies (1.2 m) (unos 750 pies)');
+  assert.equal(Es.translateString('Curbs: clear 4 ft back'), 'Bordillos: despejar 4 pies (1.2 m)');
+  assert.equal(Es.translateString('Curbs: clear 4 ft back (about 12,340 ft)'), 'Bordillos: despejar 4 pies (1.2 m) (unos 12,340 pies)');
+  // the width is read from the name, so a changed setting stays right
+  assert.equal(Es.translateString('Curbs: clear 3 ft back (about 800 ft)'), 'Bordillos: despejar 3 pies (0.9 m) (unos 800 pies)');
+  assert.equal(Es.translateString('Curbs 1 of 2: clear 5 ft back'), 'Bordillos 1 de 2: despejar 5 pies (1.5 m)');
+  // a walk a person named "Curbs ..." is theirs: not translated
+  assert.equal(Es.translateString('Curbs at dock'), 'Curbs at dock');
+  assert.equal(Es.translateString('Curbs: clear the dock'), 'Curbs: clear the dock');
+});
+
+test('the orange type reads "Clear 4 ft back" / "Despejar 4 pies (1.2 m)" (Matt, 11/12/26)', () => {
+  assert.equal(Es.translateString('Clear 4 ft back'), 'Despejar 4 pies (1.2 m)');
+  assert.equal(Es.ES['Hand work'], undefined); // nothing renders the old label any more
 });
 
 test('every row has a Spanish value different from its key and no row is blank', () => {
@@ -50,7 +64,7 @@ test('the status words the crew tap all night (spec, Groundwork vocabulary; one 
   const words = {
     'Cleared': 'Despejado', 'Treated': 'Tratado', 'Problem': 'Problema', 'Checked': 'Revisado', 'Touched': 'Tocado',
     'Done': 'Listo', 'Clean again': 'Limpiar de nuevo', 'Whole site': 'Todo el sitio', 'Retry': 'Reintentar', 'Undo': 'Deshacer',
-    'Sidewalk': 'Banqueta', 'Hand work': 'Trabajo a mano', 'Heated: check only, no melt': 'Calefaccionado: solo revisar, sin derretidor',
+    'Sidewalk': 'Banqueta', 'Heated: check only, no melt': 'Calefaccionado: solo revisar, sin derretidor',
     'Snow storage': 'Depósito de nieve', 'Do not touch': 'No tocar',
     "Couldn't reach the server. Not saved, try again.": 'No se pudo conectar con el servidor. No se guardó, inténtalo de nuevo.',
   };

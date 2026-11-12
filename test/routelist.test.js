@@ -16,8 +16,8 @@
 //     Zones: Z1 sidewalk "Front walk" (priority), Z2 heated "Entry pad", Z3 + Z4 hand zones named Curb north
 //     (1,200 sq ft) and Curb south (800 sq ft), Z5 archived sidewalk "Old path", Z6 storage "Snow pile".
 //     Curb zones are 4 ft wide: 1,200 / 4 = 300 ft and 800 / 4 = 200 ft, 500 ft in all, one item
-//     "Curbs (about 500 ft)". Walks by name, then the curb item (lib/shiftlog.js walksFor):
-//       Entry pad (heated), Front walk (priority), Curbs (about 500 ft).
+//     "Curbs: clear 4 ft back (about 500 ft)" (wording changed on Matt's word 11/12/26). Walks by name, then the curb item (lib/shiftlog.js walksFor):
+//       Entry pad (heated), Front walk (priority), Curbs: clear 4 ft back (about 500 ft).
 //   S3 Zeta Lot: no address, blank materials, whitespace-only notes, one sidewalk "Lot walk".
 //   S2 Beta Yard: no zones at all -> no walks -> "No walks drawn yet."
 //   Crew: C1 Alex Lead, C2 Bea Member, C3 Cy Member, C4 Dee Gone (archived), C5 Eve Waiting (pending).
@@ -89,7 +89,7 @@ test('walks come from walksFor: heated flagged, priority flagged, curbs rolled u
   assert.deepEqual(alpha.walks, [
     { name: 'Entry pad', heated: true, priority: false },
     { name: 'Front walk', heated: false, priority: true },
-    { name: 'Curbs (about 500 ft)', heated: false, priority: false },
+    { name: 'Curbs: clear 4 ft back (about 500 ft)', heated: false, priority: false },
   ]);
   assert.deepEqual(RouteList.pages(mk())[0].sites[0].walks, [{ name: 'Lot walk', heated: false, priority: false }]);
 });
@@ -165,7 +165,7 @@ test('page: one box per walk, the heated one says so, the priority one has a sta
   assert.ok(h.includes('Entry pad'));
   assert.ok(h.includes('★ Front walk'));
   assert.ok(!h.includes('★ Entry pad') && !h.includes('★ Curbs'));
-  assert.ok(h.includes('Curbs (about 500 ft)'));
+  assert.ok(h.includes('Curbs: clear 4 ft back (about 500 ft)')); // wording changed on Matt's word 11/12/26
   assert.ok(!h.includes('Old path') && !h.includes('Snow pile'));
   assert.ok(!h.includes('Hidden Lot'));
 });
@@ -193,7 +193,7 @@ test('every label goes through the translator and no data does', () => {
   for (const label of ['DATE:', 'LEAD', 'CREW:', 'MATERIALS:', 'NOTES:', 'MATERIALS USED', 'IN:', 'OUT:', '(HEATED: CHECK ONLY)']) assert.ok(h.includes(label), label);
   assert.ok(html(1, up).includes('NO WALKS DRAWN YET.'));
   // data untouched
-  for (const d of ['Alpha Court', 'Zeta Lot', '1 Main St', 'NO SALT: fresh concrete. Sand only.', 'Alex Lead', 'Bea Member, Cy Member', 'Entry pad', 'Front walk', 'Curbs (about 500 ft)', 'Back &amp; forth']) assert.ok(h.includes(d), d);
+  for (const d of ['Alpha Court', 'Zeta Lot', '1 Main St', 'NO SALT: fresh concrete. Sand only.', 'Alex Lead', 'Bea Member, Cy Member', 'Entry pad', 'Front walk', 'Curbs: clear 4 ft back (about 500 ft)', 'Back &amp; forth']) assert.ok(h.includes(d), d);
   assert.ok(!h.includes('ALPHA COURT') && !h.includes('ALEX LEAD') && !h.includes('ENTRY PAD'));
   // and no English label is left outside the data: take the data out, nothing English remains
   const plain = html(1, up).replace(/<[^>]*>/g, ' ').replace('Beta Yard', ' ').replace(/N10/, ' ');

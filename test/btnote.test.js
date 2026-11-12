@@ -130,7 +130,7 @@ test('a curbs item reads as one walk in the note: its feet in brackets, not afte
   o.zones = ZONES.concat([{ id: 'Z6', site_id: 'S1', type: 'hand', name: 'Curb - lot', area_sqft: 1200, from: 'bootprint:J1:6' },
     { id: 'Z7', site_id: 'S1', type: 'hand', name: 'Curb - island', area_sqft: 800, from: 'bootprint:J1:7' }]);
   o.log = [row(1, 'Z1', 'cleared'), row(2, 'Z2', 'checked'), row(3, 'curbs-1', 'cleared')];
-  assert.equal(N.btNote(o, 'night-2026-12-04').text.split('\n')[0], 'Cleared: Main entry, Curbs (about 500 ft). Checked: Heated walk. Not done: Back stairs.');
+  assert.equal(N.btNote(o, 'night-2026-12-04').text.split('\n')[0], 'Cleared: Main entry, Curbs: clear 4 ft back (about 500 ft). Checked: Heated walk. Not done: Back stairs.');
 });
 
 // Start and stop times (Matt, 11/10/26): Time In / Time Out are the site's siteClock, the same two values the Storm tab's

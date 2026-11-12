@@ -1105,7 +1105,7 @@ const zoneSource = (page) => page.evaluate(() => new Promise((res) => {
 test('the legend and the editor list the five zone types in order', async ({ page }) => {
   await adminMap(page, mapWorld());
   expect(await page.locator('#maplegend span').allTextContents()).toEqual(
-    ['Sidewalk', 'Hand work', 'Heated: check only, no melt', 'Snow storage', 'Do not touch']);
+    ['Sidewalk', 'Clear 4 ft back', 'Heated: check only, no melt', 'Snow storage', 'Do not touch']); // legend: wording changed on Matt's word 11/12/26 (was "Hand work")
   await page.click('#mapedit');
   await page.click('#ed_new');
   expect(await page.locator('[data-ztype]').evaluateAll((els) => els.map((e) => e.dataset.ztype + ':' + e.textContent))).toEqual(
@@ -1128,6 +1128,22 @@ test('opening site maps logs no errors, and the photo switch reads the city phot
     if (i < 4) { await page.click('nav [data-tab="sites"]'); await page.click('[data-map="S1"]'); }
   }
   expect(errors.filter((e) => /layer|maplibre|Style/i.test(e))).toEqual([]);
+});
+
+// Matt, 11/12/26: orange says the job. The legend reads "Clear 4 ft back" / "Despejar 4 pies (1.2 m)"; the old
+// "Hand work" / "Trabajo a mano" is nowhere on the screen.
+test('the legend names orange by its job, in English', async ({ page }) => {
+  await openMap(page, 'tok-jordan', mapWorld());
+  await expect(page.locator('#maplegend')).toContainText('Clear 4 ft back');
+  await expect(page.locator('#maplegend')).not.toContainText('Hand work');
+});
+
+test('the legend names orange by its job, in Spanish', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await openMap(page, 'tok-jordan', mapWorld());
+  await expect(page.locator('#maplegend')).toContainText('Despejar 4 pies (1.2 m)');
+  await expect(page.locator('#maplegend')).not.toContainText('Clear 4 ft back');
+  await expect(page.locator('#maplegend')).not.toContainText('Trabajo a mano');
 });
 
 test('the crew map draws every zone with its type and a legend', async ({ page }) => {
@@ -4085,7 +4101,7 @@ test('a map opened from the Sites tab carries no walk marks', async ({ page }) =
 // The ground, at zoom 18 at 61.22 N: 40,075,016 m x cos 61.2177 / (512 x 2^18) = 0.144 m a pixel, so 20 px = 2.9 m.
 //   Z1 Main entry   sidewalk  0-30 m east of PAC, 0-10 m north
 //   Z6 Curb - entry hand      0-30 m east, 10-11.22 m north: a 4-ft strip along Z1's north edge, 30 m x 1.2192 m =
-//                             36.58 m2 = 394 sq ft; / 4 ft = 98.5 ft, to the nearest 10: one item "Curbs (about 100 ft)"
+//                             36.58 m2 = 394 sq ft; / 4 ft = 98.5 ft, to the nearest 10: one item "Curbs: clear 4 ft back (about 100 ft)"
 //   Z2 Heated walk  heated    0-20 m east, 33.4-38.4 m north;  Z3 Ski trail no_touch 32.3-42.3 m east, 0-30 m north
 // Every tap centres the map on its point first (a person pans to what they tap), so nothing is off the screen.
 //   MID      13.4 m east, 4.5 m north: in Z1. Its reach is 1.6-7.4 m north: Z1 only (the curb starts at 10 m)
@@ -4169,7 +4185,7 @@ test('map taps: a tap near a walk and its curb asks which zone; the curb line ma
   await expect(inSheet(page, '[data-walk]')).toHaveCount(0); // nothing to tap until a zone is picked
   await inSheet(page, '[data-pickzone="Z6"]').click();
   await expect(inSheet(page, 'h2')).toContainText('Curb - entry');
-  await expect(inSheet(page, '[data-walkrow="S1|curbs-1"]')).toContainText('Curbs (about 100 ft)');
+  await expect(inSheet(page, '[data-walkrow="S1|curbs-1"]')).toContainText('Curbs: clear 4 ft back (about 100 ft)'); // wording changed on Matt's word 11/12/26
   await inSheet(page, '[data-walk="S1|curbs-1"][data-state="cleared"]').click();
   await expect.poll(() => tapCalls(calls).length).toBe(1);
   expect(tapCalls(calls)[0].body).toMatchObject({ action: 'tapZone', site_id: 'S1', zone_id: 'curbs-1', state: 'cleared' });
@@ -6421,7 +6437,7 @@ test('roster-3: the switch is remembered on this phone until 9 AM and is off aga
 // ---------------- Touched + the curb roll-up (Matt, 10/8/26) ----------------
 // A site is Touched once its sidewalks and heated walks are done; its "Curb ..." hand lines roll up
 // into "Curbs" items (750 ft x 1.2 = 900 ft each, at most 5), one tap each. PAC's curbs here:
-// Z6 1,200 sq ft = 300 ft, Z7 800 sq ft = 200 ft -> 500 ft, one item "Curbs (about 500 ft)".
+// Z6 1,200 sq ft = 300 ft, Z7 800 sq ft = 200 ft -> 500 ft, one item "Curbs: clear 4 ft back (about 500 ft)".
 const CURBS = [
   { id: 'Z6', site_id: 'S1', type: 'hand', name: 'Curb - lot', area_sqft: 1200, from: 'bootprint:J1:6', rev: 1 },
   { id: 'Z7', site_id: 'S1', type: 'hand', name: 'Curb - island', area_sqft: 800, from: 'bootprint:J1:7', rev: 1 },
@@ -6431,11 +6447,30 @@ test('the crew see one Curbs walk for the curb lines, after the others, and tapp
   const calls = await openStorm(page, w);
   // By name: Heated walk, Main entry; then the curbs item. The two curb lines are not walks of their own.
   expect(await page.locator('[data-walkrow]').evaluateAll((els) => els.map((e) => e.dataset.walkrow))).toEqual(['S1|Z2', 'S1|Z1', 'S1|curbs-1']);
-  await expect(walkRow(page, 'S1|curbs-1')).toContainText('Curbs (about 500 ft)');
+  await expect(walkRow(page, 'S1|curbs-1')).toContainText('Curbs: clear 4 ft back (about 500 ft)'); // wording changed on Matt's word 11/12/26
   await walkBtn(page, 'S1|curbs-1', 'cleared').click();
   await expect.poll(() => tapCalls(calls).length).toBe(1);
   expect(tapCalls(calls)[0].body).toMatchObject({ action: 'tapZone', site_id: 'S1', zone_id: 'curbs-1', state: 'cleared' });
 });
+
+// Five long curb groups: 5 zones of 1,250 ft (5,000 sq ft / 4) = 6,250 ft, ceil(6250 / 900) = 7, capped at 5 items,
+// one zone each. The longest name is "Curbs 5 of 5: clear 4 ft back (about 1,250 ft)"; in Spanish
+// "Bordillos 5 de 5: despejar 4 pies (1.2 m) (unos 1,250 pies)". Neither may push the page wider than the screen.
+for (const lang of ['en', 'es']) {
+  test('the longest curb name fits a 320 px Storm tab without sideways scroll (' + lang + ')', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 640 });
+    await page.addInitScript((l) => localStorage.setItem('snow-lang', l), lang);
+    const w = stormWorld();
+    w.zones.push(...[1, 2, 3, 4, 5].map((n) => ({ id: 'ZC' + n, site_id: 'S1', type: 'hand', name: 'Curb - ' + n, area_sqft: 5000, from: 'bootprint:J1:' + (20 + n), rev: 1 })));
+    await openStorm(page, w);
+    const last = walkRow(page, 'S1|curbs-5');
+    await expect(last).toBeVisible();
+    // The Storm tab prints a walk's name under data-no-es (lib/shiftlogui.js walkHtml: zone names are typed by people), so in Spanish the
+    // curb item's name still reads in English here; the Spanish rule in lib/es.js is covered by es.test.js. Reported to Matt's coordinator 11/12/26.
+    await expect(last).toContainText('Curbs 5 of 5: clear 4 ft back (about 1,250 ft)');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+  });
+}
 
 test('Touched: sidewalks done and curbs left reads Touched in its own colour; the route and the summary count it', async ({ page }) => {
   // PAC: Main entry cleared 6:30, Heated walk checked 6:40, curbs untapped -> Touched, not done.

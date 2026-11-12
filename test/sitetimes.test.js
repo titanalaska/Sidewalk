@@ -194,3 +194,15 @@ test('routeTaps (R44): a start past the 18 h limit is not on the clock: a Start 
   assert.deepEqual(T.routeTaps(rows, ['A'], NOW, NOW_AT), { start: 0, end: 1 });
   assert.deepEqual(T.routeTaps(rows, ['B'], NOW, NOW_AT), { start: 1, end: 0 });
 });
+
+// R45 (round C): visitShift shows the shift two back only when its visit is OPEN and its Arrived is within 18 h of now.
+test('visitShift (R45): two back is shown only for an open Arrived within the limit', () => {
+  const TWO = 'day-2026-10-03';
+  const r = (seq, state, at) => ({ id: 'L-' + seq, seq, storm_id: 'ST-1', shift_id: TWO, site_id: 'S1', zone_id: '*', state, by_name: 'A', at });
+  const open = [r(1, 'arrived', '2026-10-03T20:00:00.000-08:00')];            // 13 h 10 min before NOW_AT
+  assert.deepEqual(T.visitShift(open, 'S1', NOW, NOW_AT), { shift: TWO, earlier: true });
+  assert.deepEqual(T.visitShift(open, 'S1', NOW, '2026-10-04T14:00:00.000-08:00'), { shift: TWO, earlier: true });     // 18 h exactly
+  assert.deepEqual(T.visitShift(open, 'S1', NOW, '2026-10-04T14:01:00.000-08:00'), { shift: NOW, earlier: false });    // 18 h 01 min
+  assert.deepEqual(T.visitShift(open.concat([r(2, 'left', '2026-10-03T21:00:00.000-08:00')]), 'S1', NOW, NOW_AT), { shift: NOW, earlier: false });   // closed
+  assert.deepEqual(T.visitShift([], 'S1', NOW, NOW_AT), { shift: NOW, earlier: false });
+});

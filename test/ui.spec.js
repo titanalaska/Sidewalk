@@ -320,14 +320,10 @@ function fakeSnow(state, opts = {}) {
           if (!route || !(route.site_ids || []).includes(siteId)) return refuse('forbidden', 'That site is not on your route');
         }
         if (body.action === 'siteMark') {
-          // R28 (markShift_): an Arrived is the current shift. A Left goes to the shift before when the current one holds no standing
-          // tapped Arrived here, the shift before holds one, and that one has no standing tapped Left (a night crew leaving at 9:10 AM).
-          const has = (shift, k) => SL.markUndoTarget(state.log, st0.storm_id, siteId, shift, k).ok;
-          let shiftId = now;
-          // R31: a start the dispatcher TYPED for the current shift (this storm) is a start too: the open visit is the current one.
-          const typedStart = SL.siteClock(state.log.filter((r) => r.storm_id === st0.storm_id), siteId, now).startHow === 'typed';
-          // R43: the shift before is OPEN when its latest standing mark is an Arrived.
-          if (body.kind === 'left' && !has(now, 'arrived') && !typedStart) { const b = shiftBefore(now), lb = SL.latestMark(state.log, st0.storm_id, siteId, b); if (lb && lb.state === 'arrived') shiftId = b; }
+          // R28 / R31 / R43 / R45 (markShift_): an Arrived is the current shift. A Left goes where the shared leftShift says: the current shift when it holds a
+          // standing tapped Arrived or a typed start; else the shift before, then the one before that, when its latest mark is an Arrived within 18 h.
+          const within = (at) => { const m = CK.minutes(at, stamp); return m === null || m <= CK.OPEN_LIMIT_MIN; };
+          const shiftId = body.kind === 'left' ? SL.leftShift(state.log, st0.storm_id, siteId, now, shiftBefore(now), shiftBefore(shiftBefore(now)), within) : now;
           // R29 + R38: a tap of the SAME kind as the latest standing mark there writes nothing and answers that row; an Arrived after a
           // standing Left (a return visit) and a Left after a standing Arrived are written.
           const latest = SL.latestMark(state.log, st0.storm_id, siteId, shiftId);
@@ -345,7 +341,7 @@ function fakeSnow(state, opts = {}) {
           const gone = state.log.find((r) => r.zone_id === '*' && r.state === body.kind + '_undone' && r.undoes === named.id);
           if (gone) return { ok: true, record: markShown(gone), ...v };
           const lat = SL.latestMark(state.log, st0.storm_id, siteId, named.shift_id);
-          if ((named.shift_id !== now && named.shift_id !== shiftBefore(now)) || !lat || lat.id !== named.id) return refuse('conflict', 'That cannot be undone');
+          if ((named.shift_id !== now && named.shift_id !== shiftBefore(now) && named.shift_id !== shiftBefore(shiftBefore(now))) || !lat || lat.id !== named.id) return refuse('conflict', 'That cannot be undone');
           const nrow = markRow({ storm_id: named.storm_id, shift_id: named.shift_id, site_id: siteId, state: body.kind + '_undone', undoes: named.id });
           state.log.push(nrow);
           return { ok: true, record: markShown(nrow), ...v };
@@ -9610,4 +9606,58 @@ test('crew times sheet: R44 the window is three shifts: the third shift back pri
   await expect(ctPages(page).nth(0).locator('h1')).toHaveText('Crew timesNight of 10/1');
   await expect(ctPages(page).nth(1).locator('h1')).toHaveText('Crew timesNight of 10/2');
   await expect(page.locator('#clockOlder')).toHaveCount(0);
+});
+
+// ---- R45 (final fix round C): a visit is found by time, two names back ----
+// Paper: an Arrived tapped 10/2 8:00 PM before Night shift was switched on is filed under day-2026-10-02. It is 9:10 AM on 10/3 (the clock's shift is
+// day-2026-10-03, the shift before it night-2026-10-02 holds nothing): 13 h 10 min later, inside 18 h. The Storm tab shows that visit with its label,
+// offers Undo(arrived) + Left + Arrived, and the Left is filed in day-2026-10-02; the line reads In 8:00 PM Out 9:10 AM.
+const r45Arrived = (extra = {}) => seedMark(1, 'arrived', { shift_id: 'day-2026-10-02', at: '2026-10-02T20:00:00.000-08:00', ...extra });
+test('site times: R45 S2 at 9:10 AM a Left on the Arrived of 8 PM two names back is offered and filed in that shift', async ({ page }) => {
+  const w = timesWorld(); w.clock = tAt('09:10:00');
+  w.log = [r45Arrived()];
+  const calls = await openStorm(page, w, { token: 'tok-matt', clockAt: '2026-10-03T09:10:00-08:00' });
+  await openRoute(page, 'R1');
+  await expect(timesLine(page, 'S1')).toHaveText('Day of 10/2: In 8:00 PM · Out');
+  await expect(markUndoBtn(page, 'S1', 'arrived')).toBeVisible();
+  await expect(leftBtn(page, 'S1')).toBeVisible();
+  await expect(arrivedBtn(page, 'S1')).toBeVisible();
+  await leftBtn(page, 'S1').click();
+  // The visit is closed now; a closed visit two names back is no longer shown on the Storm tab (only an OPEN one is: R45), so the line goes. The Left is
+  // in the row's own shift, which is what the sheet and the BT note read.
+  await expect(timesLine(page, 'S1')).toHaveCount(0);
+  expect(w.log[1].at.slice(11, 16)).toBe('09:10');
+  expect(w.log.map((r) => [r.state, r.shift_id])).toEqual([['arrived', 'day-2026-10-02'], ['left', 'day-2026-10-02']]);
+  expect(siteActionCalls(calls, 'siteMark')).toHaveLength(1);
+});
+// S3: at 2:01 PM the same Arrived is 18 h 01 min old: that visit is not shown (nothing in the current shift), only Arrived is offered, never Left.
+test('site times: R45 S3 past 18 hours the old Arrived is not shown and no Left is offered', async ({ page }) => {
+  const w = timesWorld(); w.clock = tAt('14:01:00');
+  w.log = [r45Arrived()];
+  await openStorm(page, w, { token: 'tok-matt', clockAt: '2026-10-03T14:01:00-08:00' });
+  await openRoute(page, 'R1');
+  await expect(timesLine(page, 'S1')).toHaveCount(0);
+  await expect(arrivedBtn(page, 'S1')).toBeVisible();
+  await expect(leftBtn(page, 'S1')).toHaveCount(0);
+  await expect(page.locator('[data-markundo]')).toHaveCount(0);
+});
+test('site times: R45 at exactly 18 hours the old Arrived is still shown and Left is offered', async ({ page }) => {
+  const w = timesWorld(); w.clock = tAt('14:00:00');
+  w.log = [r45Arrived()];
+  await openStorm(page, w, { token: 'tok-matt', clockAt: '2026-10-03T14:00:00-08:00' });
+  await openRoute(page, 'R1');
+  await expect(timesLine(page, 'S1')).toHaveText('Day of 10/2: In 8:00 PM · Out');
+  await expect(leftBtn(page, 'S1')).toBeVisible();
+});
+test('site times: R45 an earlier Arrived PAST the limit (shown as the shift before) offers Arrived and its Undo, and no Left', async ({ page }) => {
+  // The Arrived was tapped 10/2 14:00 in night-2026-10-02 (the shift before the day of 10/3): 19 h 10 min before 9:10 AM. It is shown, but the server would
+  // file a Left in the current shift (an Out with no In), so no Left is offered.
+  const w = timesWorld(); w.clock = tAt('09:10:00');
+  w.log = [seedMark(1, 'arrived', { shift_id: 'night-2026-10-02', at: '2026-10-02T14:00:00.000-08:00' })];
+  await openStorm(page, w, { token: 'tok-matt', clockAt: '2026-10-03T09:10:00-08:00' });
+  await openRoute(page, 'R1');
+  await expect(timesLine(page, 'S1')).toHaveText('Night of 10/2: In 2:00 PM · Out');
+  await expect(arrivedBtn(page, 'S1')).toBeVisible();
+  await expect(markUndoBtn(page, 'S1', 'arrived')).toBeVisible();
+  await expect(leftBtn(page, 'S1')).toHaveCount(0);
 });

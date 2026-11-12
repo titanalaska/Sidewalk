@@ -215,3 +215,35 @@ test('visitShift (R45): two back is shown only for an open Arrived within the li
     Object.assign(r(3, 'left_undone', '2026-10-04T09:05:00.000-08:00'), { undoes: 'L-2' })]), 'S1', NOW, NOW_AT), { shift: TWO, earlier: true });
   assert.deepEqual(T.visitShift([], 'S1', NOW, NOW_AT), { shift: NOW, earlier: false });
 });
+
+// ---- routeUndo (board undo, 11/12/26): which Undo a Board route card offers, from CrewClock.undoTargets (the server's own rule) ----
+// Same order as the crew's own card (shiftOffers): 'end' when any tapped End stands for the route's people, else 'start' when any tapped Start does,
+// else null. A typed time is never undoable.
+test('routeUndo: nobody started is null; two tapped starts is start', () => {
+  assert.equal(T.routeUndo([], ['A', 'B'], NOW, NOW_AT), null);
+  assert.equal(T.routeUndo([crow(1, 'start', NOW, 'A'), crow(2, 'start', NOW, 'B')], ['A', 'B'], NOW, NOW_AT), 'start');
+  // somebody else's start is not this route's
+  assert.equal(T.routeUndo([crow(1, 'start', NOW, 'Z')], ['A', 'B'], NOW, NOW_AT), null);
+  assert.equal(T.routeUndo([crow(1, 'start', NOW, 'A')], [], NOW, NOW_AT), null);
+});
+test('routeUndo: one tapped End among starts is end; with that End taken back it is start again', () => {
+  const rows = [crow(1, 'start', NOW, 'A'), crow(2, 'start', NOW, 'B'), crow(3, 'end', NOW, 'A')];
+  assert.equal(T.routeUndo(rows, ['A', 'B'], NOW, NOW_AT), 'end');
+  rows.push(crow(4, 'end_undone', NOW, 'A', { undoes: 'K-3' }));
+  assert.equal(T.routeUndo(rows, ['A', 'B'], NOW, NOW_AT), 'start');
+  // A alone, ended: the Start under an End stays (an End is never left without a Start), so only the End is offered
+  assert.equal(T.routeUndo([crow(1, 'start', NOW, 'A'), crow(2, 'end', NOW, 'A')], ['A'], NOW, NOW_AT), 'end');
+});
+test('routeUndo: only typed times (a typed start, a typed end) have nothing to take back; a tapped start next to a typed one is start', () => {
+  assert.equal(T.routeUndo([crow(1, 'typed', NOW, 'A', { time_in: '2026-10-04T06:00' })], ['A'], NOW, NOW_AT), null);
+  assert.equal(T.routeUndo([crow(1, 'typed', NOW, 'A', { time_out: '2026-10-04T08:00' })], ['A'], NOW, NOW_AT), null);
+  const mixed = [crow(1, 'typed', NOW, 'A', { time_in: '2026-10-04T06:00' }), crow(2, 'start', NOW, 'B')];
+  assert.equal(T.routeUndo(mixed, ['A', 'B'], NOW, NOW_AT), 'start');
+});
+test('routeUndo: a start past the 18 h limit with nothing in the current shift is still undone in the shift before (the shared rule shows that shift: a start there)', () => {
+  // A's only row is a tapped start in PREV at 14:00 on 10/3, 19 h 10 min before NOW_AT: not on the clock, but shownShift rule 3 (a start or end
+  // in the shift before) shows PREV, so undoable() finds that tapped start. The server's clockUndo_ takes the same row.
+  assert.equal(T.routeUndo([crow(1, 'start', PREV, 'A', { at: '2026-10-03T14:00:00.000-08:00' })], ['A'], NOW, NOW_AT), 'start');
+  // the same start tapped two shifts back (nothing before): past the limit, not shown, nothing to take back
+  assert.equal(T.routeUndo([crow(1, 'start', TWO_BACK, 'A', { at: '2026-10-03T14:00:00.000-08:00' })], ['A'], NOW, NOW_AT), null);
+});

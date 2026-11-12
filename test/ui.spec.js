@@ -9939,3 +9939,132 @@ test('print crew times: in Spanish the button, the dialog and the counts are Spa
   await p2.click('#printCrewTimes');
   await expect(p2.locator('#dlgIn')).toContainText('Todavía no hay horas de turno registradas.');
 });
+
+// ---------------- board undo (11/12/26): an Undo start / Undo end on the dispatcher's Board route card ----------------
+// R1 holds Alex C01 (lead), Jordan C03, Casey C04. Two tapped starts (Alex 2:00, Jordan 2:30) and Casey with none: Start shift would cover ONE
+// person (Casey) and Undo start takes back TWO (written 2).
+const undoWorld = () => {
+  const w = shiftWorld();
+  w.clockRows = [clockRow(1, 'C01', 'Alex Test', NIGHT, 'start', { at: tAt('02:00:00') }), clockRow(2, 'C03', 'Jordan Demo', NIGHT, 'start', { at: tAt('02:30:00') })];
+  return w;
+};
+test('board undo: an Undo start on a route with two tapped starts takes both back with one request and offers Start again', async ({ page }) => {
+  const w = undoWorld();
+  const calls = await openShift(page, w, { token: 'tok-matt' });
+  await goBoard(page);
+  await expect(clockLine(page, 'C01')).toHaveText('On the clock since 2:00 AM');
+  await expect(clockLine(page, 'C03')).toHaveText('On the clock since 2:30 AM');
+  const btn = page.locator('[data-clockundo="R1"]');
+  await expect(btn).toBeVisible();
+  await expect(btn).toHaveText('Undo start');
+  await expect(btn).toHaveAttribute('data-kind', 'start');
+  await btn.click();
+  await expect(page.locator('[data-routeclock="R1"]')).toContainText('Start taken back for 2 people');
+  for (const id of ['C01', 'C03', 'C04']) await expect(clockLine(page, id)).toHaveText('Not started');
+  await expect(page.locator('[data-clockundo="R1"]')).toHaveCount(0);
+  await expect(page.locator('[data-clockstart="R1"]')).toBeVisible();
+  const sent = clockCalls(calls, 'clockUndo');
+  expect(sent).toHaveLength(1);
+  expect(sent[0].body).toEqual({ token: 'tok-matt', action: 'clockUndo', kind: 'start', route_id: 'R1' });
+  expect(w.clockRows.map((r) => r.kind)).toEqual(['start', 'start', 'start_undone', 'start_undone']);
+});
+
+test('board undo: after an End the card offers Undo end (not Undo start); taking it back brings Undo start', async ({ page }) => {
+  const w = undoWorld();
+  w.clock = tAt('08:40:00');
+  const calls = await openShift(page, w, { token: 'tok-matt' });
+  await goBoard(page);
+  await page.locator('[data-clockend="R1"]').click();
+  await expect(clockLine(page, 'C01')).toHaveText('Ended 8:40 AM');
+  const btn = page.locator('[data-clockundo="R1"]');
+  await expect(btn).toHaveText('Undo end');
+  await expect(btn).toHaveAttribute('data-kind', 'end');
+  await btn.click();
+  await expect(page.locator('[data-routeclock="R1"]')).toContainText('End taken back for 2 people');
+  expect(clockCalls(calls, 'clockUndo')[0].body).toEqual({ token: 'tok-matt', action: 'clockUndo', kind: 'end', route_id: 'R1' });
+  await expect(clockLine(page, 'C01')).toHaveText('On the clock since 2:00 AM');
+  await expect(page.locator('[data-clockundo="R1"]')).toHaveAttribute('data-kind', 'start');
+  await expect(page.locator('[data-clockundo="R1"]')).toHaveText('Undo start');
+});
+
+test('board undo: no Undo on a route with nothing to take back, on a route with nobody, or on a typed time; none for the unassigned list', async ({ page }) => {
+  const w = shiftWorld();
+  w.crew.push({ id: 'C05', name: 'Dana Spare', phone: '555-0105', is_lead: false, rev: 1, profile_id: '6' });   // on no route
+  w.clockRows = [clockRow(1, 'C03', 'Jordan Demo', NIGHT, 'typed', { time_in: '2026-10-02T23:40', by_name: 'Matthew' }),
+    clockRow(2, 'C05', 'Dana Spare', NIGHT, 'start', { at: tAt('02:00:00') })];
+  await openShift(page, w, { token: 'tok-matt' });
+  await goBoard(page);
+  await expect(page.locator('[data-routeclock="R1"]')).toBeVisible();
+  await expect(clockLine(page, 'C03')).toHaveText('On the clock since 11:40 PM (typed by Matthew)');
+  await expect(page.locator('[data-clockundo]')).toHaveCount(0);
+});
+test('board undo: a tapped start beside a typed one takes back only the tapped one; the typed time stays on the Board', async ({ page }) => {
+  const w = shiftWorld();
+  w.clockRows = [clockRow(1, 'C01', 'Alex Test', NIGHT, 'start', { at: tAt('02:00:00') }),
+    clockRow(2, 'C03', 'Jordan Demo', NIGHT, 'typed', { time_in: '2026-10-02T23:40', by_name: 'Matthew' })];
+  const calls = await openShift(page, w, { token: 'tok-matt' });
+  await goBoard(page);
+  await page.locator('[data-clockundo="R1"]').click();
+  await expect(page.locator('[data-routeclock="R1"]')).toContainText('Start taken back for 1 person');
+  expect(clockCalls(calls, 'clockUndo')).toHaveLength(1);
+  await expect(clockLine(page, 'C01')).toHaveText('Not started');
+  await expect(clockLine(page, 'C03')).toHaveText('On the clock since 11:40 PM (typed by Matthew)');
+  expect(w.clockRows.map((r) => r.kind)).toEqual(['start', 'typed', 'start_undone']);
+  await expect(page.locator('[data-clockundo="R1"]')).toHaveCount(0);   // only the typed time is left: nothing more to take back
+});
+
+test('board undo: a double tap sends one request, and the button is disabled while it is out', async ({ page }) => {
+  const w = undoWorld();
+  const calls = await openShift(page, w, { token: 'tok-matt', delay: { clockUndo: 700 } });
+  await goBoard(page);
+  await page.locator('[data-clockundo="R1"]').dblclick();
+  await expect(page.locator('[data-routeclock="R1"]')).toHaveAttribute('aria-busy', 'true');
+  await expect(page.locator('[data-clockundo="R1"]')).toBeDisabled();
+  await expect(clockLine(page, 'C01')).toHaveText('Not started');
+  expect(clockCalls(calls, 'clockUndo')).toHaveLength(1);
+  expect(w.clockRows.filter((r) => r.kind === 'start_undone')).toHaveLength(2);
+});
+test('board undo: a refused Undo shows the failure line, writes nothing, and the Board catches up with the server', async ({ page }) => {
+  const w = undoWorld();
+  const calls = await openShift(page, w, { token: 'tok-matt' });
+  await goBoard(page);
+  w.clockRows = [];   // the server no longer holds the starts (a teammate took them back): the phone still shows the button
+  await page.locator('[data-clockundo="R1"]').click();
+  await expect(page.locator('[data-routeclock="R1"] .err')).toContainText('Not saved: Nothing to take back');
+  expect(clockCalls(calls, 'clockUndo')).toHaveLength(1);
+  expect(w.clockRows).toHaveLength(0);
+  // the refusal carries the server's rows: the phone now agrees with it, so the stale button is gone and the failure line stays
+  await expect(clockLine(page, 'C01')).toHaveText('Not started');
+  await expect(page.locator('[data-clockundo="R1"]')).toHaveCount(0);
+  await expect(page.locator('[data-routeclock="R1"] .err')).toContainText('Nothing to take back');
+});
+test('board undo: a crew member has no Board and so no route Undo, and the Undo on their own card is unchanged', async ({ page }) => {
+  const w = undoWorld();
+  await openShift(page, w);
+  await expect(page.locator('nav [data-tab="board"]')).toHaveCount(0);
+  await expect(page.locator('[data-clockundo]')).toHaveCount(0);
+  await expect(page.locator('#shiftUndo')).toHaveText('Undo start');
+});
+
+for (const lang of ['en', 'es']) {
+  test('board undo: at 320 px wide (' + lang + ') the route card with Start, End, Undo and a long name stays on screen', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 640 });
+    if (lang === 'es') await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+    const w = shiftWorld();
+    w.crew.find((c) => c.id === 'C04').name = 'Bartholomew Featherstonehaugh-Smythe';
+    w.clockRows = [clockRow(1, 'C01', 'Alex Test', NIGHT, 'start', { at: tAt('02:00:00') }),
+      clockRow(2, 'C03', 'Jordan Demo', NIGHT, 'start', { at: tAt('02:30:00') })];
+    await openShift(page, w, { token: 'tok-matt' });
+    await page.click('nav [data-tab="board"]');
+    await expect(page.locator('[data-clockstart="R1"]')).toBeVisible();
+    await expect(page.locator('[data-clockend="R1"]')).toBeVisible();
+    await expect(page.locator('[data-clockundo="R1"]')).toBeVisible();
+    await expect(page.locator('[data-clockundo="R1"]')).toHaveText(lang === 'es' ? 'Deshacer inicio' : 'Undo start');
+    const r = await page.evaluate(() => {
+      const els = Array.from(document.querySelectorAll('.board-route[data-route="R1"] button, .board-route[data-route="R1"] .clockrow, .board-route[data-route="R1"] [data-clock]'));
+      return { scroll: document.documentElement.scrollWidth, boxes: els.map((e) => { const b = e.getBoundingClientRect(); return [Math.round(b.left), Math.round(b.right)]; }) };
+    });
+    expect(r.scroll).toBeLessThanOrEqual(320);
+    for (const [l, rt] of r.boxes) { expect(l).toBeGreaterThanOrEqual(0); expect(rt).toBeLessThanOrEqual(320); }
+  });
+}

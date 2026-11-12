@@ -306,8 +306,9 @@ function fakeSnow(state, opts = {}) {
             return T.shiftKey(body.shift_id) >= T.shiftKey(first) && T.shiftKey(body.shift_id) <= T.shiftKey(now);
           };
           const held = () => {
-            const c = SL.siteClock(state.log.filter((r) => r.storm_id === st0.storm_id), siteId, body.shift_id), ok = (how) => how === 'typed' || how === 'tapped';
-            return { start: ok(c.startHow) ? c.start : null, end: ok(c.finishHow) ? c.finish : null };
+            // R40 amended: whatever siteClock holds on the other side counts, a walk tap included.
+            const c = SL.siteClock(state.log.filter((r) => r.storm_id === st0.storm_id), siteId, body.shift_id);
+            return { start: c.start, end: c.finish };
           };
           const t = typedCheck(typeof body.shift_id === 'string' ? body.shift_id : '', spanOk, held); if (typeof t === 'string') return refuse('invalid', t);
           const row = markRow({ shift_id: body.shift_id, site_id: siteId, state: 'typed', time_in: t.tin, time_out: t.tout });
@@ -9493,4 +9494,21 @@ test('site times: R41 an Undo names its row and a Retry sends the same one', asy
   const sent = siteActionCalls(calls, 'undoSiteMark').map((c) => c.body);
   expect(sent.map((b) => [b.kind, b.site_id, b.target])).toEqual([['arrived', 'S1', 'L-3'], ['arrived', 'S1', 'L-3']]);
   expect(w.log).toHaveLength(4);
+});
+
+// R40 amended (final fix round B 4): a typed Out is held to a WALK TAP start too. Paper: the night of 10/2, now 7:50 AM; PAC's first walk tap
+// is 6:30 AM. A typed Out of 6:00 AM is before it: the server's words, the box stays open; 6:30 AM is the same minute and saves.
+test('site times: R40 a typed Out before the first walk tap is refused in the server words', async ({ page }) => {
+  const w = settimesWorld();
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: tAt('06:30:00') })];
+  const calls = await openStorm(page, w, { token: 'tok-matt' });
+  await openRoute(page, 'R1');
+  await openSetTimes(page, 'S1');
+  await page.fill('#st_out', '06:00');
+  await page.click('#st_save');
+  await expect(page.locator('#st_err')).toHaveText('The finish is before the start');
+  await page.fill('#st_out', '06:30');
+  await page.click('#st_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(siteActionCalls(calls, 'typeSiteTimes')).toHaveLength(2);
 });

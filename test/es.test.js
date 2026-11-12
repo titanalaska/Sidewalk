@@ -166,3 +166,12 @@ test('M4 every refusal a crew phone can be shown reads Spanish inside each of it
   }
 });
 
+// Print crew times (R47, 11/11/26): the button, the dialog's empty line, and the night buttons' count, one person singular, the rest plural.
+test('print crew times: the button title, the empty line, and the night buttons with their counts', () => {
+  assert.equal(Es.translateString('Print crew times'), 'Imprimir horas del equipo');
+  assert.equal(Es.translateString('No shift times recorded yet.'), 'Todav\u00eda no hay horas de turno registradas.');
+  // worked by hand: 1 -> persona; 3 and 12 -> personas; the shift label becomes Noche del / D\u00eda del, the date is kept
+  assert.equal(Es.translateString('Night of 12/4 \u00b7 3 people'), 'Noche del 12/4 \u00b7 3 personas');
+  assert.equal(Es.translateString('Day of 12/6 \u00b7 1 person'), 'D\u00eda del 12/6 \u00b7 1 persona');
+  assert.equal(Es.translateString('Night of 11/30 \u00b7 12 people'), 'Noche del 11/30 \u00b7 12 personas');
+});

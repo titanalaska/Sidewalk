@@ -135,7 +135,7 @@ function fakeSnow(state, opts = {}) {
     // lead rows are allow-listed (no by_profile, undoes null); Matt's are raw
     // (by_profile present, no undoes key on a tap). Refusals are {ok:false, code, reason}.
     if (['getShiftLog', 'tapZone', 'undoTap', 'stormAction', 'saveVisit', 'cleanAgain', 'depthNow', 'handOff',
-      'siteMark', 'undoSiteMark', 'typeSiteTimes', 'clockTap', 'clockUndo', 'typeClock'].includes(body.action)) {
+      'siteMark', 'undoSiteMark', 'typeSiteTimes', 'clockTap', 'clockUndo', 'typeClock', 'getClockNights'].includes(body.action)) {
       const SL = require('../lib/shiftlog.js');
       state.log = state.log || []; state.storms = state.storms || []; state.visits = state.visits || [];
       const stamp = state.clock || '2026-10-03T07:50:18.445-08:00';
@@ -205,6 +205,21 @@ function fakeSnow(state, opts = {}) {
           out.tail = { clock: total ? cr[total - 1].seq : null };
         }
         return out;
+      }
+      // Print crew times (R47, snow-app-script Code.js getClockNights_): admin only (the door's own refusal), a READ of the whole Clock tab:
+      // the shifts that have shift times (CrewClock.nightRows by the shared function, taken-back-only shifts left out), newest first by
+      // CrewTime.shiftKey; with a shift_id that parses, that shift's rows through the public Clock fields; a bad id is 'Pick a shift'.
+      if (body.action === 'getClockNights') {
+        if (role !== 'admin') return refuse('forbidden', 'Only Matt can do that.');
+        const CK = require('../lib/clock.js'), T = require('../lib/time.js');
+        const cr = state.clockRows || [];
+        const want = body.shift_id;
+        if (want !== undefined && want !== null && (typeof want !== 'string' || !T.parseShift(want))) return refuse('invalid', 'Pick a shift');
+        const ids = [...new Set(cr.map((r) => r.shift_id).filter((id) => typeof id === 'string' && T.parseShift(id)))];
+        const nights = ids.map((id) => ({ shift_id: id, people: CK.nightRows(cr, id, state.crew).length })).filter((n) => n.people > 0)
+          .sort((a, b) => (T.shiftKey(a.shift_id) < T.shiftKey(b.shift_id) ? 1 : T.shiftKey(a.shift_id) > T.shiftKey(b.shift_id) ? -1 : 0));
+        const rows = typeof want === 'string' ? cr.filter((r) => r.shift_id === want).map((r) => Object.fromEntries(CLOCK_FIELDS.map((k) => [k, r[k] === undefined ? null : r[k]]))) : [];
+        return { ok: true, nights, rows, ...v };
       }
       // KNOWN, HARMLESS differences from Code.js in this section: the first-load read has no `floorDate` early stop (it filters the
       // whole tab by shift id, same rows); seq / id come from the array length, not a script property; no lock, no Sheets;
@@ -9673,4 +9688,193 @@ test('site times: R45 the Undo of an Arrived two names back names its row and th
   await expect(timesLine(page, 'S1')).toHaveCount(0);
   expect(siteActionCalls(calls, 'undoSiteMark').map((c) => c.body.target)).toEqual(['L-1']);
   expect(w.log.map((r) => [r.state, r.shift_id, r.undoes])).toEqual([['arrived', 'day-2026-10-02', null], ['arrived_undone', 'day-2026-10-02', 'L-1']]);
+});
+
+// ---------------- Print crew times (R47, Matt 11/11/26): any night's crew times on paper, storm or not ----------------
+// cnWorld: NO Storms row at all, an admin on the Storm tab. The Clock tab (the brief's fixture, worked by hand), December 2026, all outside the
+// phone's own three-shift window (the phone's clock is 10/3), plus one row inside it so that S.clock is not empty:
+//   night-2026-12-04  Alex (C1): start tap 20:05:10, end tap 06:35:40 next day  -> 20:05 to 06:35 = 10 h 30 (30 s dropped) = "10:30"
+//                     Bea (C2):  TYPED start 19:45, end tap 06:35:40            -> 19:45 to 06:35 = 10 h 50 = "10:50"
+//                     Cy (C3):   start tap 20:10:00, never ended                -> End and Hours blank
+//   day-2026-12-06    Dee (C4):  start tap 10:00, end tap 14:15                 -> 4 h 15 = "4:15"
+//   night-2026-12-02  Eli (C5):  a start and the undo of it                     -> nobody has a time: not listed
+// The list is the whole winter, newest first: Day of 12/6 · 1 person, Night of 12/4 · 3 people, then the in-window Night of 10/2 · 1 person
+// (Alex Test; the phone holds that one itself, the list still offers it). The sheet of 12/4 reads, by name: Alex, Bea, Cy.
+const cnWorld = () => {
+  const w = stormWorld();
+  w.storms = [];
+  w.crew = w.crew.concat(['Alex', 'Bea', 'Cy', 'Dee', 'Eli'].map((name, i) => ({ id: 'C' + (i + 1), name, phone: '555-02' + i, is_lead: false, rev: 1 })));
+  const k = (n, crew, name, shift, kind, extra) => clockRow(n, crew, name, shift, kind, { storm_id: '', route_id: '', ...extra });
+  w.clockRows = [
+    k(1, 'C1', 'Alex', 'night-2026-12-04', 'start', { at: '2026-12-04T20:05:10.000-09:00' }),
+    k(2, 'C1', 'Alex', 'night-2026-12-04', 'end', { at: '2026-12-05T06:35:40.000-09:00' }),
+    k(3, 'C2', 'Bea', 'night-2026-12-04', 'typed', { at: '2026-12-05T07:00:00.000-09:00', time_in: '2026-12-04T19:45', by_name: 'Matthew', by_key: 'ADMIN' }),
+    k(4, 'C2', 'Bea', 'night-2026-12-04', 'end', { at: '2026-12-05T06:35:40.000-09:00' }),
+    k(5, 'C3', 'Cy', 'night-2026-12-04', 'start', { at: '2026-12-04T20:10:00.000-09:00' }),
+    k(6, 'C4', 'Dee', 'day-2026-12-06', 'start', { at: '2026-12-06T10:00:00.000-09:00' }),
+    k(7, 'C4', 'Dee', 'day-2026-12-06', 'end', { at: '2026-12-06T14:15:00.000-09:00' }),
+    k(8, 'C5', 'Eli', 'night-2026-12-02', 'start', { at: '2026-12-02T20:00:00.000-09:00' }),
+    k(9, 'C5', 'Eli', 'night-2026-12-02', 'start_undone', { at: '2026-12-02T20:05:00.000-09:00', undoes: 'K-8' }),
+    k(10, 'C01', 'Alex Test', 'night-2026-10-02', 'start', { at: '2026-10-02T22:00:00.000-08:00' }),
+  ];
+  return w;
+};
+const cnBodies = (calls) => calls.filter((c) => c.body.action === 'getClockNights').map((c) => { const { token, action, ...rest } = c.body; return rest; });
+const cnOpen = async (page, w, o = {}) => { await stubPrint(page); return openStorm(page, w, { token: 'tok-matt', ...o }); };
+const NIGHT_BTNS = (page) => page.locator('#dlgIn [data-clocknight]');
+
+test('print crew times: an admin with no storm sees the button; a crew member and a lead do not', async ({ page, browser }) => {
+  await cnOpen(page, cnWorld());
+  await expect(page.locator('#printCrewTimes')).toBeVisible();
+  await expect(page.locator('#printCrewTimes')).toHaveText('Print crew times');
+  await expect(page.locator('#printSheets')).toHaveCount(0);   // no storm: the button is not tied to one
+  const w = cnWorld(); w.storms = [START_ROW];   // an open storm: still there, beside Print sheets
+  const ctxOpts = { timezoneId: 'America/Anchorage', viewport: { width: 390, height: 844 } }; // as playwright.config.js
+  for (const [token, want] of [['tok-jordan', 0], ['tok-alex', 0], ['tok-matt', 1]]) {
+    const c = await browser.newContext(ctxOpts);
+    try {
+      const p = await c.newPage();
+      await openStorm(p, w, { token });
+      await expect(p.locator('#stormhead')).toBeVisible();
+      if (token === 'tok-alex') await expect(p.locator('#stormctl')).toBeVisible();   // the lead's storm controls drew: the absence is the gate, not a tab that never got there
+      if (want) { await expect(p.locator('#printCrewTimes')).toBeVisible(); await expect(p.locator('#printSheets')).toBeVisible(); }
+      else await expect(p.locator('#printCrewTimes')).toHaveCount(0);
+    } finally { await c.close(); }
+  }
+});
+
+test('print crew times: the list reads the two nights newest first with their counts, and the request is empty', async ({ page }) => {
+  const calls = await cnOpen(page, cnWorld());
+  await page.click('#printCrewTimes');
+  await expect(page.locator('#dlg')).toBeVisible();
+  await expect(page.locator('#dlgIn h2')).toHaveText('Print crew times');
+  expect(await NIGHT_BTNS(page).allInnerTexts()).toEqual(['Day of 12/6 · 1 person', 'Night of 12/4 · 3 people', 'Night of 10/2 · 1 person']);   // 12/2 (only a taken-back start) is not offered
+  expect(await NIGHT_BTNS(page).evaluateAll((els) => els.map((e) => e.dataset.clocknight))).toEqual(['day-2026-12-06', 'night-2026-12-04', 'night-2026-10-02']);
+  expect(cnBodies(calls)).toEqual([{}]);
+});
+
+test('print crew times: tapping a night asks for that shift and opens its sheet in the print view, rows worked on paper', async ({ page }) => {
+  const calls = await cnOpen(page, cnWorld());
+  await page.click('#printCrewTimes');
+  await page.click('[data-clocknight="night-2026-12-04"]');
+  await expect(page.locator('#printview')).toBeVisible();
+  await expect(page.locator('#printview')).toHaveAttribute('aria-label', 'Print crew times');
+  await expect(page.locator('#dlg')).toBeHidden();
+  await expect(page.locator('#printbar .muted')).toHaveText('1 sheet');
+  await expect(page.locator('#printsheets .sheet')).toHaveCount(1);
+  await expect(page.locator('#printsheets h1')).toHaveText('Crew timesNight of 12/4');
+  expect(await ctCells(page.locator('#printsheets .sheet'))).toEqual([
+    ['Alex', '12/4 8:05 PM', '12/5 6:35 AM', '10:30'],
+    ['Bea', '12/4 7:45 PM (typed)', '12/5 6:35 AM', '10:50'],
+    ['Cy', '12/4 8:10 PM', '', ''],
+  ]);
+  expect(cnBodies(calls)).toEqual([{}, { shift_id: 'night-2026-12-04' }]);
+  // one sheet: no break after it; the phone is asked to print once on open and again from Print; Back closes the view
+  expect(await page.locator('#printsheets .sheet').evaluate((e) => getComputedStyle(e).breakAfter)).toBe('auto');
+  expect(await page.locator('#printsheets table.times').evaluate((e) => getComputedStyle(e).borderCollapse)).toBe('collapse');
+  await expect.poll(() => page.evaluate(() => window.__printed)).toBe(1);
+  await page.click('#printNow');
+  await expect.poll(() => page.evaluate(() => window.__printed)).toBe(2);
+  await page.click('#printBack');
+  await expect(page.locator('#printview')).toBeHidden();
+  await expect(page.locator('#printCrewTimes')).toBeVisible();
+  // the other night is its own sheet: Dee, 10:00 AM to 2:15 PM = 4 h 15
+  await page.click('#printCrewTimes');
+  await page.click('[data-clocknight="day-2026-12-06"]');
+  await expect(page.locator('#printsheets h1')).toHaveText('Crew timesDay of 12/6');
+  expect(await ctCells(page.locator('#printsheets .sheet'))).toEqual([['Dee', '12/6 10:00 AM', '12/6 2:15 PM', '4:15']]);
+});
+
+test("print crew times: the fetched rows are not merged into the phone's own Clock rows", async ({ page }) => {
+  await cnOpen(page, cnWorld());
+  // the phone holds the three-shift window around 10/3 only: the one in-window row
+  await expect.poll(async () => (await phoneState(page)).clock.map((r) => r.id)).toEqual(['K-10']);
+  await page.click('#printCrewTimes');
+  await page.click('[data-clocknight="night-2026-12-04"]');
+  await expect(page.locator('#printview')).toBeVisible();
+  expect((await phoneState(page)).clock.map((r) => r.id)).toEqual(['K-10']);
+  await page.click('#printBack');
+  expect((await phoneState(page)).clock.map((r) => r.id)).toEqual(['K-10']);
+});
+
+test('print crew times: with nothing recorded the dialog says so and closes', async ({ page }) => {
+  const w = cnWorld(); w.clockRows = [];
+  await cnOpen(page, w);
+  await page.click('#printCrewTimes');
+  await expect(page.locator('#dlgIn')).toContainText('No shift times recorded yet.');
+  await expect(NIGHT_BTNS(page)).toHaveCount(0);
+  await expect(page.locator('#dlgIn [role="alert"]')).toHaveCount(0);
+  await page.click('#dlgClose');
+  await expect(page.locator('#dlg')).toBeHidden();
+});
+
+test('print crew times: a failed read says so in an alert, can be closed, and a failed night read keeps the list', async ({ page }) => {
+  let drop = 'list';
+  await cnOpen(page, cnWorld(), { abortIf: (b) => b.action === 'getClockNights' && ((drop === 'list') || (drop === 'night' && b.shift_id)) });
+  await page.click('#printCrewTimes');
+  await expect(page.locator('#dlgIn [role="alert"]')).toHaveText("Couldn't reach the server. Try again.");
+  await expect(NIGHT_BTNS(page)).toHaveCount(0);
+  await page.click('#dlgClose');
+  await expect(page.locator('#dlg')).toBeHidden();
+  await expect(page.locator('#printCrewTimes')).toBeEnabled();   // not stuck busy
+  // the list reads; the night's rows fail: the alert shows inside the open dialog, the list stays, nothing prints
+  drop = 'night';
+  await page.click('#printCrewTimes');
+  await expect(NIGHT_BTNS(page)).toHaveCount(3);
+  await page.click('[data-clocknight="night-2026-12-04"]');
+  await expect(page.locator('#dlgIn [role="alert"]')).toHaveText("Couldn't reach the server. Try again.");
+  await expect(NIGHT_BTNS(page)).toHaveCount(3);
+  await expect(NIGHT_BTNS(page).first()).toBeEnabled();
+  await expect(page.locator('#printview')).toHaveCount(0);
+  // and a retry works
+  drop = '';
+  await page.click('[data-clocknight="night-2026-12-04"]');
+  await expect(page.locator('#printview')).toBeVisible();
+  await expect(page.locator('#printsheets h1')).toHaveText('Crew timesNight of 12/4');
+});
+
+test('print crew times: a double tap sends one request, on the button and on a night', async ({ page }) => {
+  const calls = await cnOpen(page, cnWorld(), { delay: { getClockNights: 600 } });
+  await page.evaluate(() => { const b = document.getElementById('printCrewTimes'); b.click(); b.click(); });
+  await expect(page.locator('#printCrewTimes')).toBeDisabled();
+  await expect(NIGHT_BTNS(page)).toHaveCount(3);
+  expect(cnBodies(calls)).toEqual([{}]);
+  await page.evaluate(() => { const b = document.querySelector('[data-clocknight="night-2026-12-04"]'); b.click(); b.click(); });
+  await expect(NIGHT_BTNS(page).first()).toBeDisabled();
+  await expect(NIGHT_BTNS(page).last()).toBeDisabled();
+  await expect(page.locator('#printview')).toBeVisible();
+  expect(cnBodies(calls)).toEqual([{}, { shift_id: 'night-2026-12-04' }]);
+});
+
+test('print crew times: at 320 px wide the button row stays on screen, in English and in Spanish', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  await cnOpen(page, cnWorld());
+  const fits = () => page.evaluate(() => {
+    const b = document.getElementById('printCrewTimes').getBoundingClientRect();
+    return { left: b.left, right: b.right, scroll: document.documentElement.scrollWidth, inner: window.innerWidth };
+  });
+  let f = await fits();
+  expect(f.left).toBeGreaterThanOrEqual(0); expect(f.right).toBeLessThanOrEqual(320); expect(f.scroll).toBeLessThanOrEqual(320);
+  await page.evaluate(() => { localStorage.setItem('snow-lang', 'es'); });
+  await page.reload();
+  await page.click('nav [data-tab="storm"]');
+  await expect(page.locator('#printCrewTimes')).toHaveText('Imprimir horas del equipo');
+  f = await fits();
+  expect(f.left).toBeGreaterThanOrEqual(0); expect(f.right).toBeLessThanOrEqual(320); expect(f.scroll).toBeLessThanOrEqual(320);
+});
+
+test('print crew times: in Spanish the button, the dialog and the counts are Spanish; names stay as typed', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await cnOpen(page, cnWorld());
+  await expect(page.locator('#printCrewTimes')).toHaveText('Imprimir horas del equipo');
+  await page.click('#printCrewTimes');
+  await expect(page.locator('#dlgIn h2')).toHaveText('Imprimir horas del equipo');
+  expect(await NIGHT_BTNS(page).allInnerTexts()).toEqual(['Día del 12/6 · 1 persona', 'Noche del 12/4 · 3 personas', 'Noche del 10/2 · 1 persona']);
+  await page.click('#dlgClose');
+  const w = cnWorld(); w.clockRows = [];
+  const p2 = await page.context().newPage();
+  await p2.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await cnOpen(p2, w);
+  await p2.click('#printCrewTimes');
+  await expect(p2.locator('#dlgIn')).toContainText('Todavía no hay horas de turno registradas.');
 });

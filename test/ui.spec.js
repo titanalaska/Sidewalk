@@ -326,7 +326,8 @@ function fakeSnow(state, opts = {}) {
           let shiftId = now;
           // R31: a start the dispatcher TYPED for the current shift (this storm) is a start too: the open visit is the current one.
           const typedStart = SL.siteClock(state.log.filter((r) => r.storm_id === st0.storm_id), siteId, now).startHow === 'typed';
-          if (body.kind === 'left' && !has(now, 'arrived') && !typedStart) { const b = shiftBefore(now); if (has(b, 'arrived') && !has(b, 'left')) shiftId = b; }
+          // R43: the shift before is OPEN when its latest standing mark is an Arrived.
+          if (body.kind === 'left' && !has(now, 'arrived') && !typedStart) { const b = shiftBefore(now), lb = SL.latestMark(state.log, st0.storm_id, siteId, b); if (lb && lb.state === 'arrived') shiftId = b; }
           // R29 + R38: a tap of the SAME kind as the latest standing mark there writes nothing and answers that row; an Arrived after a
           // standing Left (a return visit) and a Left after a standing Arrived are written.
           const latest = SL.latestMark(state.log, st0.storm_id, siteId, shiftId);
@@ -9511,4 +9512,27 @@ test('site times: R40 a typed Out before the first walk tap is refused in the se
   await page.click('#st_save');
   await expect(page.locator('#dlg')).toBeHidden();
   expect(siteActionCalls(calls, 'typeSiteTimes')).toHaveLength(2);
+});
+
+// R43 (final fix round B 5): at 9:10 AM on 10/3 the clock's shift is the day; the night of 10/2 holds Arrived 3:00 (L-1), Left 3:30 (L-2),
+// Arrived 4:00 (L-3): a return visit, so the night's visit is OPEN (its latest mark is an Arrived). Undo(arrived) + Left + Arrived are
+// offered; Left is answered IN THE NIGHT (not the day), and the line reads Night of 10/2: In 3:00 AM Out 9:10 AM.
+test('site times: R43 at 9:10 AM the night crew taps Left on a return visit and the row is filed in the night', async ({ page }) => {
+  const w = timesWorld(); w.clock = tAt('09:10:00');
+  w.log = [seedMark(1, 'arrived', { at: tAt('03:00:00') }), seedMark(2, 'left', { at: tAt('03:30:00') }), seedMark(3, 'arrived', { at: tAt('04:00:00') })];
+  const calls = await openStorm(page, w, { token: 'tok-matt', clockAt: '2026-10-03T09:10:00-08:00' });
+  await openRoute(page, 'R1');
+  await expect(timesLine(page, 'S1')).toHaveText('Night of 10/2: In 3:00 AM · Out');
+  await expect(markUndoBtn(page, 'S1', 'arrived')).toBeVisible();
+  await expect(leftBtn(page, 'S1')).toBeVisible();
+  await expect(arrivedBtn(page, 'S1')).toBeVisible();
+  await leftBtn(page, 'S1').click();
+  await expect(timesLine(page, 'S1')).toHaveText('Night of 10/2: In 3:00 AM · Out 9:10 AM');
+  const log = (await phoneState(page)).log;
+  expect(log.map((r) => [r.seq, r.state, r.shift_id])).toEqual([[1, 'arrived', 'night-2026-10-02'], [2, 'left', 'night-2026-10-02'], [3, 'arrived', 'night-2026-10-02'], [4, 'left', 'night-2026-10-02']]);
+  expect(siteActionCalls(calls, 'siteMark')).toHaveLength(1);
+  // Control: when the night's visit is CLOSED (latest mark a Left) only Arrived and the Left's Undo are offered, no Left.
+  await expect(leftBtn(page, 'S1')).toHaveCount(0);
+  await expect(arrivedBtn(page, 'S1')).toBeVisible();
+  await expect(markUndoBtn(page, 'S1', 'left')).toBeVisible();
 });

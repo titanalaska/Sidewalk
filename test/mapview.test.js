@@ -64,9 +64,26 @@ test('fades: cleared, treated and checked walks fade; a problem, an untapped wal
 test('zones GeoJSON: done is true only for the zones named, false for the rest and when none are named', () => {
   const zones = [{ id: 'Z1', type: 'sidewalk', ring: [[0, 0], [1, 0], [1, 1]] }, { id: 'Z2', type: 'hand', ring: [[2, 2], [3, 2], [3, 3]] }];
   const fc = featureCollection(zones, { Z2: true });
-  assert.deepStrictEqual(fc.features.map((f) => f.properties), [{ id: 'Z1', type: 'sidewalk', done: false }, { id: 'Z2', type: 'hand', done: true }]);
-  assert.deepStrictEqual(fc.features[0].geometry.coordinates, [[[0, 0], [1, 0], [1, 1], [0, 0]]]); // the ring closed, as before
+  // CHANGED 11/12/26 by the paint order (Matt: orange over blue): the hand zone Z2 now comes first (painted under the walk).
+  assert.deepStrictEqual(fc.features.map((f) => f.properties), [{ id: 'Z2', type: 'hand', done: true }, { id: 'Z1', type: 'sidewalk', done: false }]);
+  assert.deepStrictEqual(fc.features[1].geometry.coordinates, [[[0, 0], [1, 0], [1, 1], [0, 0]]]); // Z1's ring closed, as before
   assert.deepStrictEqual(featureCollection(zones).features.map((f) => f.properties.done), [false, false]);
+});
+
+// Paint order (Matt, 11/12/26: the orange overlapped the blue). MapLibre paints a source's features in array order, the
+// last on top, and a tap's queryRenderedFeatures returns the topmost first. So the collection is sorted by type,
+// bottom to top: storage, hand, sidewalk, heated, no_touch; a type it does not know goes at the very bottom. Within a
+// type the zones keep the order they came in (a stable sort), so two walks never swap.
+// Paper: in  [walk A, hand B, storage C, heated D, walk E, hand F, no_touch G, odd H]
+//        out [odd H, storage C, hand B, hand F, walk A, walk E, heated D, no_touch G]
+test('paint order: storage under orange under blue under heated under do-not-touch, stable within a colour', () => {
+  const ring = [[0, 0], [1, 0], [1, 1]];
+  const zones = [['A', 'sidewalk'], ['B', 'hand'], ['C', 'storage'], ['D', 'heated'], ['E', 'sidewalk'], ['F', 'hand'], ['G', 'no_touch'], ['H', 'odd']]
+    .map(([id, type]) => ({ id, type, ring }));
+  assert.deepStrictEqual(featureCollection(zones).features.map((f) => f.properties.id), ['H', 'C', 'B', 'F', 'A', 'E', 'D', 'G']);
+  // done still follows each zone by id after the sort, and the input array is untouched.
+  assert.deepStrictEqual(featureCollection(zones, { E: true }).features.filter((f) => f.properties.done).map((f) => f.properties.id), ['E']);
+  assert.deepStrictEqual(zones.map((z) => z.id), ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']);
 });
 
 // The "Which zone?" list (Matt, 10/19/26: "Under the finger"): the zones right under the fingertip first, then the

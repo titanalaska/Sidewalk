@@ -4034,6 +4034,33 @@ test('"Last tap" counts walk taps only, never a Clean again or a depth row', asy
   await expect(page.locator('[data-liveroute="R2"] .live-last')).toHaveText('No taps yet');
 });
 
+// Paint order on the live map (Matt, 11/12/26: the orange overlapped the blue). The world lists a no_touch zone, a walk,
+// an orange curb strip lying over that walk, and a storage zone, in that order. On the open map the source must hold them
+// storage, orange, walk, heated, no_touch (bottom to top), and a tap's lookup where the strip and the walk overlap finds
+// the walk first.
+test('map paint order: the walk is painted over the orange strip that overlaps it, and is found first there', async ({ page }) => {
+  const w = stormWorld();
+  withView(w, 'S1', PAC);
+  const base = mapWorld().zones;
+  w.zones = [base[2], base[0],
+    Object.assign({}, base[0], { id: 'Z9', type: 'hand', name: 'Curb - entry', priority: false, note: '', area_sqft: 400 }),
+    Object.assign({}, base[1], { id: 'Z8', type: 'storage', name: 'Pile', note: '' }), base[1]];
+  await tiles(page);
+  await nws(page);
+  await openStorm(page, w);
+  await page.click('.shift-site [data-map="S1"]');
+  const order = await zoneSource(page);
+  expect(order.map((f) => f.id)).toEqual(['Z8', 'Z9', 'Z1', 'Z2', 'Z3']);
+  // Z9 has Z1's own outline, so every point of Z1 is on both: the topmost rendered there is the walk.
+  const top = await page.evaluate(() => {
+    const m = window.SnowMapView, c = m.getSource('zones')._data.features.find((f) => f.properties.id === 'Z1').geometry.coordinates[0];
+    const lng = c.slice(0, -1).reduce((s, p) => s + p[0], 0) / (c.length - 1), lat = c.slice(0, -1).reduce((s, p) => s + p[1], 0) / (c.length - 1);
+    return new Promise((res) => { const go = () => { const hit = m.queryRenderedFeatures(m.project([lng, lat]), { layers: ['zones-fill'] }); if (hit.length) res(hit.map((f) => f.properties.id)); else setTimeout(go, 100); }; go(); });
+  });
+  expect(top[0]).toBe('Z1');
+  expect(top).toContain('Z9');
+});
+
 test('the map marks done and problem walks', async ({ page }) => {
   // Newest row per walk in storm ST-1, worked by hand:
   //   S1|Z1 (sidewalk, priority, so it carries a star) L1 problem  -> "!"

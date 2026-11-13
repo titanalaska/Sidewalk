@@ -1105,7 +1105,7 @@ const zoneSource = (page) => page.evaluate(() => new Promise((res) => {
 test('the legend and the editor list the five zone types in order', async ({ page }) => {
   await adminMap(page, mapWorld());
   expect(await page.locator('#maplegend span').allTextContents()).toEqual(
-    ['Sidewalk', 'Clear 4 ft back', 'Heated: check only, no melt', 'Snow storage', 'Do not touch']); // legend: wording changed on Matt's word 11/12/26 (was "Hand work")
+    ['Sidewalk', 'Clear 4 ft back', 'Heated: check only, no melt', 'Snow storage', 'Do not touch', 'New concrete: sand only, no salt']); // the last row is the stripes flag (11/12/26), not a sixth type // legend: wording changed on Matt's word 11/12/26 (was "Hand work")
   await page.click('#mapedit');
   await page.click('#ed_new');
   expect(await page.locator('[data-ztype]').evaluateAll((els) => els.map((e) => e.dataset.ztype + ':' + e.textContent))).toEqual(
@@ -4181,6 +4181,23 @@ test("map taps: on the Storm tab a zone on the map has the list's buttons, and i
   await page.click('#mapback');
   await expect(walkBtn(page, 'S1|Z1', 'cleared')).toHaveAttribute('aria-pressed', 'true');
   await expect(walkRow(page, 'S1|Z1')).toContainText('Cleared · Jordan Demo · 7:50 AM');
+});
+
+// New concrete (11/12/26): a done striped walk's stripes fade with its fill, and a walk still to do keeps them full.
+// Paper: Z1 is striped and cleared -> done; its stripe layer's opacity is the same case expression the fill uses, with
+// 0.3 for done and 1 for the rest; Z2 (not striped, not done) is not in the stripe layer's filter at all.
+test("new concrete: on the Storm tab a done striped walk's stripes fade with it, and the layer reads the same done flag as the fill", async ({ page }) => {
+  const w = tapWorld(); w.zones[0].new_concrete = true;
+  await stormMap(page, w);
+  const flags = () => page.evaluate(() => Object.fromEntries(window.SnowMapView.getSource('zones')._data.features.map((f) => [f.properties.id, [f.properties.new_concrete, f.properties.done]])));
+  expect(await flags()).toMatchObject({ Z1: [true, false], Z2: [false, false] });
+  await tapAt(page, MID);
+  await inSheet(page, '[data-walk="S1|Z1"][data-state="cleared"]').click();
+  await expect.poll(() => doneOf(page)).toEqual({ Z1: true, Z2: false, Z3: false });
+  expect(await flags()).toMatchObject({ Z1: [true, true] }); // still striped, now done
+  const paint = await page.evaluate(() => [window.SnowMapView.getPaintProperty('zones-new-concrete', 'fill-opacity'), window.SnowMapView.getFilter('zones-new-concrete')]);
+  expect(paint[0]).toEqual(['case', ['==', ['get', 'done'], true], 0.3, 1]); // faded, never gone (0 would vanish) and never left at full
+  expect(paint[1]).toEqual(['==', ['get', 'new_concrete'], true]);
 });
 
 test('map taps: a heated walk offers Checked / Problem; a no-touch zone and a snow pile only show their card', async ({ page }) => {

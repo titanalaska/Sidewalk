@@ -65,7 +65,7 @@ test('zones GeoJSON: done is true only for the zones named, false for the rest a
   const zones = [{ id: 'Z1', type: 'sidewalk', ring: [[0, 0], [1, 0], [1, 1]] }, { id: 'Z2', type: 'hand', ring: [[2, 2], [3, 2], [3, 3]] }];
   const fc = featureCollection(zones, { Z2: true });
   // CHANGED 11/12/26 by the paint order (Matt: orange over blue): the hand zone Z2 now comes first (painted under the walk).
-  assert.deepStrictEqual(fc.features.map((f) => f.properties), [{ id: 'Z2', type: 'hand', done: true }, { id: 'Z1', type: 'sidewalk', done: false }]);
+  assert.deepStrictEqual(fc.features.map((f) => f.properties), [{ id: 'Z2', type: 'hand', done: true, new_concrete: false }, { id: 'Z1', type: 'sidewalk', done: false, new_concrete: false }]);
   assert.deepStrictEqual(fc.features[1].geometry.coordinates, [[[0, 0], [1, 0], [1, 1], [0, 0]]]); // Z1's ring closed, as before
   assert.deepStrictEqual(featureCollection(zones).features.map((f) => f.properties.done), [false, false]);
 });
@@ -149,3 +149,34 @@ for (const [name, ring, centre] of [['a 30 m x 1.2 m curb strip', STRIP, STRIP_C
     assert.deepStrictEqual(got, SnowPoints.centroid(ring));
   });
 }
+
+// ---- new concrete (lime stripes, Matt 11/12/26): one stripe image over any zone's own colour ----
+// The tile is 12 x 12 RGBA. A stripe is every pixel where (x - y) mod 12 is 0, 1 or 2 (three diagonals wrapping), so 3 pixels
+// on each of 12 rows = 36 opaque pixels of 144; the other 108 are fully clear, so the zone's own colour shows between stripes.
+// Each opaque pixel is lime #b5e61d (b5 = 11 x 16 + 5 = 181, e6 = 14 x 16 + 6 = 230, 1d = 1 x 16 + 13 = 29) at alpha 230 (90%, "mostly opaque").
+const SnowMapNC = require('../lib/mapview.js');
+test('concreteStripes: a 12 x 12 RGBA tile, 3 px diagonal stripes of lime #b5e61d at 90%, 36 opaque pixels, clear between', () => {
+  const t = SnowMapNC.concreteStripes();
+  assert.deepStrictEqual([t.width, t.height, t.data.length], [12, 12, 12 * 12 * 4]);
+  const px = (x, y) => Array.from(t.data.slice((y * 12 + x) * 4, (y * 12 + x) * 4 + 4));
+  let opaque = 0;
+  for (let y = 0; y < 12; y++) for (let x = 0; x < 12; x++) {
+    const p = px(x, y), on = ((x - y) % 12 + 12) % 12 <= 2;
+    if (on) { opaque++; assert.deepStrictEqual(p, [181, 230, 29, 230], 'stripe pixel ' + x + ',' + y); }
+    else assert.strictEqual(p[3], 0, 'clear pixel ' + x + ',' + y);
+  }
+  assert.strictEqual(opaque, 36);
+  assert.deepStrictEqual(px(0, 0), [181, 230, 29, 230]);
+  assert.strictEqual(px(6, 0)[3], 0);                       // x - y = 6: between stripes
+  assert.deepStrictEqual(px(0, 11), [181, 230, 29, 230]);   // x - y = -11, wraps to 1
+  const hex = '#' + px(0, 0).slice(0, 3).map((n) => n.toString(16).padStart(2, '0')).join('');
+  assert.strictEqual(hex, '#b5e61d');
+  assert.strictEqual(SnowMapNC.NEW_CONCRETE_COLOUR, '#b5e61d'); // the legend chip's colour is the pixel's
+});
+test('featureCollection: each feature carries new_concrete, true only for exactly true', () => {
+  const r = [[0, 0], [1, 0], [1, 1]];
+  const zones = [{ id: 'A', type: 'sidewalk', ring: r, new_concrete: true }, { id: 'B', type: 'sidewalk', ring: r, new_concrete: false },
+    { id: 'C', type: 'sidewalk', ring: r }, { id: 'D', type: 'sidewalk', ring: r, new_concrete: 'yes' }];
+  const by = Object.fromEntries(SnowMapNC.featureCollection(zones).features.map((f) => [f.properties.id, f.properties.new_concrete]));
+  assert.deepStrictEqual(by, { A: true, B: false, C: false, D: false });
+});

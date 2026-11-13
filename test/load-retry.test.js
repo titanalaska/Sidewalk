@@ -24,7 +24,7 @@ const vm = require('node:vm');
 // lib/api.js is a browser script (SnowApi on `this`): run in a vm holding just what it reads, with a fake clock and a
 // setTimeout that records every wait. Delays of 10 s and up are the abort timer: recorded, never fired.
 const src = fs.readFileSync(path.join(__dirname, '..', 'lib', 'api.js'), 'utf8');
-const EXPECTED = 'times-1';
+const EXPECTED = 'concrete-1';
 const WRITE_WORDS = "Couldn't reach the server. Not saved, try again.";
 const READ_WORDS = "Couldn't reach the server. Try again.";
 const UNREADABLE = 'The server sent something unreadable. Try again.';

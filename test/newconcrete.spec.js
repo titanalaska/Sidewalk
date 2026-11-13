@@ -5,7 +5,7 @@
 //   - the editor: tick -> the save request says true; reopen shows it ticked; untick -> false; retyping a striped heated zone
 //     to sidewalk keeps true (Review Focus 2)
 // The fade of a done striped zone is in test/ui.spec.js beside the other map-tap tests (it needs the Storm tab's world).
-// The fake answers curbs-1 (an older server, no action on replies, never refused), as map-fixes.spec.js does. Made-up site, no customer data. The fake backend echoes the saved record, so what the page sent is what it gets back.
+// The fake answers concrete-1 and echoes `action` on every reply, like the server (lib/api.js refuses a same-version reply that does not). Made-up site, no customer data. The fake backend echoes the saved record, so what the page sent is what it gets back.
 const { test, expect } = require('@playwright/test');
 const path = require('path');
 const url = require('url');
@@ -30,7 +30,7 @@ const world = () => ({
 });
 function fakeSnow(state) {
   return (body) => {
-    const v = { version: 'curbs-1' };
+    const v = { version: 'concrete-1', action: body.action };
     if (body.token !== 'tok-matt') return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     const me = { name: 'Matthew', role: 'admin', crew_id: null };
     if (body.action === 'bootstrap') return { ok: true, me, sites: state.sites, routes: state.routes, zones: state.zones, crew: state.crew, post: null, moves: [], callouts: [], gear: [], ...v };

@@ -87,11 +87,11 @@ test('site fields: address, materials and notes carried; blank ones come back bl
 test('walks come from walksFor: heated flagged, priority flagged, curbs rolled up, archived and storage left out', () => {
   const alpha = RouteList.pages(mk())[0].sites[1];
   assert.deepEqual(alpha.walks, [
-    { name: 'Entry pad', heated: true, priority: false },
-    { name: 'Front walk', heated: false, priority: true },
-    { name: 'Curbs: clear 4 ft back (about 500 ft)', heated: false, priority: false },
+    { name: 'Entry pad', heated: true, priority: false, new_concrete: false },
+    { name: 'Front walk', heated: false, priority: true, new_concrete: false },
+    { name: 'Curbs: clear 4 ft back (about 500 ft)', heated: false, priority: false, new_concrete: false },
   ]);
-  assert.deepEqual(RouteList.pages(mk())[0].sites[0].walks, [{ name: 'Lot walk', heated: false, priority: false }]);
+  assert.deepEqual(RouteList.pages(mk())[0].sites[0].walks, [{ name: 'Lot walk', heated: false, priority: false, new_concrete: false }]);
 });
 
 test('a site with no zones has no walks (not the Storm tab "Whole site" stand-in)', () => {
@@ -168,6 +168,24 @@ test('page: one box per walk, the heated one says so, the priority one has a sta
   assert.ok(h.includes('Curbs: clear 4 ft back (about 500 ft)')); // wording changed on Matt's word 11/12/26
   assert.ok(!h.includes('Old path') && !h.includes('Snow pile'));
   assert.ok(!h.includes('Hidden Lot'));
+});
+
+// New concrete (11/12/26): a striped walk carries the flag onto the list and prints "(sand only, no salt)" after its name;
+// a plain walk never does. By hand on the Alpha Court fixture: stripe Front walk (Z1) and ONE of the two curb zones (Z3),
+// so the walks are Entry pad (plain), Front walk (striped), Curbs item (striped: any zone in the item is enough). Two tags
+// in all on that site; Zeta Lot's Lot walk is plain -> its page has none. The tag is a label, so it goes through the translator.
+test('new concrete: a striped walk (and a curb item with one striped zone) prints (sand only, no salt); a plain walk does not', () => {
+  const o = mk();
+  o.zones.find((z) => z.id === 'Z1').new_concrete = true;
+  o.zones.find((z) => z.id === 'Z3').new_concrete = true;
+  const alpha = RouteList.pages(o)[0].sites[1];
+  assert.deepEqual(alpha.walks.map((w) => [w.name, w.new_concrete]), [['Entry pad', false], ['Front walk', true], ['Curbs: clear 4 ft back (about 500 ft)', true]]);
+  const h = RouteList.pageHtml(RouteList.pages(o)[0], (s) => s);
+  assert.equal(count(h, '(sand only, no salt)'), 2);
+  const rows = h.split('class="rl-walk"').slice(1); // Lot walk, Entry pad, Front walk, Curbs
+  assert.deepEqual(rows.map((r) => r.includes('(sand only, no salt)')), [false, false, true, true]);
+  assert.ok(RouteList.pageHtml(RouteList.pages(o)[0], (s) => String(s).toUpperCase()).includes('(SAND ONLY, NO SALT)'));
+  assert.equal(count(html(0), '(sand only, no salt)'), 0); // the untouched fixture prints none
 });
 
 test('page: a site with no walks says so and has no box; every site ends with the blanks line', () => {

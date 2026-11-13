@@ -26,7 +26,7 @@ function fakeSnow(state, opts = {}) {
   return (body) => {
     // Every POST reply carries `action`, the action it answers (outlines-1 on): the phone refuses a reply from its own version that
     // does not (lib/api.js, the not-saved guard). A curbs-1 server (opts.oldBackend) has never sent one.
-    const v = { version: opts.version || (opts.oldBackend ? 'curbs-1' : 'times-1'), ...(opts.oldBackend ? {} : { action: body.action }) };
+    const v = { version: opts.version || (opts.oldBackend ? 'curbs-1' : 'concrete-1'), ...(opts.oldBackend ? {} : { action: body.action }) };
     // Outlines on demand (10/9/26, snow-app-script Code.js): `slim: true`, exactly true, and nothing else.
     const slim = body.slim === true && !opts.oldBackend;
     if (opts.expired && opts.expired.on) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
@@ -1049,7 +1049,7 @@ test('after a conflict the app reloads the latest, so the retry can save', async
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'times-1', action: b.action };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'concrete-1', action: b.action };
     }
     return base(b);
   } });
@@ -3671,7 +3671,7 @@ test('every bootstrap asks for the slim reply: at sign-in, and the reload after 
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'times-1', action: b.action };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'concrete-1', action: b.action };
     }
     return base(b);
   } });
@@ -3685,7 +3685,7 @@ test('every bootstrap asks for the slim reply: at sign-in, and the reload after 
   const sent = base.replies.filter((r) => r.body.action === 'bootstrap').map((r) => r.reply);
   expect(sent).toHaveLength(2);
   for (const r of sent) { expect(r.points).toEqual({}); expect(JSON.stringify(r)).not.toContain('"ring"'); } // world() has no zones: no points
-  await expect(page.locator('#verwarn')).toBeHidden(); // times-1 is the version the app expects
+  await expect(page.locator('#verwarn')).toBeHidden(); // concrete-1 is the version the app expects
 });
 
 test('the forecast point is the server\'s point: the slim sign-in carries no outline, and the hint still comes from where Main entry is', async ({ page }) => {
@@ -10112,3 +10112,158 @@ for (const lang of ['en', 'es']) {
     for (const [l, rt] of r.boxes) { expect(l).toBeGreaterThanOrEqual(0); expect(rt).toBeLessThanOrEqual(320); }
   });
 }
+
+// ---------------- New concrete on the Storm tab (Matt, 11/12/26) ----------------
+// A walk marked new concrete shows "Sand only, no salt" and its Treated button reads "Sanded"; the tap is still saved as
+// `treated` (the server and the DONE list know no other word). Nothing on a striped walk may say "Treated".
+// Fixture, by hand: stormWorld() plus Z4 "Side path" (a plain sidewalk). Walks by name: Heated walk (Z2), Main entry (Z1),
+// Side path (Z4). Z1 is striped, Z4 plain; the heated Z2 is striped in the red test.
+//   Z1 striped sidewalk -> Cleared / Sanded / Problem + the line.  Z4 plain -> Cleared / Treated / Problem, no line.
+//   Z2 striped heated   -> Checked / Problem + the line (heated walks are never treated, so never Sanded).
+const ncWorld = (o = {}) => {
+  const w = stormWorld();
+  w.zones[0].new_concrete = true;
+  w.zones.push({ id: 'Z4', site_id: 'S1', type: 'sidewalk', name: 'Side path', rev: 1 });
+  if (o.heated) w.zones[1].new_concrete = true;
+  return w;
+};
+const noSalt = (page, key) => walkRow(page, key).locator('.walk-nosalt');
+
+test('new concrete: a striped walk shows the line and a Sanded button, a plain walk shows Treated and no line', async ({ page }) => {
+  await openStorm(page, ncWorld());
+  await expect(noSalt(page, 'S1|Z1')).toHaveText('Sand only, no salt');
+  expect(await walkRow(page, 'S1|Z1').locator('.walkbtn').allTextContents()).toEqual(['Cleared', 'Sanded', 'Problem']);
+  expect(await walkRow(page, 'S1|Z1').locator('.walkbtn').evaluateAll((els) => els.map((e) => e.dataset.state))).toEqual(['cleared', 'treated', 'problem']); // the state stays treated
+  await expect(walkRow(page, 'S1|Z1')).not.toContainText('Treated');
+  expect(await walkRow(page, 'S1|Z4').locator('.walkbtn').allTextContents()).toEqual(['Cleared', 'Treated', 'Problem']);
+  await expect(noSalt(page, 'S1|Z4')).toHaveCount(0);
+  await expect(noSalt(page, 'S1|Z2')).toHaveCount(0);
+});
+
+test('new concrete: tapping Sanded sends state treated, the row reads Sanded, and Undo goes back to the right word (never Treated)', async ({ page }) => {
+  const w = ncWorld();
+  const calls = await openStorm(page, w);
+  await walkBtn(page, 'S1|Z1', 'cleared').click();
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Cleared · Jordan Demo · 7:50 AM');
+  await walkBtn(page, 'S1|Z1', 'treated').click();
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Sanded · Jordan Demo · 7:50 AM');
+  const taps = tapCalls(calls);
+  expect(taps).toHaveLength(2);
+  expect(taps[1].body).toMatchObject({ action: 'tapZone', site_id: 'S1', zone_id: 'Z1', state: 'treated' });
+  expect(JSON.stringify(taps[1].body)).not.toMatch(/sanded/i); // a displayed word only
+  expect(w.log[1].state).toBe('treated');
+  await expect(walkBtn(page, 'S1|Z1', 'treated')).toHaveAttribute('aria-pressed', 'true');
+  await expect(walkRow(page, 'S1|Z1')).not.toContainText('Treated');
+  // Undo restores Cleared, and the button is no longer pressed.
+  await walkRow(page, 'S1|Z1').locator('[data-undo]').click();
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Cleared · Jordan Demo');
+  await expect(walkRow(page, 'S1|Z1')).not.toContainText(/Treated|Sanded ·/);
+  await expect(walkBtn(page, 'S1|Z1', 'treated')).toHaveAttribute('aria-pressed', 'false');
+  // The other way round: a Problem over an earlier Sanded; Undo of the Problem restores the Treated row, which reads Sanded.
+  await walkBtn(page, 'S1|Z1', 'treated').click();
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Sanded · Jordan Demo');
+  await walkBtn(page, 'S1|Z1', 'problem').click(); // a Problem asks for a note first
+  await page.fill('[data-note="S1|Z1"]', 'ice under it');
+  await page.click('[data-send="S1|Z1"]');
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Problem · Jordan Demo');
+  await walkRow(page, 'S1|Z1').locator('[data-undo]').click();
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Sanded · Jordan Demo');
+  await expect(walkRow(page, 'S1|Z1')).not.toContainText('Treated');
+});
+
+test('new concrete: a plain walk is untouched by all this: Treated sent, Treated read back', async ({ page }) => {
+  const calls = await openStorm(page, ncWorld());
+  await walkBtn(page, 'S1|Z4', 'treated').click();
+  await expect(walkRow(page, 'S1|Z4')).toContainText('Treated · Jordan Demo · 7:50 AM');
+  await expect(walkRow(page, 'S1|Z4')).not.toContainText('Sanded');
+  expect(tapCalls(calls)[0].body).toMatchObject({ zone_id: 'Z4', state: 'treated' });
+});
+
+test('new concrete: a striped heated walk offers Checked / Problem and the line, never Sanded', async ({ page }) => {
+  await openStorm(page, ncWorld({ heated: true }));
+  await expect(noSalt(page, 'S1|Z2')).toHaveText('Sand only, no salt');
+  expect(await walkRow(page, 'S1|Z2').locator('.walkbtn').allTextContents()).toEqual(['Checked', 'Problem']);
+  await expect(walkRow(page, 'S1|Z2')).not.toContainText(/Sanded|Treated/);
+  await walkBtn(page, 'S1|Z2', 'checked').click();
+  await expect(walkRow(page, 'S1|Z2')).toContainText('Checked · Jordan Demo');
+});
+
+test('new concrete: sanding while it snows warns "sanded anyway" on a striped walk and "treated anyway" on a plain one', async ({ page }) => {
+  const w = ncWorld();
+  w.storms.push({ id: 'ST-2', seq: 2, kind: 'snowing', storm_id: 'ST-1', at: at('06:10'), by_name: 'Matthew' });
+  await openStorm(page, w, { delay: { tapZone: 500 } });
+  await walkBtn(page, 'S1|Z1', 'treated').click();
+  const warn = page.locator('[data-warn="S1|Z1"]');
+  await expect(warn).toBeVisible(); // at once, while the tap is on its way
+  await expect(warn).toHaveText("It's still snowing: sanded anyway");
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Sanded · Jordan Demo');
+  await pollNow(page);
+  await expect(warn).toHaveText("It's still snowing: sanded anyway"); // from the saved row, same word
+  await walkBtn(page, 'S1|Z4', 'treated').click();
+  await expect(page.locator('[data-warn="S1|Z4"]')).toHaveText("It's still snowing: treated anyway");
+  await expect(page.getByText('treated anyway')).toHaveCount(1); // not on the striped walk
+});
+
+test("new concrete: the map card for a striped zone is the list's walk: the line, Sanded, and the tap sends treated", async ({ page }) => {
+  const w = tapWorld(); w.zones[0].new_concrete = true;
+  const calls = await stormMap(page, w);
+  await tapAt(page, MID);
+  await expect(inSheet(page, 'h2')).toContainText('Main entry');
+  await expect(inSheet(page, '.walk-nosalt')).toHaveText('Sand only, no salt');
+  expect(await inSheet(page, '[data-walk="S1|Z1"]').allTextContents()).toEqual(['Cleared', 'Sanded', 'Problem']);
+  await inSheet(page, '[data-walk="S1|Z1"][data-state="treated"]').click();
+  await expect(inSheet(page, '[data-walkrow="S1|Z1"]')).toContainText('Sanded · Jordan Demo · 7:50 AM');
+  expect(tapCalls(calls)[0].body).toMatchObject({ zone_id: 'Z1', state: 'treated' });
+  // and the same walk on the list
+  await page.click('#mapback');
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Sanded · Jordan Demo');
+});
+
+test('new concrete: Spanish reads Solo arena, sin sal / Con arena / the sanded warning, and keeps the zone name as typed', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  const w = ncWorld();
+  w.storms.push({ id: 'ST-2', seq: 2, kind: 'snowing', storm_id: 'ST-1', at: at('06:10'), by_name: 'Matthew' });
+  w.zones[0].name = 'Sanded walk'; // a name that is a dictionary word: it must stay as typed
+  await openStorm(page, w);
+  await expect(noSalt(page, 'S1|Z1')).toHaveText('Solo arena, sin sal');
+  expect(await walkRow(page, 'S1|Z1').locator('.walkbtn').allTextContents()).toEqual(['Despejado', 'Con arena', 'Problema']);
+  await expect(walkRow(page, 'S1|Z1').locator('.walk-name span[data-no-es]')).toHaveText('Sanded walk');
+  expect(await walkRow(page, 'S1|Z4').locator('.walkbtn').allTextContents()).toEqual(['Despejado', 'Tratado', 'Problema']);
+  await walkBtn(page, 'S1|Z1', 'treated').click();
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Con arena · Jordan Demo');
+  await expect(page.locator('[data-warn="S1|Z1"]')).toHaveText('Sigue nevando: con arena de todos modos');
+  await expect(page.getByText('Sand only, no salt', { exact: true })).toHaveCount(0);
+});
+
+test('new concrete: the Spanish map legend row reads Concreto nuevo: solo arena, sin sal', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  const w = tapWorld(); w.zones[0].new_concrete = true;
+  await stormMap(page, w);
+  await expect(page.locator('#maplegend span').last()).toHaveText('Concreto nuevo: solo arena, sin sal');
+  await expect(page.getByText('New concrete: sand only, no salt')).toHaveCount(0);
+});
+
+test('new concrete: at 320 px the striped card does not scroll sideways', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  const w = ncWorld();
+  w.storms.push({ id: 'ST-2', seq: 2, kind: 'snowing', storm_id: 'ST-1', at: at('06:10'), by_name: 'Matthew' });
+  await openStorm(page, w);
+  await walkBtn(page, 'S1|Z1', 'treated').click();
+  await expect(page.locator('[data-warn="S1|Z1"]')).toBeVisible();
+  await expect(walkRow(page, 'S1|Z1')).toContainText('Sanded · Jordan Demo');
+  const r = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, right: Math.max(...[...document.querySelectorAll('[data-walkrow="S1|Z1"], [data-walkrow="S1|Z1"] *')].map((e) => e.getBoundingClientRect().right)) }));
+  expect(r.scroll).toBeLessThanOrEqual(320);
+  expect(r.right).toBeLessThanOrEqual(320);
+});
+
+test('new concrete: Print route lists tags a striped walk (sand only, no salt) and only that walk', async ({ page }) => {
+  const w = rlWorld(); w.zones[0].new_concrete = true; // Main entry
+  await stubPrint(page);
+  await openStorm(page, w, { token: 'tok-matt' });
+  await page.click('#printRouteLists');
+  const n2 = page.locator('#printsheets .rl-page').nth(0);
+  await expect(n2.locator('.rl-walk')).toHaveCount(2);
+  await expect(n2.locator('.rl-walk', { hasText: 'Main entry' })).toContainText('(sand only, no salt)');
+  await expect(n2.locator('.rl-walk', { hasText: 'Heated walk' })).not.toContainText('sand only');
+  expect(await page.locator('#printsheets .rl-nosalt').count()).toBe(1);
+});

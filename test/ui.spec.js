@@ -26,7 +26,7 @@ function fakeSnow(state, opts = {}) {
   return (body) => {
     // Every POST reply carries `action`, the action it answers (outlines-1 on): the phone refuses a reply from its own version that
     // does not (lib/api.js, the not-saved guard). A curbs-1 server (opts.oldBackend) has never sent one.
-    const v = { version: opts.version || (opts.oldBackend ? 'curbs-1' : 'concrete-1'), ...(opts.oldBackend ? {} : { action: body.action }) };
+    const v = { version: opts.version || (opts.oldBackend ? 'curbs-1' : 'crewcurbs-1'), ...(opts.oldBackend ? {} : { action: body.action }) };
     // Outlines on demand (10/9/26, snow-app-script Code.js): `slim: true`, exactly true, and nothing else.
     const slim = body.slim === true && !opts.oldBackend;
     if (opts.expired && opts.expired.on) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
@@ -1049,7 +1049,7 @@ test('after a conflict the app reloads the latest, so the retry can save', async
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'concrete-1', action: b.action };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'crewcurbs-1', action: b.action };
     }
     return base(b);
   } });
@@ -3557,6 +3557,8 @@ async function nws(page, o = {}) {
   });
   return seen;
 }
+// Curbs for the crew (11/13/26): a site's curb lines reach the crew only when its box is ticked. The curb tests below tick it.
+const crewCurbsOn = (w, ...ids) => { w.sites = w.sites.map((s) => (ids.includes(s.id) ? { ...s, crew_curbs: true } : s)); return w; };
 const withView = (w, id, center) => { w.sites = w.sites.map((s) => (s.id === id ? { ...s, map: { center, zoom: 18 } } : s)); return w; };
 
 test('the forecast shows as a hint', async ({ page }) => {
@@ -3671,7 +3673,7 @@ test('every bootstrap asks for the slim reply: at sign-in, and the reload after 
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'concrete-1', action: b.action };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'crewcurbs-1', action: b.action };
     }
     return base(b);
   } });
@@ -3685,7 +3687,7 @@ test('every bootstrap asks for the slim reply: at sign-in, and the reload after 
   const sent = base.replies.filter((r) => r.body.action === 'bootstrap').map((r) => r.reply);
   expect(sent).toHaveLength(2);
   for (const r of sent) { expect(r.points).toEqual({}); expect(JSON.stringify(r)).not.toContain('"ring"'); } // world() has no zones: no points
-  await expect(page.locator('#verwarn')).toBeHidden(); // concrete-1 is the version the app expects
+  await expect(page.locator('#verwarn')).toBeHidden(); // crewcurbs-1 is the version the app expects
 });
 
 test('the forecast point is the server\'s point: the slim sign-in carries no outline, and the hint still comes from where Main entry is', async ({ page }) => {
@@ -4040,7 +4042,7 @@ test('"Last tap" counts walk taps only, never a Clean again or a depth row', asy
 // the walk first.
 test('map paint order: the walk is painted over the orange strip that overlaps it, and is found first there', async ({ page }) => {
   const w = stormWorld();
-  withView(w, 'S1', PAC);
+  withView(w, 'S1', PAC); crewCurbsOn(w, 'S1');
   const base = mapWorld().zones;
   w.zones = [base[2], base[0],
     Object.assign({}, base[0], { id: 'Z9', type: 'hand', name: 'Curb - entry', priority: false, note: '', area_sqft: 400 }),
@@ -4215,7 +4217,7 @@ test('map taps: a heated walk offers Checked / Problem; a no-touch zone and a sn
 });
 
 test('map taps: a tap near a walk and its curb asks which zone; the curb line marks its Curbs item', async ({ page }) => {
-  const calls = await stormMap(page, tapWorld([CURB_Z6]));
+  const calls = await stormMap(page, crewCurbsOn(tapWorld([CURB_Z6]), 'S1'));
   const picks = () => inSheet(page, '[data-pickzone]').evaluateAll((els) => els.map((e) => e.dataset.pickzone));
   // Matt 10/19/26: the zone under the finger on top, then the rest smallest first. Just inside the walk's north
   // edge (9.5 m north, its reach 6.6-12.4 m): under the finger is Main entry, the curb is in reach.
@@ -6487,7 +6489,7 @@ const CURBS = [
   { id: 'Z7', site_id: 'S1', type: 'hand', name: 'Curb - island', area_sqft: 800, from: 'bootprint:J1:7', rev: 1 },
 ];
 test('the crew see one Curbs walk for the curb lines, after the others, and tapping it sends curbs-1', async ({ page }) => {
-  const w = stormWorld(); w.zones.push(...CURBS);
+  const w = crewCurbsOn(stormWorld(), 'S1'); w.zones.push(...CURBS);
   const calls = await openStorm(page, w);
   // By name: Heated walk, Main entry; then the curbs item. The two curb lines are not walks of their own.
   expect(await page.locator('[data-walkrow]').evaluateAll((els) => els.map((e) => e.dataset.walkrow))).toEqual(['S1|Z2', 'S1|Z1', 'S1|curbs-1']);
@@ -6504,7 +6506,7 @@ for (const lang of ['en', 'es']) {
   test('the longest curb name fits a 320 px Storm tab without sideways scroll (' + lang + ')', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 640 });
     await page.addInitScript((l) => localStorage.setItem('snow-lang', l), lang);
-    const w = stormWorld();
+    const w = crewCurbsOn(stormWorld(), 'S1');
     w.zones.push(...[1, 2, 3, 4, 5].map((n) => ({ id: 'ZC' + n, site_id: 'S1', type: 'hand', name: 'Curb - ' + n, area_sqft: 5000, from: 'bootprint:J1:' + (20 + n), rev: 1 })));
     // Names a person typed (not roll-up items) must stay exactly as typed in both languages, even when a Spanish rule could touch them.
     w.zones.push({ id: 'ZF', site_id: 'S1', type: 'sidewalk', name: 'Front walk', rev: 1 }, { id: 'ZB', site_id: 'S1', type: 'sidewalk', name: 'Back stairs', rev: 1 }, { id: 'ZD', site_id: 'S1', type: 'sidewalk', name: 'Curbs at dock', rev: 1 });
@@ -6523,7 +6525,7 @@ for (const lang of ['en', 'es']) {
 test('Touched: sidewalks done and curbs left reads Touched in its own colour; the route and the summary count it', async ({ page }) => {
   // PAC: Main entry cleared 6:30, Heated walk checked 6:40, curbs untapped -> Touched, not done.
   // N1 = PAC + EXTRA (untapped): 0 of 2 sites done, 1 touched. Four sites in all on the live view.
-  const w = liveWorld(); w.zones.push(...CURBS);
+  const w = crewCurbsOn(liveWorld(), 'S1'); w.zones.push(...CURBS);
   w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: at('06:30') }), logRow(2, 'S1', 'Z2', 'checked', 'Jordan Demo', { by_key: 'C03', at: at('06:40') })];
   await openStorm(page, w, { token: 'tok-matt' });
   const status = page.locator('[data-livesite="S1"] .live-status');
@@ -6544,7 +6546,7 @@ test('Touched: sidewalks done and curbs left reads Touched in its own colour; th
 test("Matt's Sites cards show each site's curbs and flag one over size; the crew's never do", async ({ page }) => {
   // PAC: 500 ft, one item. TUDOR-TRANSIT: 1,266 + 951 + 1,233 + 2,555 = 6,005 ft in 4 zones: ceil(6005 / 900) = 7,
   // the cap is 5, and never more items than zones makes it 4; 4 x 900 = 3,600 < 6,005, so over size.
-  const w = world();
+  const w = crewCurbsOn(world(), 'S1', 'S2'); // both ticked: no suffix on either line (the No site's line is in test/crewcurbs.spec.js)
   w.zones = [...CURBS, ...[[1266, 14], [951, 15], [1233, 16], [2555, 17]].map(([ft, bp], i) =>
     ({ id: 'T' + bp, site_id: 'S2', type: 'hand', name: 'Curb - part ' + i, area_sqft: ft * 4, from: 'bootprint:J2:' + bp, rev: 1 }))];
   await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
@@ -6790,7 +6792,7 @@ test('Spanish: a three-digit PIN is refused in Spanish', async ({ page }) => {
 // test: 9.5 m north, Main entry under the finger, the curb in reach, so the list is [Z1, Z6].
 test('Spanish: the map\'s "Which zone?" list reads Spanish and keeps the zone names as typed', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
-  const w = tapWorld([CURB_Z6]);
+  const w = crewCurbsOn(tapWorld([CURB_Z6]), 'S1');
   w.zones.filter((z) => z.id === 'Z1')[0].name = 'Sidewalk - front entry';
   await stormMap(page, w);
   await tapAt(page, [MID[0], NORTH_OF_PAC(9.5)]);
@@ -10267,4 +10269,62 @@ test('new concrete: Print route lists tags a striped walk (sand only, no salt) a
   await expect(n2.locator('.rl-walk', { hasText: 'Main entry' })).toContainText('(sand only, no salt)');
   await expect(n2.locator('.rl-walk', { hasText: 'Heated walk' })).not.toContainText('sand only');
   expect(await page.locator('#printsheets .rl-nosalt').count()).toBe(1);
+});
+
+// ---------------- Curbs for the crew (Matt, 11/13/26): a site shows its curb lines to the crew only when its box is ticked ----------------
+// ccWorld, by hand. PAC (S1) is a No site (no `crew_curbs`), its curbs are CURBS (Z6 300 ft + Z7 200 ft). EXTRA (S3, on PAC's route N1) is a Yes site
+// (`crew_curbs: true`) with a sidewalk "Front walk" (Z9) and one curb line Z8 (1,200 sq ft / 4 = 300 ft).
+//   Walks at PAC for the crew: Heated walk, Main entry (by name), no Curbs item.
+//   Walks at EXTRA: Front walk, then "Curbs: clear 4 ft back (about 300 ft)" (curbs-1).
+const ccWorld = () => {
+  const w = liveWorld();
+  w.sites = w.sites.map((s) => (s.id === 'S3' ? { ...s, crew_curbs: true } : s));
+  w.zones.push(...CURBS, { id: 'Z9', site_id: 'S3', type: 'sidewalk', name: 'Front walk', rev: 1 },
+    { id: 'Z8', site_id: 'S3', type: 'hand', name: 'Curb - dock', area_sqft: 1200, from: 'bootprint:J2:8', rev: 1 });
+  // The crew's phone lists the sites of the posted route it is on: put EXTRA on N1's post beside PAC.
+  w.posts = w.posts.map((p) => ({ ...p, routes: p.routes.map((r) => (r.id === 'R1' ? { ...r, sites: [...r.sites, { id: 'S3', name: 'EXTRA' }] } : r)) }));
+  return w;
+};
+test('crew curbs: the crew\'s Storm tab has no Curbs walk at a No site, and the Yes site is as it was', async ({ page }) => {
+  await openStorm(page, ccWorld());
+  expect(await page.locator('[data-walkrow^="S1|"]').evaluateAll((els) => els.map((e) => e.dataset.walkrow))).toEqual(['S1|Z2', 'S1|Z1']);
+  expect(await page.locator('[data-walkrow^="S3|"]').evaluateAll((els) => els.map((e) => e.dataset.walkrow))).toEqual(['S3|Z9', 'S3|curbs-1']);
+  await expect(walkRow(page, 'S3|curbs-1')).toContainText('Curbs: clear 4 ft back (about 300 ft)');
+});
+test('crew curbs: a No site whose other walks are done reads Done, and the Yes site still waits for its curbs (live view)', async ({ page }) => {
+  // PAC: Main entry cleared, Heated walk checked -> Done with no curb tap (the curbs are not its walks). EXTRA: Front walk cleared,
+  // its Curbs item untapped -> Touched, as it is today. Route N1 = PAC + EXTRA: 1 of 2 sites done, 1 touched.
+  const w = ccWorld();
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: at('06:30') }), logRow(2, 'S1', 'Z2', 'checked', 'Jordan Demo', { by_key: 'C03', at: at('06:40') }),
+    logRow(3, 'S3', 'Z9', 'cleared', 'Alex Test', { at: at('06:45') })];
+  await openStorm(page, w, { token: 'tok-matt' });
+  await expect(page.locator('[data-livesite="S1"] .live-status')).toHaveText('Done');
+  await expect(page.locator('[data-livesite="S3"] .live-status')).toHaveText('Touched');
+  await expect(page.locator('[data-liveroute="R1"] .live-count')).toHaveText('1 of 2 sites done, 1 touched');
+});
+test('crew curbs: Copy for BT at a No site carries no curb line and no "Not done" for them', async ({ page }) => {
+  const w = ccWorld();
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: '2026-10-03T06:30:00.000-08:00' }), logRow(2, 'S1', 'Z2', 'checked', 'Alex Test', { at: '2026-10-03T06:45:00.000-08:00' })];
+  await openStorm(page, w, { token: 'tok-alex' });
+  await openRoute(page, 'R1');
+  await page.locator('[data-bt="S1"]').click();
+  await expect(page.locator('#bt_text')).toHaveValue('Cleared: Main entry. Checked: Heated walk.');
+});
+test('crew curbs: Print route lists has no curb box at a No site and keeps it at a Yes site', async ({ page }) => {
+  // rlWorld's N2 is PAC: Heated walk, Main entry = two boxes at No (as before), three with the box ticked (Heated walk, Main entry, the Curbs item).
+  const w = rlWorld(); w.zones.push(...CURBS);
+  await stubPrint(page);
+  await openStorm(page, w, { token: 'tok-matt' });
+  await page.click('#printRouteLists');
+  const n2 = page.locator('#printsheets .rl-page').nth(0);
+  await expect(n2.locator('.rl-box')).toHaveCount(2);
+  await expect(n2).not.toContainText('Curbs');
+  const yes = rlWorld(); yes.zones.push(...CURBS); yes.sites = yes.sites.map((s) => (s.id === 'S1' ? { ...s, crew_curbs: true } : s));
+  const page2 = await page.context().newPage();
+  await stubPrint(page2);
+  await openStorm(page2, yes, { token: 'tok-matt' });
+  await page2.click('#printRouteLists');
+  const y2 = page2.locator('#printsheets .rl-page').nth(0);
+  await expect(y2.locator('.rl-box')).toHaveCount(3);
+  await expect(y2).toContainText('Curbs: clear 4 ft back (about 500 ft)');
 });

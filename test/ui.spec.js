@@ -10328,3 +10328,18 @@ test('crew curbs: Print route lists has no curb box at a No site and keeps it at
   await expect(y2.locator('.rl-box')).toHaveCount(3);
   await expect(y2).toContainText('Curbs: clear 4 ft back (about 500 ft)');
 });
+
+test('crew curbs: ticking the box on the Sites tab brings the curbs back to the live view at once (the memo follows S.sites)', async ({ page }) => {
+  // PAC (No): Main entry cleared, Heated walk checked -> Done. Tick Curbs for the crew and Save: its CURBS become walks, none tapped -> Touched.
+  const w = liveWorld(); w.zones.push(...CURBS);
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: at('06:30') }), logRow(2, 'S1', 'Z2', 'checked', 'Jordan Demo', { by_key: 'C03', at: at('06:40') })];
+  await openStorm(page, w, { token: 'tok-matt' });
+  await expect(page.locator('[data-livesite="S1"] .live-status')).toHaveText('Done');
+  await page.click('nav [data-tab="sites"]');
+  await page.click('[data-edit="site:S1"]');
+  await page.check('#s_crew_curbs');
+  await page.click('#s_save');
+  await expect(page.locator('[data-site="S1"] .curbline')).toHaveText('Curbs: 500 ft in 1 item');
+  await page.click('nav [data-tab="storm"]');
+  await expect(page.locator('[data-livesite="S1"] .live-status')).toHaveText('Touched');
+});

@@ -109,3 +109,31 @@ test('route sheet: a tap on an archived striped zone prints Sanded (flag found f
   assert.equal(count(html, 'Sanded'), 1);      // the archived one only
   assert.equal(count(html, ': Treated'), 1);   // the removed zone's
 });
+
+// R2: the "Treated while snowing" flag uses the walk's own word. A striped walk is Sanded, so its flag reads
+// "Sanded while snowing"; a plain walk keeps "Treated while snowing" exactly.
+test('route sheet: the snowing flag says Sanded while snowing on a striped walk, Treated while snowing on a plain one', () => {
+  const zones = [zone('Z1', 'Plain path'), zone('Z2', 'Striped path', { new_concrete: true })];
+  const rows = [tapRow(1, 'Z1', 'treated'), tapRow(2, 'Z2', 'treated')];
+  rows.forEach(r => { r.snowing_warned = true; });
+  const { html } = sheetFor(zones, rows);
+  // One flag per walk: one of each, never two of either.
+  assert.equal(count(html, 'Sanded while snowing'), 1);
+  assert.equal(count(html, 'Treated while snowing'), 1);
+  const li = n => html.split('<li>').filter(x => x.indexOf(n) !== -1)[0];
+  assert.ok(li('Striped path').indexOf('Sanded while snowing') !== -1);
+  assert.ok(li('Plain path').indexOf('Treated while snowing') !== -1);
+});
+
+// R3: four curb lines of 3200 sq ft each = 800 ft each at 4 ft wide; total 3200 ft; one item holds 750 * 1.2 = 900 ft,
+// so ceil(3200 / 900) = 4 items (under the 5 cap), cut one line per item. Only the item holding the striped line is striped.
+test('curb items: with several items at one site, only the item whose zones include a striped one is striped', () => {
+  const big = (id, extra) => curb(id, Object.assign({ area_sqft: 3200 }, extra || {}));
+  const zones = [big('c1'), big('c2'), big('c3', { new_concrete: true }), big('c4')];
+  const items = Log.curbItems('S2', zones);
+  assert.equal(items.length, 4);
+  assert.deepEqual(items.map(i => i.zone_ids), [['c1'], ['c2'], ['c3'], ['c4']]);
+  assert.deepEqual(items.map(i => i.new_concrete), [false, false, true, false]);
+  const w = Log.walksFor('S2', zones);
+  assert.deepEqual(w.map(x => x.new_concrete), [false, false, true, false]);
+});

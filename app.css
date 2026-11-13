@@ -201,7 +201,8 @@ body.has-ref.ref-min #mapbox{height:62vh}
 :root{--yellow-bg:#fff3bf;--yellow-ink:#5c4400;--yellow-line:#e0b400}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--yellow-bg:#3d3300;--yellow-ink:#ffe27a;--yellow-line:#a88700}}
 :root[data-theme="dark"]{--yellow-bg:#3d3300;--yellow-ink:#ffe27a;--yellow-line:#a88700}
-.walk-nosalt{margin:-2px 0 6px;font-size:14px;font-weight:600}
+.walk-nosalt{margin:-2px 0 6px;font-size:14px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:6px}
+.walk-nosalt i.stripes{display:inline-block;width:22px;height:14px;border-radius:3px;flex:none;background:repeating-linear-gradient(135deg,#b5e61d 0 3px,#9aa 3px 6px)}
 .walk-warn{margin-top:8px;padding:8px 10px;border-radius:8px;background:var(--yellow-bg);color:var(--yellow-ink);border:1px solid var(--yellow-line);font-size:14px;font-weight:600}
 .stormctl .row{margin-top:0;flex-wrap:wrap;align-items:center}
 .stormbtn{font-weight:600;min-height:52px}

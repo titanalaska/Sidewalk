@@ -78,6 +78,30 @@ test('treated while snowing is said once', () => {
   assert.equal(n.text.split('\n').filter((l) => l === 'Treated while still snowing.').length, 1);
 });
 
+// New concrete (R7, 11/13/26): a treated STRIPED walk is Sanded in the note that goes to BuilderTrend; a plain treated walk is Treated.
+// By hand: Z1 Main entry striped, Z3 Back stairs plain, Z2 Heated walk plain. Walks by name: Back stairs (Z3), Heated walk (Z2), Main entry (Z1).
+// Z1 treated, Z3 treated, Z2 checked -> groups in the note's order cleared, treated, sanded, checked:
+//   "Treated: Back stairs. Sanded: Main entry. Checked: Heated walk."
+const STRIPED = ZONES.map((z) => (z.id === 'Z1' ? { ...z, new_concrete: true } : z));
+test('new concrete: a treated striped walk is listed under Sanded, a plain treated walk under Treated', () => {
+  const o = { ...base(), zones: STRIPED };
+  o.log = [row(1, 'Z1', 'treated'), row(2, 'Z3', 'treated'), row(3, 'Z2', 'checked')];
+  assert.equal(N.btNote(o, 'night-2026-12-04').text.split('\n')[0], 'Treated: Back stairs. Sanded: Main entry. Checked: Heated walk.');
+  // Cleared on a striped walk stays Cleared; a plain-only site is untouched (no Sanded anywhere).
+  o.log = [row(1, 'Z1', 'cleared'), row(2, 'Z3', 'treated'), row(3, 'Z2', 'checked')];
+  assert.equal(N.btNote(o, 'night-2026-12-04').text.split('\n')[0], 'Cleared: Main entry. Treated: Back stairs. Checked: Heated walk.');
+  const p = base(); p.log = [row(1, 'Z1', 'treated')];
+  assert.ok(!/Sanded/.test(N.btNote(p, 'night-2026-12-04').text));
+});
+
+test('new concrete: the snowing line says Sanded for a warned striped walk, Treated for a plain one, and both when both were warned', () => {
+  const lines = (log) => { const o = { ...base(), zones: STRIPED }; o.log = log; return N.btNote(o, 'night-2026-12-04').text.split('\n').filter((l) => /while still snowing/.test(l)); };
+  assert.deepEqual(lines([row(1, 'Z1', 'treated', { snowing_warned: true })]), ['Sanded while still snowing.']);
+  assert.deepEqual(lines([row(1, 'Z3', 'treated', { snowing_warned: true })]), ['Treated while still snowing.']);
+  assert.deepEqual(lines([row(1, 'Z1', 'treated', { snowing_warned: true }), row(2, 'Z3', 'treated', { snowing_warned: true })]), ['Treated while still snowing.', 'Sanded while still snowing.']);
+  assert.deepEqual(lines([row(1, 'Z1', 'treated'), row(2, 'Z3', 'treated')]), []);
+});
+
 test('a site with no zones drawn reports its Whole site walk', () => {
   const o = { ...base(), site: { id: 'S2', name: 'TUDOR' }, zones: [] };
   o.log = [row(1, 'whole', 'cleared', { site_id: 'S2' })];

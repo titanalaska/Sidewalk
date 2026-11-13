@@ -10210,6 +10210,7 @@ test("new concrete: the map card for a striped zone is the list's walk: the line
   await tapAt(page, MID);
   await expect(inSheet(page, 'h2')).toContainText('Main entry');
   await expect(inSheet(page, '.walk-nosalt')).toHaveText('Sand only, no salt');
+  await expect(inSheet(page, '.walk-nosalt')).toHaveCount(1); // the card's own line is left out when the walk slot carries it: once, never twice
   expect(await inSheet(page, '[data-walk="S1|Z1"]').allTextContents()).toEqual(['Cleared', 'Sanded', 'Problem']);
   await inSheet(page, '[data-walk="S1|Z1"][data-state="treated"]').click();
   await expect(inSheet(page, '[data-walkrow="S1|Z1"]')).toContainText('Sanded · Jordan Demo · 7:50 AM');

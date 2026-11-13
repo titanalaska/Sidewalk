@@ -55,7 +55,7 @@ test('the orange type reads "Clear 4 ft back" / "Despejar 4 pies (1.2 m)" (Matt,
 });
 
 // New concrete (Matt, 11/12/26): the four strings the flag adds, with Matt's copy exactly, plus the warning's sanded twin and the
-// map legend row (review note N5). "Sanded" is a row like "Treated", so it also reads inside the walk's "Sanded · Name · time" line;
+// map legend row (review note N5). "Sanded" is a row like "Treated", so it also reads inside the walk's "Sanded Â· Name Â· time" line;
 // the English "Treated" on a plain walk still reads Tratado.
 test('new concrete: the walk line, the button, the route-list tag, the legend row and the sanded warning', () => {
   const cases = {
@@ -65,7 +65,7 @@ test('new concrete: the walk line, the button, the route-list tag, the legend ro
     'New concrete: sand only, no salt': 'Concreto nuevo: solo arena, sin sal',
     "It's still snowing: sanded anyway": 'Sigue nevando: con arena de todos modos',
     "It's still snowing: treated anyway": 'Sigue nevando: tratado de todos modos',
-    'Sanded · Jordan Demo · 7:50 AM': 'Con arena · Jordan Demo · 7:50 AM',
+    'Sanded Â· Jordan Demo Â· 7:50 AM': 'Con arena Â· Jordan Demo Â· 7:50 AM',
     'Treated': 'Tratado',
   };
   for (const [en, es] of Object.entries(cases)) assert.equal(Es.translateString(en), es, en);

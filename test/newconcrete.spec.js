@@ -147,3 +147,18 @@ test('editor: a striped heated zone retyped to sidewalk keeps its stripes (the f
   // And the map redraws it striped with its new type.
   await expect.poll(() => page.evaluate(() => { const f = window.SnowMapView.getSource('zones')._data.features.find((x) => x.properties.id === 'Z2'); return [f.properties.type, f.properties.new_concrete]; })).toEqual(['sidewalk', true]);
 });
+
+// Final review (11/13/26): a map opened from Sites carries the words too. Z2 striped (heated), Z1 plain. The card shows the
+// line once for the striped zone; the plain zone's card has none. (The Storm-tab card, which gets it from walkHtml, is in ui.spec.js.)
+test('the Sites-map card of a striped zone says Sand only, no salt once; a plain zone card says nothing of it', async ({ page }) => {
+  await openMap(page, world());
+  await tapAt(page, IN_Z2);
+  await expect(page.locator('#zonesheet h2')).toContainText('Heated walk');
+  await expect(page.locator('#zonesheet .walk-nosalt')).toHaveCount(1);
+  await expect(page.locator('#zonesheet .walk-nosalt')).toHaveText('Sand only, no salt');
+  await tapAt(page, IN_Z1);
+  await expect(page.locator('#zonesheet h2')).toContainText('Main entry');
+  await expect(page.locator('#zonesheet .walk-nosalt')).toHaveCount(0);
+  await expect(page.locator('#zonesheet')).not.toContainText('Sand only');
+});
+

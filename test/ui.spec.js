@@ -433,7 +433,10 @@ function fakeSnow(state, opts = {}) {
         row = { id: 'L-' + n, seq: n, storm_id: storm.storm_id, shift_id: 'night-2026-10-02', site_id: body.site_id, zone_id: '*',
           state: 'depth', depth_in: d, note: '', by_key: me.crew_id || 'admin', by_name: me.name, at: stamp, off_route: false, snowing_warned: false, undoes: null };
       } else if (body.action === 'tapZone') {
-        const walk = SL.walksFor(body.site_id, state.zones || []).find((w) => w.zone_id === body.zone_id);
+        // The server's rule (tapZone_): the walk is looked up in the CREW's view first (what the phone shows: a No site's curbs cut, so a
+        // curbs-only No site is 'whole'), then in every zone (an old phone's curbs-N tap is still saved).
+        const pick = (zs) => SL.walksFor(body.site_id, zs).find((w) => w.zone_id === body.zone_id);
+        const walk = pick(SL.crewZones(state.zones || [], state.sites)) || pick(state.zones || []);
         if (!walk) return refuse('invalid', 'That zone is not walked at this site');
         const why = SL.checkTap({ walk, state: body.state, note: body.note });
         if (why) return refuse('invalid', why);
@@ -6497,6 +6500,20 @@ test('the crew see one Curbs walk for the curb lines, after the others, and tapp
   await walkBtn(page, 'S1|curbs-1', 'cleared').click();
   await expect.poll(() => tapCalls(calls).length).toBe(1);
   expect(tapCalls(calls)[0].body).toMatchObject({ action: 'tapZone', site_id: 'S1', zone_id: 'curbs-1', state: 'cleared' });
+});
+
+// C1 (final review): a No site whose only zones are curb lines shows ONE 'Whole site' walk (the crew's view has no zones, so walksFor falls
+// back to whole). The server must save that tap: Z6 + Z7 are curbs only, S1 is not ticked, so the crew see Whole site and Cleared sends 'whole'.
+test('a curbs-only No site shows Whole site, and tapping Cleared sends whole and reads Cleared', async ({ page }) => {
+  const w = stormWorld(); w.zones = [...CURBS]; // S1 only has the two curb lines, crew_curbs absent
+  const calls = await openStorm(page, w);
+  expect(await page.locator('[data-walkrow]').evaluateAll((els) => els.map((e) => e.dataset.walkrow))).toEqual(['S1|whole']);
+  await expect(walkRow(page, 'S1|whole')).toContainText('Whole site');
+  await walkBtn(page, 'S1|whole', 'cleared').click();
+  await expect.poll(() => tapCalls(calls).length).toBe(1);
+  expect(tapCalls(calls)[0].body).toMatchObject({ action: 'tapZone', site_id: 'S1', zone_id: 'whole', state: 'cleared' });
+  await expect(walkRow(page, 'S1|whole')).toContainText('Cleared · Jordan Demo · 7:50 AM'); // the saved row, not just the button's label
+  await expect(walkBtn(page, 'S1|whole', 'cleared')).toHaveAttribute('aria-pressed', 'true');
 });
 
 // Five long curb groups: 5 zones of 1,250 ft (5,000 sq ft / 4) = 6,250 ft, ceil(6250 / 900) = 7, capped at 5 items,

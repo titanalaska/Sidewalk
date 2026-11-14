@@ -86,3 +86,15 @@ test('route sheet: an earlier curbs-1 tap at S2 prints as Curbs with its state, 
   assert.ok(html.indexOf('Removed zone') === -1);
   assert.ok(html.indexOf('Curbs') !== -1 && html.indexOf('Cleared') !== -1);
 });
+
+test('zoneName: an old phone\'s curbs-1 at a No site reads Curbs, not the raw id; a Yes site keeps the full item name', () => {
+  const cz = Log.crewZones(zones, sites);
+  // S2 is a No site: its curb zones are cut from cz, so no walk and no zone record has the id curbs-1. The fallback names it.
+  assert.equal(Log.zoneName('S2', 'curbs-1', cz), 'Curbs');
+  // Not curbs-shaped: still the raw id (and 'whole' still Whole site).
+  assert.equal(Log.zoneName('S2', 'curbs-x', cz), 'curbs-x');
+  assert.equal(Log.zoneName('S2', 'whole', cz), 'Whole site');
+  // S1 is a Yes site: the uncut zones still give the item's own name, exactly the walk's name (unchanged).
+  const w = Log.walksFor('S1', zones).filter(x => x.zone_id === 'curbs-1')[0];
+  assert.equal(Log.zoneName('S1', 'curbs-1', zones), String(w.name));
+});

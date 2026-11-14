@@ -342,6 +342,15 @@ header #who{flex:1 1 auto;min-width:0;text-align:left}
 .site-marks.pending .markbtn{opacity:.55}
 .site-marks .walk-fail{flex:1 0 100%;margin:0}
 .typed-mark{white-space:normal}
+/* Site done / Site treated (11/13/26): two big buttons, then the folded line a tap leaves (parts, Undo, Show walks) */
+.site-tap{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 10px}
+.site-tap .sitetapbtn{flex:1 1 120px;min-width:0;min-height:52px;font-weight:600;margin-left:0}
+.site-tap.pending .sitetapbtn{opacity:.55}
+.site-tap .walk-fail,.site-tap .walk-warn{flex:1 0 100%;margin:0}
+.site-line{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin:0 0 10px;font-size:14px;overflow-wrap:anywhere}
+.site-line .fold-part{font-variant-numeric:tabular-nums}
+.site-line .fold-part+.fold-part::before{content:"\00b7";margin-right:8px}
+.site-line button{margin-left:0;min-width:0;min-height:44px}
 
 /* shift times (Task 10, 11/11/26): Tonight's shift card, the Board's lines and route controls */
 .shiftline{margin:6px 0 0;font-size:15px;overflow-wrap:anywhere}

@@ -188,6 +188,9 @@ const REFUSALS = [
   ['Start or End', 'Inicio o Final'],
   ['Nothing to take back', 'No hay nada que deshacer'],
   ['Pick a route', 'Elige una ruta'],
+  ['Pick Site done or Site treated', 'Elige Sitio terminado o Sitio tratado'],
+  ['Bad batch id', 'Identificador de lote no válido'],
+  ['That tap is not in this storm', 'Esa marca no está en esta tormenta'],
 ];
 const FRAMES = [['Not saved: ', 'No se guardó: '], ['Shift not saved: ', 'No se guardó el turno: '], ['Times not saved: ', 'No se guardaron las horas: ']];
 test('M4 every refusal a crew phone can be shown reads Spanish inside each of its frames, nothing left in English', () => {
@@ -205,4 +208,35 @@ test('print crew times: the button title, the empty line, and the night buttons 
   assert.equal(Es.translateString('Night of 12/4 \u00b7 3 people'), 'Noche del 12/4 \u00b7 3 personas');
   assert.equal(Es.translateString('Day of 12/6 \u00b7 1 person'), 'D\u00eda del 12/6 \u00b7 1 persona');
   assert.equal(Es.translateString('Night of 11/30 \u00b7 12 people'), 'Noche del 11/30 \u00b7 12 personas');
+});
+
+// Site done / Site treated (11/13/26): the buttons, the toggle, the second phone's toast, the folded line's parts (each its own text node) and the Undo toast.
+// Worked by hand against the spec's copy: 1 -> singular, anything else -> plural; "Los <n> ... terminados" only when all are done and n > 1.
+test('site done: the buttons, the toggle and the Already done toast', () => {
+  assert.equal(Es.translateString('Site done'), 'Sitio terminado');
+  assert.equal(Es.translateString('Site treated'), 'Sitio tratado');
+  assert.equal(Es.translateString('Show walks'), 'Ver recorridos');
+  assert.equal(Es.translateString('Hide walks'), 'Ocultar recorridos');
+  assert.equal(Es.translateString('Already done'), 'Ya est\u00e1 hecho');
+});
+test('site done: the folded line, n = 1 and n > 1', () => {
+  assert.equal(Es.translateString('All 1 walk done'), '1 recorrido terminado');
+  assert.equal(Es.translateString('All 4 walks done'), 'Los 4 recorridos terminados');
+  assert.equal(Es.translateString('0 of 1 walks done'), '0 de 1 recorridos terminados');
+  assert.equal(Es.translateString('4 of 5 walks done'), '4 de 5 recorridos terminados');
+  assert.equal(Es.translateString('1 problem'), '1 problema');
+  assert.equal(Es.translateString('3 problems'), '3 problemas');
+  assert.equal(Es.translateString('Curbs: 1 left'), 'Bordillos: faltan 1');
+  assert.equal(Es.translateString('Curbs: 4 left'), 'Bordillos: faltan 4');
+});
+test('site done: the Undo toast, walks and the kept count, n = 1 and n > 1', () => {
+  assert.equal(Es.translateString('Undone: 1 walk.'), 'Deshecho: 1 recorrido.');
+  assert.equal(Es.translateString('Undone: 3 walks.'), 'Deshecho: 3 recorridos.');
+  assert.equal(Es.translateString('Undone: 2 walks. 1 was tapped since and kept.'), 'Deshecho: 2 recorridos. 1 fue marcado despu\u00e9s y se dej\u00f3.');
+  assert.equal(Es.translateString('Undone: 1 walk. 2 were tapped since and kept.'), 'Deshecho: 1 recorrido. 2 fueron marcados despu\u00e9s y se dejaron.');
+});
+test('site done: no bare word was added that could bite longer English', () => {
+  // the rules above own "Curbs: <c> left" and "<p> problem(s)"; a bare row would eat the front of a curb item's own line
+  assert.equal(Es.translateString('Curbs: clear 4 ft back'), 'Bordillos: despejar 4 pies (1.2 m)');
+  assert.equal(Es.translateString('Problems (2)'), 'Problemas (2)');
 });

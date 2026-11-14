@@ -134,7 +134,7 @@ function fakeSnow(state, opts = {}) {
     // Rows are only ever appended; seq is the row's place in its tab. Crew and
     // lead rows are allow-listed (no by_profile, undoes null); Matt's are raw
     // (by_profile present, no undoes key on a tap). Refusals are {ok:false, code, reason}.
-    if (['getShiftLog', 'tapZone', 'undoTap', 'stormAction', 'saveVisit', 'cleanAgain', 'depthNow', 'handOff',
+    if (['getShiftLog', 'tapZone', 'undoTap', 'tapSite', 'undoSiteTap', 'stormAction', 'saveVisit', 'cleanAgain', 'depthNow', 'handOff',
       'siteMark', 'undoSiteMark', 'typeSiteTimes', 'clockTap', 'clockUndo', 'typeClock', 'getClockNights'].includes(body.action)) {
       const SL = require('../lib/shiftlog.js');
       state.log = state.log || []; state.storms = state.storms || []; state.visits = state.visits || [];
@@ -407,7 +407,7 @@ function fakeSnow(state, opts = {}) {
       }
       if (!storm.open) return refuse('invalid', 'No storm is open');
       // An undo names only the row (seq); a tap or a card names a site.
-      if (body.action !== 'undoTap' && !state.sites.find((s) => s.id === body.site_id && !s.archived)) return refuse('invalid', 'Unknown site');
+      if (body.action !== 'undoTap' && body.action !== 'undoSiteTap' && body.action !== 'tapSite' && !state.sites.find((s) => s.id === body.site_id && !s.archived)) return refuse('invalid', 'Unknown site');
       if (body.action === 'saveVisit') {
         const n = state.visits.length + 1, eq = { blower: '', snowrator: '', bobcat: '', sweepster: '', ...(body.equipment || {}) };
         // by_key is the crew id, or 'admin' for Matt (who is not on the roster): the server's rule.
@@ -416,6 +416,8 @@ function fakeSnow(state, opts = {}) {
         state.visits.push(row);
         return { ok: true, record: view(row), ...v };
       }
+      // Site done / Site treated (11/13/26): the server's reply shapes, the same shared functions (test/sitetap-fake.js, also used by sitedone.spec.js).
+      if (body.action === 'tapSite' || body.action === 'undoSiteTap') return { ...require('./sitetap-fake.js')(state, body, { storm, me, stamp, view }), ...v };
       const n = state.log.length + 1;
       let row;
       // Clean again (Part B1): the server's rules -- Matt or a lead; something done in the current pass first.

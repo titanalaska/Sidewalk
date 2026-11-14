@@ -86,12 +86,13 @@ test('site fields: address, materials and notes carried; blank ones come back bl
 
 test('walks come from walksFor: heated flagged, priority flagged, curbs rolled up, archived and storage left out', () => {
   const alpha = RouteList.pages(mk())[0].sites[1];
+  // curbs: true only on the curb item (its walk id is curbs-1, it has no zone of its own) (one line per site, 11/14/26).
   assert.deepEqual(alpha.walks, [
-    { name: 'Entry pad', heated: true, priority: false, new_concrete: false },
-    { name: 'Front walk', heated: false, priority: true, new_concrete: false },
-    { name: 'Curbs: clear 4 ft back (about 500 ft)', heated: false, priority: false, new_concrete: false },
+    { name: 'Entry pad', heated: true, priority: false, new_concrete: false, curbs: false },
+    { name: 'Front walk', heated: false, priority: true, new_concrete: false, curbs: false },
+    { name: 'Curbs: clear 4 ft back (about 500 ft)', heated: false, priority: false, new_concrete: false, curbs: true },
   ]);
-  assert.deepEqual(RouteList.pages(mk())[0].sites[0].walks, [{ name: 'Lot walk', heated: false, priority: false, new_concrete: false }]);
+  assert.deepEqual(RouteList.pages(mk())[0].sites[0].walks, [{ name: 'Lot walk', heated: false, priority: false, new_concrete: false, curbs: false }]);
 });
 
 test('a site with no zones has no walks (not the Storm tab "Whole site" stand-in)', () => {
@@ -158,16 +159,49 @@ test('page: notes are escaped and keep their line break; names and address are e
   assert.equal(count(h, 'Notes:'), 1); // Zeta Lot has whitespace-only notes: none
 });
 
-test('page: one box per walk, the heated one says so, the priority one has a star, archived and storage never print', () => {
+// One line per site (Matt, 11/14/26: 32 pages was far too much, "a page per route"; he chose one line per site over every
+// walk in small type). Each site is ONE table row: Done always; Treated when the site has a walk to treat (not heated, not
+// the curb item) or no walks at all; Curbs done only on a route that has a curb item, a box at the site that has one.
+// Plain walks are not listed; only the ones that need a word: ★ Priority, Heated (check only), Sand only (no salt), the
+// curb item's own line. By hand on page N2:
+//   Zeta Lot: Lot walk (plain sidewalk)          -> Done box, Treated box, Curbs "—"; no lines; "Lot walk" not printed.
+//   Alpha Court: Entry pad (heated), Front walk (sidewalk, priority), the curb item
+//                                                -> Done box, Treated box (Front walk), Curbs box;
+//                                                   "★ Priority: Front walk", "Heated, check only: Entry pad", the curb line.
+//   Boxes 2 + 3 = 5. Headers: the site column (no word), Done, Treated, Curbs done, In:, Out:, Materials used = 7.
+test('page: one row per site; Done always, Treated when there is a walk to treat, Curbs done only with curbs; only the walks that need a word', () => {
   const h = html(0);
-  assert.equal(count(h, 'class="rl-box"'), 4); // Lot walk + Entry pad + Front walk + Curbs
-  assert.equal(count(h, '(heated: check only)'), 1);
-  assert.ok(h.includes('Entry pad'));
-  assert.ok(h.includes('★ Front walk'));
-  assert.ok(!h.includes('★ Entry pad') && !h.includes('★ Curbs'));
-  assert.ok(h.includes('Curbs: clear 4 ft back (about 500 ft)')); // wording changed on Matt's word 11/12/26
+  assert.equal(count(h, 'class="rl-site"'), 2);
+  assert.equal(count(h, '</th>'), 7);
+  assert.equal(count(h, 'class="rl-box"'), 5);
+  assert.equal(count(h, 'class="rl-na"'), 1); // Zeta Lot's Curbs cell
+  const [zeta, alpha] = h.split('class="rl-site"').slice(1);
+  assert.equal(count(zeta, 'class="rl-box"'), 2);
+  assert.equal(count(alpha, 'class="rl-box"'), 3);
+  assert.ok(!h.includes('Lot walk'), 'a plain walk is not listed');
+  assert.ok(alpha.includes('★ <span>Priority:</span> <span data-no-es>Front walk</span>'));
+  assert.ok(alpha.includes('<span>Heated, check only:</span> <span data-no-es>Entry pad</span>'));
+  assert.ok(alpha.includes('<span data-no-es>Curbs: clear 4 ft back (about 500 ft)</span>')); // wording changed on Matt's word 11/12/26
+  assert.equal(count(h, 'Priority:'), 1);
+  assert.equal(count(h, 'Heated, check only:'), 1);
   assert.ok(!h.includes('Old path') && !h.includes('Snow pile'));
   assert.ok(!h.includes('Hidden Lot'));
+});
+
+// By hand: take Alpha Court's Front walk and both curb zones away, so its only walk is Entry pad (heated). Nothing on the page
+// is a curb item -> no Curbs done column (6 headers). Zeta Lot: Done + Treated = 2 boxes; Alpha Court: Done, and "—" for
+// Treated (a heated walk is checked, never treated) = 1 box. 3 boxes in all, one "—".
+test('page: a heated-only site gets "—" for Treated; a route with no curbs has no Curbs done column', () => {
+  const o = mk();
+  o.zones = o.zones.filter((z) => !['Z1', 'Z3', 'Z4'].includes(z.id));
+  const h = RouteList.pageHtml(RouteList.pages(o)[0], (s) => s);
+  assert.equal(count(h, '</th>'), 6);
+  assert.ok(!h.includes('Curbs done'));
+  assert.equal(count(h, 'class="rl-box"'), 3);
+  assert.equal(count(h, 'class="rl-na"'), 1);
+  const alpha = h.split('class="rl-site"')[2];
+  assert.equal(count(alpha, 'class="rl-box"'), 1);
+  assert.ok(alpha.includes('class="rl-na"'));
 });
 
 // New concrete (11/12/26): a striped walk carries the flag onto the list and prints "(sand only, no salt)" after its name;
@@ -180,24 +214,27 @@ test('new concrete: a striped walk (and a curb item with one striped zone) print
   o.zones.find((z) => z.id === 'Z3').new_concrete = true;
   const alpha = RouteList.pages(o)[0].sites[1];
   assert.deepEqual(alpha.walks.map((w) => [w.name, w.new_concrete]), [['Entry pad', false], ['Front walk', true], ['Curbs: clear 4 ft back (about 500 ft)', true]]);
+  // One line per site (11/14/26): the striped walks are one "Sand only, no salt:" line at their site, in walk order.
   const h = RouteList.pageHtml(RouteList.pages(o)[0], (s) => s);
-  assert.equal(count(h, '(sand only, no salt)'), 2);
-  const rows = h.split('class="rl-walk"').slice(1); // Lot walk, Entry pad, Front walk, Curbs
-  assert.deepEqual(rows.map((r) => r.includes('(sand only, no salt)')), [false, false, true, true]);
-  assert.ok(RouteList.pageHtml(RouteList.pages(o)[0], (s) => String(s).toUpperCase()).includes('(SAND ONLY, NO SALT)'));
-  assert.equal(count(html(0), '(sand only, no salt)'), 0); // the untouched fixture prints none
+  assert.equal(count(h, 'Sand only, no salt:'), 1);
+  assert.ok(h.includes('<span>Sand only, no salt:</span> <span data-no-es>Front walk, Curbs: clear 4 ft back (about 500 ft)</span>'));
+  assert.ok(!h.split('class="rl-site"')[1].includes('Sand only'), 'Zeta Lot has no striped walk');
+  assert.ok(RouteList.pageHtml(RouteList.pages(o)[0], (s) => String(s).toUpperCase()).includes('SAND ONLY, NO SALT:'));
+  assert.equal(count(html(0), 'Sand only, no salt:'), 0); // the untouched fixture prints none (its materials text says 'Sand only.': data)
 });
 
-test('page: a site with no walks says so and has no box; every site ends with the blanks line', () => {
+// Beta Yard has no zones: "No walks drawn yet." and still Done + Treated to tick (the crew clears the Whole site); no curbs on
+// the route -> no Curbs done column. In:, Out: and Materials used are column headings: once per page, never once per site.
+test('page: a site with no walks says so and keeps Done and Treated; In, Out and Materials used head the columns once', () => {
   const h = html(1);
   assert.ok(h.includes('No walks drawn yet.'));
-  assert.equal(count(h, 'class="rl-box"'), 0);
+  assert.equal(count(h, 'class="rl-box"'), 2);
   assert.ok(h.includes('Beta Yard'));
   for (const hh of [html(0), h]) {
-    assert.ok(hh.includes('Materials used'));
-    assert.ok(hh.includes('In:') && hh.includes('Out:'));
+    assert.equal(count(hh, 'Materials used'), 1);
+    assert.equal(count(hh, 'In:'), 1);
+    assert.equal(count(hh, 'Out:'), 1);
   }
-  assert.equal(count(html(0), 'Materials used'), 2); // two sites
 });
 
 test('page: sites come in the page order (Zeta Lot before Alpha Court)', () => {
@@ -208,14 +245,14 @@ test('page: sites come in the page order (Zeta Lot before Alpha Court)', () => {
 test('every label goes through the translator and no data does', () => {
   const up = (s) => String(s).toUpperCase();
   const h = html(0, up);
-  for (const label of ['DATE:', 'LEAD', 'CREW:', 'MATERIALS:', 'NOTES:', 'MATERIALS USED', 'IN:', 'OUT:', '(HEATED: CHECK ONLY)']) assert.ok(h.includes(label), label);
+  for (const label of ['DATE:', 'LEAD', 'CREW:', 'MATERIALS:', 'NOTES:', 'MATERIALS USED', 'IN:', 'OUT:', 'DONE', 'TREATED', 'CURBS DONE', 'PRIORITY:', 'HEATED, CHECK ONLY:']) assert.ok(h.includes(label), label);
   assert.ok(html(1, up).includes('NO WALKS DRAWN YET.'));
   // data untouched
   for (const d of ['Alpha Court', 'Zeta Lot', '1 Main St', 'NO SALT: fresh concrete. Sand only.', 'Alex Lead', 'Bea Member, Cy Member', 'Entry pad', 'Front walk', 'Curbs: clear 4 ft back (about 500 ft)', 'Back &amp; forth']) assert.ok(h.includes(d), d);
   assert.ok(!h.includes('ALPHA COURT') && !h.includes('ALEX LEAD') && !h.includes('ENTRY PAD'));
   // and no English label is left outside the data: take the data out, nothing English remains
   const plain = html(1, up).replace(/<[^>]*>/g, ' ').replace('Beta Yard', ' ').replace(/N10/, ' ');
-  assert.ok(!/Date|Lead|Crew|Materials|Notes|In:|Out:|walks|heated/.test(plain), plain);
+  assert.ok(!/Date|Lead|Crew|Materials|Notes|In:|Out:|walks|heated|Done|Treated|Curbs|Priority|Sand/.test(plain), plain);
 });
 
 // Everything from data is escaped, wherever it lands: route, site, address, materials, walk and crew names.
@@ -224,7 +261,7 @@ test('page: every piece of data is escaped (route, site, address, materials, wal
   const o = {
     routes: [{ id: 'R1', name: 'N<2>&', site_ids: ['S1'] }],
     sites: [{ id: 'S1', name: 'Site <b>', address: '5 A&B St', materials_needed: 'NO <SALT> & sand', notes: 'n<1>' }],
-    zones: [{ id: 'Z1', site_id: 'S1', type: 'sidewalk', name: 'Walk <1>' }],
+    zones: [{ id: 'Z1', site_id: 'S1', type: 'sidewalk', name: 'Walk <1>', priority: true }], // priority: a plain walk is not listed (11/14/26)
     crew: [{ id: 'C1', name: 'Lee <x>' }, { id: 'C2', name: 'Kai & Co' }],
     moves: [{ id: 'M1', at: '2026-11-09T07:00:00Z', worker: 'C1', to_route: 'R1', role: 'lead' }, { id: 'M2', at: '2026-11-09T08:00:00Z', worker: 'C2', to_route: 'R1', role: 'member' }],
   };
@@ -237,4 +274,5 @@ test('css is a string of rules the view can scope', () => {
   assert.equal(typeof RouteList.css, 'string');
   assert.match(RouteList.css, /\.rl-page/);
   assert.match(RouteList.css, /break-after:\s*page/);
+  assert.match(RouteList.css, /\.rl-site \{[^}]*break-inside:\s*avoid/); // a site's row is never split across two pages
 });

@@ -7308,10 +7308,46 @@ test('route lists: the NO SALT line is on its site page, bold; a heated walk say
   await expect(n2.locator('.rl-materials')).toBeVisible();
   await expect(n2.locator('.rl-materials')).toContainText('NO SALT: fresh concrete');
   expect(await n2.locator('.rl-materials b[data-no-es]').evaluate((e) => Number(getComputedStyle(e).fontWeight))).toBeGreaterThanOrEqual(700);
-  await expect(n2.locator('.rl-walk').filter({ hasText: 'Heated walk' })).toContainText('(heated: check only)');
-  await expect(n2.locator('.rl-walk').filter({ hasText: 'Main entry' })).not.toContainText('heated');
+  // One line per site (11/14/26): the heated walk is named on its site's "Heated, check only:" line; a plain walk is not listed.
+  await expect(n2.locator('.rl-heated')).toHaveText('Heated, check only: Heated walk');
+  await expect(n2).not.toContainText('Main entry');
   await expect(n2).toContainText('3 Test Way');
   await expect(page.locator('#printsheets .rl-page').nth(1)).not.toContainText('NO SALT');
+});
+
+// One page per route, proved on paper (Matt, 11/14/26: Print route lists came to 32 pages, "a page per route"). The view is
+// printed to a PDF, Letter with half-inch margins (print media: the app hides everything but the view while it is open), and
+// the PDF's pages are counted. N2 is 12 sites, the size of the biggest live routes (Loussac, Midtown + South has 11), every site
+// with an address, materials and a two-sentence note, one heated walk and one priority walk; site 5 is Tudor Transit-sized (61
+// walks, 12 of them heated, the last 3 striped) and sites 3, 6, 9, 12 carry curbs (crew_curbs on). N10 is one small site.
+// Two routes -> exactly 2 pages, so N2's twelve rows fit on ONE.
+test('route lists: a 12-site route prints on ONE letter page; two routes print two pages', async ({ page }) => {
+  const w = rlWorld();
+  const sites = [], zones = [];
+  for (let i = 1; i <= 12; i++) {
+    const id = 'B' + i, n = i === 5 ? 61 : 6, heated = i === 5 ? 12 : 1;
+    sites.push({ id, name: 'Big Route Site ' + i + ' Medical Center', address: (1000 + i) + ' East Tudor Road, Anchorage', rev: 1,
+      materials_needed: '2 bags ice melt, 1 bucket sand', notes: 'Gate code on the east side. Call the night desk before the loading dock.', crew_curbs: i % 3 === 0 });
+    for (let k = 1; k <= n; k++) {
+      zones.push({ id: id + 'z' + k, site_id: id, type: k <= heated ? 'heated' : 'sidewalk', name: 'Walk ' + k + ' north entrance', rev: 1,
+        priority: k === n, new_concrete: i === 5 && k > n - 3 });
+    }
+    if (i % 3 === 0) zones.push({ id: id + 'c', site_id: id, type: 'hand', name: 'Curb along the lot', area_sqft: 2400, rev: 1 });
+  }
+  w.sites = sites.concat([{ id: 'S2', name: 'Lead Yard', rev: 1 }]);
+  w.zones = zones;
+  w.routes = [{ id: 'R1', name: 'N10', rev: 1, site_ids: ['S2'] }, { id: 'R2', name: 'N2', rev: 1, site_ids: sites.map((s) => s.id) }];
+  await stubPrint(page);
+  await openStorm(page, w, { token: 'tok-matt' });
+  await page.click('#printRouteLists');
+  const lists = page.locator('#printsheets .rl-page');
+  await expect(lists).toHaveCount(2);
+  await expect(lists.nth(0).locator('.rl-site')).toHaveCount(12);
+  await expect(lists.nth(0).locator('.rl-curbs')).toHaveCount(4);
+  await expect(lists.nth(0).locator('.rl-heated')).toHaveCount(12);
+  const pdf = await page.pdf({ format: 'Letter', margin: { top: '0.5in', right: '0.5in', bottom: '0.5in', left: '0.5in' } });
+  const count = (pdf.toString('latin1').match(/\/Type\s*\/Page(?![s\w])/g) || []).length;
+  expect(count).toBe(2);
 });
 
 test('route lists: Back and the phone Back both close the view and take their step with them', async ({ page }) => {
@@ -7352,15 +7388,15 @@ test('route lists: in Spanish the labels are Spanish and the site name is not', 
   await expect(n2.locator('.rl-date')).toContainText('Fecha:');
   await expect(n2).toContainText('Líder: Alex Test');
   await expect(n2).toContainText('Materiales: NO SALT: fresh concrete');
-  await expect(n2.locator('.rl-walk').filter({ hasText: 'Heated walk' })).toContainText('(con calefacción: solo revisar)');
-  await expect(n2.locator('.rl-used')).toContainText('Materiales usados');
-  await expect(n2.locator('.rl-used')).toContainText('Entrada:');
-  await expect(n2.locator('.rl-used')).toContainText('Salida:');
+  await expect(n2.locator('.rl-heated')).toHaveText('Con calefacción, solo revisar: Heated walk');
+  // One line per site (11/14/26): the columns head the table once.
+  const head = n2.locator('.rl-table thead');
+  for (const es of ['Listo', 'Tratado', 'Entrada:', 'Salida:', 'Materiales usados']) await expect(head).toContainText(es);
   await expect(n10).toContainText('Cuadrilla:');
   await expect(n10).toContainText('Todavía no hay recorridos dibujados.');
   // The English is gone from the labels; the data stays as typed.
   const body = await page.locator('#printsheets').innerText();
-  for (const en of ['Date:', 'Lead:', 'Crew:', 'Materials', 'In:', 'Out:', 'No walks drawn yet', 'check only']) expect(body).not.toContain(en);
+  for (const en of ['Date:', 'Lead:', 'Crew:', 'Materials', 'In:', 'Out:', 'No walks drawn yet', 'check only', 'Done', 'Treated']) expect(body).not.toContain(en);
   await expect(n2).toContainText('PAC');
   await expect(n10).toContainText('Lead Yard');
   await expect(n2).toContainText('Heated walk');
@@ -10284,9 +10320,8 @@ test('new concrete: Print route lists tags a striped walk (sand only, no salt) a
   await openStorm(page, w, { token: 'tok-matt' });
   await page.click('#printRouteLists');
   const n2 = page.locator('#printsheets .rl-page').nth(0);
-  await expect(n2.locator('.rl-walk')).toHaveCount(2);
-  await expect(n2.locator('.rl-walk', { hasText: 'Main entry' })).toContainText('(sand only, no salt)');
-  await expect(n2.locator('.rl-walk', { hasText: 'Heated walk' })).not.toContainText('sand only');
+  // One line per site (11/14/26): the striped walk is named on its site's "Sand only, no salt:" line, and only it.
+  await expect(n2.locator('.rl-nosalt')).toHaveText('Sand only, no salt: Main entry');
   expect(await page.locator('#printsheets .rl-nosalt').count()).toBe(1);
 });
 
@@ -10330,7 +10365,8 @@ test('crew curbs: Copy for BT at a No site carries no curb line and no "Not done
   await expect(page.locator('#bt_text')).toHaveValue('Cleared: Main entry. Checked: Heated walk.');
 });
 test('crew curbs: Print route lists has no curb box at a No site and keeps it at a Yes site', async ({ page }) => {
-  // rlWorld's N2 is PAC: Heated walk, Main entry = two boxes at No (as before), three with the box ticked (Heated walk, Main entry, the Curbs item).
+  // One line per site (11/14/26): rlWorld's N2 is PAC, one row. At No the crew has no curb item: Done + Treated (Main entry) = two
+  // boxes and no Curbs done column, so no "Curbs" anywhere. At Yes: Done, Treated, Curbs done = three boxes, and the curb item's line.
   const w = rlWorld(); w.zones.push(...CURBS);
   await stubPrint(page);
   await openStorm(page, w, { token: 'tok-matt' });

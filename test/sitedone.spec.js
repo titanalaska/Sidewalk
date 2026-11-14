@@ -447,7 +447,9 @@ test('M2: a refused Undo clears itself once a newer row lands at the site', asyn
 test('M3: an Undo in flight at a site with no buttons left marks the row busy', async ({ page }) => {
   // Cedar Hall (S3): Site done clears its sidewalk, Site treated then treats it; after that neither button has a walk to write.
   const w = world();
-  await openStorm(page, w, { undoDelay: 900 });
+  // The reply is held 2.5 s (was 0.9 s): under the full suite's two workers the click-to-check gap ran past 0.9 s twice in a
+  // row on 11/14/26 (the row was already back with its buttons, aria-busy null). The check itself is unchanged.
+  await openStorm(page, w, { undoDelay: 2500 });
   await btn(page, 'S3', 'done').click();
   await expect(page.locator('[data-siteline="S3"]')).toBeVisible();
   await btn(page, 'S3', 'treated').click();

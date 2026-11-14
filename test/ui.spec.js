@@ -147,7 +147,7 @@ function fakeSnow(state, opts = {}) {
       // The Clock tab rows (snow-app-script roster.js PUBLIC_CLOCK_FIELDS): Matt gets the whole row, everyone else the allow-list, and
       // a crew phone only the rows whose crew_id is its own (clockShownAll_).
       const CLOCK_FIELDS = require('./clock-fields.js');
-      const LOG_FIELDS = ['id', 'seq', 'storm_id', 'shift_id', 'site_id', 'zone_id', 'state', 'note', 'by_key', 'by_name', 'at', 'off_route', 'snowing_warned', 'undoes', 'depth_in', 'time_in', 'time_out']; // roster.js PUBLIC_LOG_FIELDS
+      const LOG_FIELDS = require('./log-fields.js'); // roster.js PUBLIC_LOG_FIELDS (log-fields.test.js holds it to the server's list)
       const clockView = (row) => (role === 'admin' ? { ...row, by_profile: 'P1' } : Object.fromEntries(CLOCK_FIELDS.map((k) => [k, row[k] === undefined ? null : row[k]])));
       const clockShown = (rows) => rows.filter((r) => role === 'admin' || r.crew_id === me.crew_id).map(clockView);
       const shiftBefore = (id) => { // a day's is the night before it, a night's is its own day (Code.js shiftBefore_)

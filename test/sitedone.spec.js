@@ -99,6 +99,7 @@ async function openStorm(page, w, o = {}) {
     calls.push({ body });
     if (o.abortIf && o.abortIf(body)) return route.abort();
     if (o.delay && body.action === 'tapSite') await new Promise((r) => setTimeout(r, o.delay));
+    if (o.undoDelay && body.action === 'undoSiteTap') await new Promise((r) => setTimeout(r, o.undoDelay));
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(fake(body)) });
   });
   await page.route(isInv, (route) => route.fulfill({ contentType: 'application/json', body: '{}' }));
@@ -277,7 +278,8 @@ test('a lost reply after the server wrote: Retry gets the stored rows back and w
   await page.locator('[data-retry="site:S1"]').click();
   await expect(page.locator('[data-siteline="S1"]')).toBeVisible();
   expect(w.log).toHaveLength(5); // still five: the replay wrote nothing
-  expect(await page.locator('#toast').isVisible() && await page.locator('#toast').textContent()).not.toBe('Already done');
+  // The toast is hidden or says something else, never "Already done" (M8: the old check passed whenever the toast was hidden, and waited for nothing).
+  await expect(page.locator('#toast')).not.toHaveText('Already done');
   await expect(parts(page, 'S1')).toHaveText(['4 of 5 walks done', '1 problem', 'Curbs: 1 left', '7:50 AM']);
 });
 
@@ -360,4 +362,151 @@ test('at 320 px the two buttons and the folded line sit inside the card with no 
   await btn(page, 'S1', 'done').click();
   await expect(page.locator('[data-siteline="S1"]')).toBeVisible();
   expect(await inside()).toEqual({ n: 4 + 1 + 2, ok: true, scroll: true }); // Site treated + 4 parts + Undo + Show walks
+});
+
+// ---------- the final whole-branch review (11/13/26) ----------
+// A poll brings another phone's Site done in while this phone is in the middle of a walk. Paper: the partner's batch is Z4 checked, Z3 checked,
+// Z2 cleared (seq 3-5), so siteBatch is standing and the list WOULD fold (4 of 5 walks done). Z2 has a Problem note box open on this phone.
+const partnerBatch = (w) => w.log.push(logRow(3, 'S1', 'Z4', 'checked', { batch: 'B-otherphone1', at: STAMP }), logRow(4, 'S1', 'Z3', 'checked', { batch: 'B-otherphone1', at: STAMP }), logRow(5, 'S1', 'Z2', 'cleared', { batch: 'B-otherphone1', at: STAMP }));
+
+test('I1: a Problem note box stays open when a poll brings in another phone\'s Site done', async ({ page }) => {
+  const w = world();
+  await openStorm(page, w);
+  await page.locator('[data-walk="S1|Z2"][data-state="problem"]').click();
+  await page.locator('[data-note="S1|Z2"]').fill('drain frozen');
+  partnerBatch(w);
+  await page.clock.runFor(21000); // the 20 s poll
+  await expect(page.locator('[data-siteline="S1"]')).toBeVisible(); // the batch is standing: the folded line is there
+  await expect(page.locator('[data-note="S1|Z2"]')).toBeVisible();
+  await expect(page.locator('[data-note="S1|Z2"]')).toHaveValue('drain frozen');
+  await expect(page.locator('[data-showwalks="S1"]')).toHaveText('Hide walks');
+  // the list is one list: shown whole while one walk is busy
+  await expect(walkRow(page, 'S1|Z4')).toBeVisible();
+  // Cancel the note: nothing busy any more, the list folds
+  await page.locator('[data-cancelnote="S1|Z2"]').click();
+  await expect(walkRow(page, 'S1|Z2')).toHaveCount(0);
+  await expect(page.locator('[data-showwalks="S1"]')).toHaveText('Show walks');
+});
+
+test('I1: a walk tap that did not reach the server keeps its Retry on screen after Site done folds the list', async ({ page }) => {
+  const w = world(), net = { down: true };
+  const calls = await openStorm(page, w, { abortIf: (b) => net.down && b.action === 'tapZone' });
+  await page.locator('[data-walk="S1|Z2"][data-state="cleared"]').click();
+  await expect(page.locator('[data-retry="S1|Z2"]')).toBeVisible();
+  await btn(page, 'S1', 'done').click();
+  await expect(page.locator('[data-siteline="S1"]')).toBeVisible();
+  expect(tapSiteCalls(calls)).toHaveLength(1);
+  // the failed walk is still there with its Retry
+  await expect(page.locator('[data-retry="S1|Z2"]')).toBeVisible();
+  await expect(walkRow(page, 'S1|Z2').locator('.walk-fail')).toContainText('Not saved: no signal');
+  // a Retry that gets through leaves nothing busy, and the list folds
+  net.down = false;
+  await page.locator('[data-retry="S1|Z2"]').click();
+  await expect(walkRow(page, 'S1|Z2')).toHaveCount(0);
+});
+
+test('M1: a redraw with the same Log does not ask siteBatch or siteTapWalks again; a new row does', async ({ page }) => {
+  const w = world();
+  await openStorm(page, w);
+  await btn(page, 'S1', 'done').click();
+  await expect(page.locator('[data-siteline="S1"]')).toBeVisible();
+  await page.evaluate(() => {
+    window.__asked = { batch: 0, walks: 0 };
+    const real = { b: CrewShiftLog.siteBatch, w: CrewShiftLog.siteTapWalks };
+    CrewShiftLog.siteBatch = function () { window.__asked.batch++; return real.b.apply(this, arguments); };
+    CrewShiftLog.siteTapWalks = function () { window.__asked.walks++; return real.w.apply(this, arguments); };
+  });
+  // Show walks / Hide walks redraw the whole tab with S.log untouched: 3 site cards, every answer already known.
+  await page.locator('[data-showwalks="S1"]').click();
+  await page.locator('[data-showwalks="S1"]').click();
+  await expect(page.locator('[data-showwalks="S1"]')).toHaveText('Show walks');
+  expect(await page.evaluate(() => window.__asked)).toEqual({ batch: 0, walks: 0 });
+  // a row from another phone changes S.log: the questions are asked again (3 cards: siteBatch 3; walks 2 per card with a button)
+  w.log.push(logRow(6, 'S2', 'whole', 'cleared'));
+  await page.clock.runFor(21000);
+  await expect(page.locator('[data-shiftsite="S2"]')).toContainText('Cleared');
+  const after = await page.evaluate(() => window.__asked);
+  expect(after.batch).toBeGreaterThanOrEqual(3);
+  expect(after.walks).toBeGreaterThanOrEqual(2);
+});
+
+test('M2: a refused Undo clears itself once a newer row lands at the site', async ({ page }) => {
+  const w = world();
+  await openStorm(page, w);
+  await btn(page, 'S1', 'done').click();
+  await expect(page.locator('[data-siteline="S1"]')).toBeVisible();
+  w.log.splice(2); // the server does not know the batch (its rows are gone): Undo is refused, (the phone's Log stays at seq 5)
+  await page.locator('[data-undobatch]').click();
+  await expect(page.locator('[data-sitetaprow="S1"] .walk-fail')).toContainText('Not saved: That tap is not in this storm');
+  // Paper: the refusal was made with the phone's Log at seq 5, so the row at seq 6 is newer. Rows 3-5 are other phones' hand taps.
+  w.log.push(logRow(3, 'S1', 'Z4', 'checked'), logRow(4, 'S1', 'Z3', 'checked'), logRow(5, 'S1', 'Z2', 'cleared'), logRow(6, 'S1', 'Z2', 'treated'));
+  await page.clock.runFor(21000);
+  await expect(page.locator('[data-sitetaprow="S1"] .walk-fail')).toHaveCount(0);
+});
+
+test('M3: an Undo in flight at a site with no buttons left marks the row busy', async ({ page }) => {
+  // Cedar Hall (S3): Site done clears its sidewalk, Site treated then treats it; after that neither button has a walk to write.
+  const w = world();
+  await openStorm(page, w, { undoDelay: 900 });
+  await btn(page, 'S3', 'done').click();
+  await expect(page.locator('[data-siteline="S3"]')).toBeVisible();
+  await btn(page, 'S3', 'treated').click();
+  await expect(btn(page, 'S3', 'treated')).toHaveCount(0);
+  await expect(btn(page, 'S3', 'done')).toHaveCount(0);
+  await expect(page.locator('[data-sitetaprow="S3"]')).toHaveCount(0);
+  await page.locator('[data-siteline="S3"] [data-undobatch]').click();
+  await expect(page.locator('[data-sitetaprow="S3"]')).toHaveAttribute('aria-busy', 'true');
+  await expect(page.locator('#toast')).toHaveText('Undone: 1 walk.');
+});
+
+test('M4: Show walks does not outlive a new Site done (Clean again, then Site done folds the list again)', async ({ page }) => {
+  const w = world();
+  await openStorm(page, w);
+  await btn(page, 'S1', 'done').click();
+  await page.locator('[data-showwalks="S1"]').click();
+  await expect(walkRow(page, 'S1|Z1')).toBeVisible();
+  await page.locator('[data-again="S1"]').click();
+  await page.click('#ag_yes');
+  await expect(page.locator('[data-siteline]')).toHaveCount(0);
+  await btn(page, 'S1', 'done').click();
+  await expect(page.locator('[data-siteline="S1"]')).toBeVisible();
+  await expect(page.locator('[data-showwalks="S1"]')).toHaveText('Show walks');
+  await expect(walkRow(page, 'S1|Z1')).toHaveCount(0);
+});
+
+test('M5: an already-done replay polls at once, so another phone\'s undo shows without waiting 20 s', async ({ page }) => {
+  const w = world();
+  let lose = true;
+  const calls = await openStorm(page, w);
+  await page.unroute(isSnow);
+  const fake = fakeSnow(w, calls);
+  await page.route(isSnow, async (route) => {
+    const body = JSON.parse(route.request().postData() || '{}');
+    calls.push({ body });
+    const reply = JSON.stringify(fake(body));
+    if (lose && body.action === 'tapSite') { lose = false; return route.abort(); }
+    await route.fulfill({ contentType: 'application/json', body: reply });
+  });
+  await btn(page, 'S1', 'done').click();
+  await expect(page.locator('[data-retry="site:S1"]')).toBeVisible();
+  expect(w.log).toHaveLength(5); // the server wrote Z4, Z3, Z2 (L-3..L-5), the reply was lost
+  // meanwhile a partner undid the whole batch: three undo rows, seq 6-8
+  w.log.push(logRow(6, 'S1', 'Z4', 'none', { undoes: 'L-3' }), logRow(7, 'S1', 'Z3', 'none', { undoes: 'L-4' }), logRow(8, 'S1', 'Z2', 'none', { undoes: 'L-5' }));
+  await page.locator('[data-retry="site:S1"]').click();
+  // the replay returns the three tap rows (already: true); the poll it starts brings the undo rows and the batch is gone. No clock advance.
+  await expect(page.locator('[data-siteline]')).toHaveCount(0);
+  await expect(btn(page, 'S1', 'done')).toBeVisible();
+});
+
+test('R4: a curbs-only No site shows Site done, and the tap writes its whole walk cleared', async ({ page }) => {
+  const w = world();
+  w.sites.push({ id: 'S4', name: 'Gravel Lot', rev: 1 }); // no crew_curbs: its one line is a curb the crew does not see
+  w.routes[0].site_ids.push('S4');
+  w.zones.push(zone('Z11', 'S4', 'Curb - west', 'hand'));
+  const calls = await openStorm(page, w);
+  await expect(btn(page, 'S4', 'done')).toBeVisible();
+  await btn(page, 'S4', 'done').click();
+  await expect(parts(page, 'S4')).toHaveText(['All 1 walk done', '7:50 AM']);
+  expect(tapSiteCalls(calls)).toHaveLength(1);
+  expect(w.log.slice(2).map((r) => [r.site_id, r.zone_id, r.state])).toEqual([['S4', 'whole', 'cleared']]);
 });

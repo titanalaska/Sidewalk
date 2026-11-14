@@ -38,7 +38,7 @@ test('number rules: the weather hint and the curb items', () => {
   // Wording changed on Matt's word 11/12/26. Metres are feet x 0.3048 to one decimal:
   //   4 ft = 1.2192 -> 1.2 m;  3 ft = 0.9144 -> 0.9 m;  5 ft = 1.524 -> 1.5 m.
   assert.equal(Es.translateString('Curbs: clear 4 ft back (about 1,200 ft)'), 'Bordillos: despejar 4 pies (1.2 m) (unos 1,200 pies)');
-  assert.equal(Es.translateString('Curbs 2 of 3: clear 4 ft back (about 750 ft)'), 'Bordillos 2 de 3: despejar 4 pies (1.2 m) (unos 750 pies)');
+  assert.equal(Es.translateString('Curbs 2 of 3: clear 4 ft back (about 2,000 ft)'), 'Bordillos 2 de 3: despejar 4 pies (1.2 m) (unos 2,000 pies)');
   assert.equal(Es.translateString('Curbs: clear 4 ft back'), 'Bordillos: despejar 4 pies (1.2 m)');
   assert.equal(Es.translateString('Curbs: clear 4 ft back (about 12,340 ft)'), 'Bordillos: despejar 4 pies (1.2 m) (unos 12,340 pies)');
   // the width is read from the name, so a changed setting stays right

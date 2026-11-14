@@ -6485,7 +6485,7 @@ test('roster-3: the switch is remembered on this phone until 9 AM and is off aga
 
 // ---------------- Touched + the curb roll-up (Matt, 10/8/26) ----------------
 // A site is Touched once its sidewalks and heated walks are done; its "Curb ..." hand lines roll up
-// into "Curbs" items (750 ft x 1.2 = 900 ft each, at most 5), one tap each. PAC's curbs here:
+// into "Curbs" items (2,000 ft x 1.2 = 2,400 ft each, at most 5; was 750 ft, Matt 11/13/26), one tap each. PAC's curbs here:
 // Z6 1,200 sq ft = 300 ft, Z7 800 sq ft = 200 ft -> 500 ft, one item "Curbs: clear 4 ft back (about 500 ft)".
 const CURBS = [
   { id: 'Z6', site_id: 'S1', type: 'hand', name: 'Curb - lot', area_sqft: 1200, from: 'bootprint:J1:6', rev: 1 },
@@ -6516,22 +6516,22 @@ test('a curbs-only No site shows Whole site, and tapping Cleared sends whole and
   await expect(walkBtn(page, 'S1|whole', 'cleared')).toHaveAttribute('aria-pressed', 'true');
 });
 
-// Five long curb groups: 5 zones of 1,250 ft (5,000 sq ft / 4) = 6,250 ft, ceil(6250 / 900) = 7, capped at 5 items,
-// one zone each. The longest name is "Curbs 5 of 5: clear 4 ft back (about 1,250 ft)"; in Spanish
-// "Bordillos 5 de 5: despejar 4 pies (1.2 m) (unos 1,250 pies)". Neither may push the page wider than the screen.
+// Five long curb groups: 5 zones of 3,000 ft (12,000 sq ft / 4) = 15,000 ft, ceil(15000 / 2400) = 7, capped at 5 items,
+// one zone each. The longest name is "Curbs 5 of 5: clear 4 ft back (about 3,000 ft)"; in Spanish
+// "Bordillos 5 de 5: despejar 4 pies (1.2 m) (unos 3,000 pies)". Neither may push the page wider than the screen.
 for (const lang of ['en', 'es']) {
   test('the longest curb name fits a 320 px Storm tab without sideways scroll (' + lang + ')', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 640 });
     await page.addInitScript((l) => localStorage.setItem('snow-lang', l), lang);
     const w = crewCurbsOn(stormWorld(), 'S1');
-    w.zones.push(...[1, 2, 3, 4, 5].map((n) => ({ id: 'ZC' + n, site_id: 'S1', type: 'hand', name: 'Curb - ' + n, area_sqft: 5000, from: 'bootprint:J1:' + (20 + n), rev: 1 })));
+    w.zones.push(...[1, 2, 3, 4, 5].map((n) => ({ id: 'ZC' + n, site_id: 'S1', type: 'hand', name: 'Curb - ' + n, area_sqft: 12000, from: 'bootprint:J1:' + (20 + n), rev: 1 })));
     // Names a person typed (not roll-up items) must stay exactly as typed in both languages, even when a Spanish rule could touch them.
     w.zones.push({ id: 'ZF', site_id: 'S1', type: 'sidewalk', name: 'Front walk', rev: 1 }, { id: 'ZB', site_id: 'S1', type: 'sidewalk', name: 'Back stairs', rev: 1 }, { id: 'ZD', site_id: 'S1', type: 'sidewalk', name: 'Curbs at dock', rev: 1 });
     await openStorm(page, w);
     const last = walkRow(page, 'S1|curbs-5');
     await expect(last).toBeVisible();
     // Matt's ruling 11/12/26: the roll-up item the app named itself is translated (Spanish crew must read what orange asks); every real zone stays as typed.
-    await expect(last.locator('.walk-name')).toHaveText(lang === 'en' ? 'Curbs 5 of 5: clear 4 ft back (about 1,250 ft)' : 'Bordillos 5 de 5: despejar 4 pies (1.2 m) (unos 1,250 pies)');
+    await expect(last.locator('.walk-name')).toHaveText(lang === 'en' ? 'Curbs 5 of 5: clear 4 ft back (about 3,000 ft)' : 'Bordillos 5 de 5: despejar 4 pies (1.2 m) (unos 3,000 pies)');
     await expect(walkRow(page, 'S1|ZF').locator('.walk-name')).toHaveText('Front walk');
     await expect(walkRow(page, 'S1|ZB').locator('.walk-name')).toHaveText('Back stairs'); // the dictionary WOULD turn this into "Atras stairs"
     await expect(walkRow(page, 'S1|ZD').locator('.walk-name')).toHaveText('Curbs at dock');
@@ -6561,15 +6561,15 @@ test('Touched: sidewalks done and curbs left reads Touched in its own colour; th
 });
 
 test("Matt's Sites cards show each site's curbs and flag one over size; the crew's never do", async ({ page }) => {
-  // PAC: 500 ft, one item. TUDOR-TRANSIT: 1,266 + 951 + 1,233 + 2,555 = 6,005 ft in 4 zones: ceil(6005 / 900) = 7,
-  // the cap is 5, and never more items than zones makes it 4; 4 x 900 = 3,600 < 6,005, so over size.
+  // PAC: 500 ft, one item. TUDOR-TRANSIT: 3,000 + 2,500 + 3,200 + 5,000 = 13,700 ft in 4 zones: ceil(13700 / 2400) = 6,
+  // the cap is 5, and never more items than zones makes it 4; 4 x 2,400 = 9,600 < 13,700, so over size.
   const w = crewCurbsOn(world(), 'S1', 'S2'); // both ticked: no suffix on either line (the No site's line is in test/crewcurbs.spec.js)
-  w.zones = [...CURBS, ...[[1266, 14], [951, 15], [1233, 16], [2555, 17]].map(([ft, bp], i) =>
+  w.zones = [...CURBS, ...[[3000, 14], [2500, 15], [3200, 16], [5000, 17]].map(([ft, bp], i) =>
     ({ id: 'T' + bp, site_id: 'S2', type: 'hand', name: 'Curb - part ' + i, area_sqft: ft * 4, from: 'bootprint:J2:' + bp, rev: 1 }))];
   await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
   await page.click('nav [data-tab="sites"]');
   await expect(page.locator('[data-site="S1"] .curbline')).toHaveText('Curbs: 500 ft in 1 item');
-  await expect(page.locator('[data-site="S2"] .curbline')).toHaveText('Curbs: 6,005 ft in 4 items · over 900 ft per item');
+  await expect(page.locator('[data-site="S2"] .curbline')).toHaveText('Curbs: 13,700 ft in 4 items · over 2,400 ft per item');
   await expect(page.locator('[data-site="S2"] .curbline')).toHaveClass(/\bwarn\b/);
   const crew = await page.context().newPage();
   await open(crew, { token: 'tok-jordan', snow: fakeSnow(w) });

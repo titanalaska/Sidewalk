@@ -125,10 +125,10 @@ test('route sheet: the snowing flag says Sanded while snowing on a striped walk,
   assert.ok(li('Plain path').indexOf('Treated while snowing') !== -1);
 });
 
-// R3: four curb lines of 3200 sq ft each = 800 ft each at 4 ft wide; total 3200 ft; one item holds 750 * 1.2 = 900 ft,
-// so ceil(3200 / 900) = 4 items (under the 5 cap), cut one line per item. Only the item holding the striped line is striped.
+// R3: four curb lines of 8000 sq ft each = 2,000 ft each at 4 ft wide; total 8,000 ft; one item holds 2000 * 1.2 = 2,400 ft,
+// so ceil(8000 / 2400) = 4 items (3.33 rounds up) (under the 5 cap), cut one line per item. Only the item holding the striped line is striped.
 test('curb items: with several items at one site, only the item whose zones include a striped one is striped', () => {
-  const big = (id, extra) => curb(id, Object.assign({ area_sqft: 3200 }, extra || {}));
+  const big = (id, extra) => curb(id, Object.assign({ area_sqft: 8000 }, extra || {}));
   const zones = [big('c1'), big('c2'), big('c3', { new_concrete: true }), big('c4')];
   const items = Log.curbItems('S2', zones);
   assert.equal(items.length, 4);

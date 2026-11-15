@@ -330,10 +330,12 @@ function fakeSnow(state, opts = {}) {
           state.log.push(row);
           return { ok: true, record: markShown(row), ...v };
         }
-        if (role !== 'admin') {
-          const where = B.whereIs(board, me.crew_id), route = where && live.find((r) => r.id === where.route);
-          if (!route || !(route.site_ids || []).includes(siteId)) return refuse('forbidden', 'That site is not on your route');
-        }
+        // HELP VISITS (snow-app-script Code.js siteGate_ / onRoute_ / offRoute_, 11/15/26): an admin goes anywhere and is never flagged; anyone the Board has
+        // on a LIVE route may mark ANY live site, and the row is flagged off_route when that site is not on the route the Board has them on; a person on
+        // no live route is refused with the old words, and nothing is written.
+        const where = role === 'admin' ? null : B.whereIs(board, me.crew_id), ownRoute = where && live.find((r) => r.id === where.route);
+        if (role !== 'admin' && !where) return refuse('forbidden', 'That site is not on your route');
+        const offRoute = role !== 'admin' && (!ownRoute || !(ownRoute.site_ids || []).includes(siteId));
         if (body.action === 'siteMark') {
           // R28 / R31 / R43 / R45 (markShift_): an Arrived is the current shift. A Left goes where the shared leftShift says: the current shift when it holds a
           // standing tapped Arrived or a typed start; else the shift before, then the one before that, when its latest mark is an Arrived within 18 h.
@@ -343,7 +345,7 @@ function fakeSnow(state, opts = {}) {
           // standing Left (a return visit) and a Left after a standing Arrived are written.
           const latest = SL.latestMark(state.log, st0.storm_id, siteId, shiftId);
           if (latest && latest.state === body.kind) return { ok: true, record: markShown(latest), ...v };
-          const row = markRow({ site_id: siteId, state: body.kind, shift_id: shiftId });
+          const row = markRow({ site_id: siteId, state: body.kind, shift_id: shiftId, off_route: offRoute });
           state.log.push(row);
           return { ok: true, record: markShown(row), ...v };
         }
@@ -357,7 +359,7 @@ function fakeSnow(state, opts = {}) {
           if (gone) return { ok: true, record: markShown(gone), ...v };
           const lat = SL.latestMark(state.log, st0.storm_id, siteId, named.shift_id);
           if ((named.shift_id !== now && named.shift_id !== shiftBefore(now) && named.shift_id !== shiftBefore(shiftBefore(now))) || !lat || lat.id !== named.id) return refuse('conflict', 'That cannot be undone');
-          const nrow = markRow({ storm_id: named.storm_id, shift_id: named.shift_id, site_id: siteId, state: body.kind + '_undone', undoes: named.id });
+          const nrow = markRow({ storm_id: named.storm_id, shift_id: named.shift_id, site_id: siteId, state: body.kind + '_undone', undoes: named.id, off_route: offRoute });
           state.log.push(nrow);
           return { ok: true, record: markShown(nrow), ...v };
         }
@@ -365,7 +367,7 @@ function fakeSnow(state, opts = {}) {
         const here = state.log.some((r) => r.storm_id === st0.storm_id && r.site_id === siteId && r.shift_id === now && (r.state === body.kind || r.state === body.kind + '_undone'));
         if (!t.ok && !here) { const t2 = SL.markUndoTarget(state.log, st0.storm_id, siteId, shiftBefore(now), body.kind); if (t2.ok) t = t2; }
         if (!t.ok) return refuse('conflict', t.reason);
-        const row = markRow({ storm_id: t.row.storm_id, shift_id: t.row.shift_id, site_id: siteId, state: body.kind + '_undone', undoes: t.row.id });
+        const row = markRow({ storm_id: t.row.storm_id, shift_id: t.row.shift_id, site_id: siteId, state: body.kind + '_undone', undoes: t.row.id, off_route: offRoute });
         state.log.push(row);
         return { ok: true, record: markShown(row), ...v };
       }
@@ -7548,8 +7550,17 @@ test('times rows: the fake answers the six actions as the server does', async ()
   const mk = as('tok-jordan', { action: 'siteMark', kind: 'arrived', site_id: 'S1' });
   expect(mk).toMatchObject({ ok: true, action: 'siteMark', record: { site_id: 'S1', zone_id: '*', state: 'arrived', by_key: 'C03', by_name: 'Jordan Demo' } });
   expect(mk.record.by_profile).toBeUndefined();   // crew rows are allow-listed
-  // Off route: TUDOR (S2) is on R2, and he is on R1.
-  expect(as('tok-jordan', { action: 'siteMark', kind: 'arrived', site_id: 'S2' })).toMatchObject({ ok: false, code: 'forbidden', reason: 'That site is not on your route', action: 'siteMark' });
+  // Help visit (11/15/26): TUDOR (S2) is on R2 and he is on R1, a live route. The row is written, flagged off route, who from the token; his own
+  // route's row above is not flagged. His Undo of the help visit is a row carrying the same flag.
+  expect(mk.record.off_route).toBe(false);
+  const help = as('tok-jordan', { action: 'siteMark', kind: 'arrived', site_id: 'S2' });
+  expect(help).toMatchObject({ ok: true, action: 'siteMark', record: { site_id: 'S2', zone_id: '*', state: 'arrived', by_key: 'C03', by_name: 'Jordan Demo', off_route: true } });
+  expect(as('tok-jordan', { action: 'undoSiteMark', kind: 'arrived', site_id: 'S2' })).toMatchObject({ ok: true, record: { site_id: 'S2', state: 'arrived_undone', undoes: help.record.id, off_route: true } });
+  // A person on NO live route (the Board has him nowhere) is refused with the old words and nothing is written.
+  const none = timesWorld(); none.moves = []; const g = fakeSnow(none);
+  expect(g({ token: 'tok-jordan', action: 'siteMark', kind: 'arrived', site_id: 'S1' })).toMatchObject({ ok: false, code: 'forbidden', reason: 'That site is not on your route', action: 'siteMark' });
+  expect(g({ token: 'tok-jordan', action: 'siteMark', kind: 'arrived', site_id: 'S2' })).toMatchObject({ ok: false, code: 'forbidden', reason: 'That site is not on your route', action: 'siteMark' });
+  expect(none.log).toEqual([]);
   expect(as('tok-matt', { action: 'siteMark', kind: 'arrived', site_id: 'S2' })).toMatchObject({ ok: true });   // an admin goes anywhere
   expect(as('tok-jordan', { action: 'siteMark', kind: 'bogus', site_id: 'S1' })).toMatchObject({ ok: false, code: 'invalid', reason: 'Arrived or Left' });
   // Undo takes back that mark: a new row, the undone state, undoes the id.
@@ -7786,8 +7797,9 @@ test('site times: a double tap on Arrived sends one request and leaves one row',
   expect((await phoneState(page)).log.filter((r) => r.state === 'arrived')).toHaveLength(1);
 });
 
-test('site times: another route\'s site shows the times and no buttons', async ({ page }) => {
-  // Jordan is on N1. TUDOR-TRANSIT (S2) is N2's: an Arrived there at 5:40 AM shows as the line, but Jordan is offered none of the buttons.
+test('site times: another route\'s site shows the times and, to a person on a route, the same buttons (a help visit); Set times stays Matt\'s', async ({ page }) => {
+  // Jordan is on N1. TUDOR-TRANSIT (S2) is N2's: an Arrived there at 5:40 AM shows as the line. Help visits (11/15/26): Jordan is on a route, so S2 offers him
+  // what an Arrived-and-not-left site offers on his own route, Undo (that Arrived) and Left, and no second Arrived. Before, he was offered none of them.
   const w = timesWorld();
   w.log = [logRow(1, 'S2', '*', 'arrived', 'Alex Test', { at: tAt('05:40:00') })];
   await openStorm(page, w);
@@ -7795,8 +7807,87 @@ test('site times: another route\'s site shows the times and no buttons', async (
   await page.click('#otherRoutes');
   await expect(page.locator('[data-shiftsite="S2"]')).toBeVisible();
   await expect(timesLine(page, 'S2')).toHaveText('In 5:40 AM · Out');
-  await expect(page.locator('[data-shiftsite="S2"] [data-arrived], [data-shiftsite="S2"] [data-left], [data-shiftsite="S2"] [data-markundo]')).toHaveCount(0);
-  await expect(page.locator('[data-shiftsite="S2"] [data-settimes]')).toHaveCount(0);
+  await expect(page.locator('[data-shiftsite="S2"] [data-left]')).toBeVisible();
+  await expect(page.locator('[data-shiftsite="S2"] [data-markundo]')).toHaveCount(1);
+  await expect(page.locator('[data-shiftsite="S2"] [data-markundo="S2:arrived"]')).toBeVisible();
+  await expect(page.locator('[data-shiftsite="S2"] [data-arrived]')).toHaveCount(0);   // the latest mark there is an Arrived: no second one (R38)
+  await expect(page.locator('[data-shiftsite="S2"] [data-settimes]')).toHaveCount(0);   // typing a time is still Matt's
+});
+
+test('help visit: a member on N1 taps Arrived at N2\'s site: the request is the same siteMark body and the row comes back flagged off route', async ({ page }) => {
+  // Help visits (Matt, 11/15/26). Jordan (C03) is a member of N1 = PAC (S1); TUDOR-TRANSIT (S2) is N2's, on the Board and in tonight's Post. The phone
+  // offers him Arrived there as it does at PAC and sends the same body (no route, no flag: the server decides both from his token and the Board). The fake
+  // answers as Code.js does (siteGate_ / onRoute_ / offRoute_): written, off_route true, who from the token. His own site is untouched.
+  const w = timesWorld(); w.clock = tAt('03:02:11');
+  const calls = await openStorm(page, w);
+  await page.click('#otherRoutes');
+  await expect(page.locator('[data-shiftsite="S2"]')).toBeVisible();
+  await expect(arrivedBtn(page, 'S2')).toBeVisible();
+  await expect(leftBtn(page, 'S2')).toHaveCount(0);
+  await expect(markUndoBtn(page, 'S2', 'arrived')).toHaveCount(0);
+  await arrivedBtn(page, 'S2').click();
+  await expect(timesLine(page, 'S2')).toHaveText('In 3:02 AM · Out');
+  await expect(markUndoBtn(page, 'S2', 'arrived')).toBeVisible();
+  await expect(leftBtn(page, 'S2')).toBeVisible();
+  await expect(arrivedBtn(page, 'S2')).toHaveCount(0);
+  const sent = siteActionCalls(calls, 'siteMark');
+  expect(sent).toHaveLength(1);
+  expect(Object.keys(sent[0].body).sort()).toEqual(['action', 'kind', 'site_id', 'token']);   // the SAME body as a tap at his own site
+  expect([sent[0].body.site_id, sent[0].body.kind]).toEqual(['S2', 'arrived']);
+  // The row the server sent back is the one the phone holds: flagged off route, his name from the token, in the allow-listed crew shape.
+  const held = (await phoneState(page)).log;
+  expect(held).toHaveLength(1);
+  expect(held[0]).toMatchObject({ site_id: 'S2', zone_id: '*', state: 'arrived', by_key: 'C03', by_name: 'Jordan Demo', off_route: true });
+  expect(w.log.map((r) => [r.site_id, r.state, r.off_route])).toEqual([['S2', 'arrived', true]]);
+  // Left, then Undo of that Left: every row written is flagged, and the Undo names the row it takes back as it does on his own route.
+  w.clock = tAt('04:10:00');
+  await leftBtn(page, 'S2').click();
+  await expect(timesLine(page, 'S2')).toHaveText('In 3:02 AM · Out 4:10 AM');
+  await markUndoBtn(page, 'S2', 'left').click();
+  await expect(timesLine(page, 'S2')).toHaveText('In 3:02 AM · Out');
+  const u = siteActionCalls(calls, 'undoSiteMark')[0].body;
+  expect(Object.keys(u).sort()).toEqual(['action', 'kind', 'site_id', 'target', 'token']);
+  expect([u.site_id, u.kind, u.target]).toEqual(['S2', 'left', 'L-2']);
+  expect(w.log.map((r) => [r.site_id, r.state, r.off_route, r.by_key])).toEqual([['S2', 'arrived', true, 'C03'], ['S2', 'left', true, 'C03'], ['S2', 'left_undone', true, 'C03']]);
+  // PAC, his own route's site, was never touched: still Arrived, no row.
+  await expect(arrivedBtn(page, 'S1')).toBeVisible();
+  expect(w.log.filter((r) => r.site_id === 'S1')).toEqual([]);
+});
+
+test('help visit: the buttons are not offered with no storm open, or to a non-admin the fresh Post does not list, on any site', async ({ browser }) => {
+  // The rule widened from "a site of my route" to "any site, if I am on a route", and only that. Each case is a fresh phone (a new context) over its own world.
+  // Counted on every site the phone shows, S1 (N1) and S2 (N2). The Board (moves) has Jordan on N1 in every case: the phone reads the POST, not the Board.
+  const phone = async (w, check) => {
+    const ctx = await browser.newContext({ timezoneId: 'America/Anchorage', viewport: { width: 390, height: 844 } });
+    const p = await ctx.newPage();
+    try { await openStorm(p, w); await check(p); } finally { await ctx.close(); }
+  };
+  const anyButton = (p) => p.locator('[data-arrived], [data-left], [data-markundo], [data-settimes]');
+  // 1. No storm open: Jordan is on a route, and no site offers anything.
+  const closed = timesWorld(); closed.storms = [START_ROW, { id: 'ST-2', seq: 2, kind: 'end', storm_id: 'ST-1', at: tAt('07:00:00'), by_name: 'Matthew' }];
+  closed.log = [seedMark(1, 'arrived', { at: tAt('04:15:00') })];
+  await phone(closed, async (p) => {
+    await expect(p.locator('#stormhead')).toHaveText('No storm open');
+    await expect(anyButton(p)).toHaveCount(0);
+  });
+  // 2. A fresh Post that does not list him (a read-only view): he sees both routes' sites and the times, and no button at either.
+  const off = timesWorld(); off.posts = [boardPost({ lead: 'C01' }, {})];
+  off.log = [seedMark(1, 'arrived', { at: tAt('04:15:00') }), logRow(2, 'S2', '*', 'arrived', 'Alex Test', { at: tAt('05:40:00') })];
+  await phone(off, async (p) => {
+    await p.click('#otherRoutes');
+    await expect(p.locator('[data-shiftsite="S1"]')).toBeVisible();
+    await expect(p.locator('[data-shiftsite="S2"]')).toBeVisible();
+    await expect(timesLine(p, 'S1')).toHaveText('In 4:15 AM · Out');
+    await expect(timesLine(p, 'S2')).toHaveText('In 5:40 AM · Out');
+    await expect(anyButton(p)).toHaveCount(0);
+  });
+  // 3. The same Post but listing him on N1: both sites offer the buttons (help is a tap on a site that is not his route's), so cases 1 and 2 are not blind.
+  const on = timesWorld(); on.posts = [boardPost({ lead: 'C01', members: ['C03'] }, {})];
+  await phone(on, async (p) => {
+    await p.click('#otherRoutes');
+    await expect(arrivedBtn(p, 'S1')).toBeVisible();
+    await expect(arrivedBtn(p, 'S2')).toBeVisible();
+  });
 });
 
 test('site times: with no post the phone cannot tell the route, so it offers Arrived and Left as it offers walk taps (R26)', async ({ page }) => {

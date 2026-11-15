@@ -226,7 +226,9 @@ function fakeSnow(state, opts = {}) {
       // the admin's raw rows carry by_profile 'P1'. Everything else (who, refusals and their words, the shift id written, the
       // reply shape) is meant to match handler for handler.
       // The six times actions (snow-app-script Code.js, times-1): who comes from the token, the route check is the
-      // Board's (a crew member on no route, or on another, is refused), the two typed ones are admin only, every
+      // Board's (the two clock actions: a crew member on no route, or naming another, is refused; the three site actions, help visits:
+      // only a person on no live route is refused, one on a live route may mark any live site and the row is flagged off_route when
+      // that site is not on their own route, an admin never), the two typed ones are admin only, every
       // reply echoes `action` (...v).
       if (['siteMark', 'undoSiteMark', 'typeSiteTimes', 'clockTap', 'clockUndo', 'typeClock'].includes(body.action)) {
         const CK = require('../lib/clock.js'), B = require('../lib/board.js'), T = require('../lib/time.js');
@@ -309,7 +311,8 @@ function fakeSnow(state, opts = {}) {
           }
           return { ok: true, written: out.length, records: clockShown(out), ...v };
         }
-        // The three site actions: a storm must be open; the site must be live; a crew member must be on a route holding it.
+        // The three site actions: a storm must be open; the site must be live; a person on no live route is refused, one on a live route
+        // may mark any live site (flagged off_route when it is not on their own route, admins never flagged: HELP VISITS, below).
         if (!st0.open) return refuse('invalid', 'No storm is open');
         const siteId = typeof body.site_id === 'string' ? body.site_id : '';
         if (body.action !== 'typeSiteTimes' && body.kind !== 'arrived' && body.kind !== 'left') return refuse('invalid', 'Arrived or Left');   // the kind first (siteMark_, undoSiteMark_)

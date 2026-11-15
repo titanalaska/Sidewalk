@@ -14,7 +14,7 @@
 // The fake backend here answers only what these screens ask (bootstrap, saveZone); every
 // other action is refused with a reason, never silently ok. The site is a made-up one at
 // the Performing Arts Center's corner, as test/ui.spec.js uses: no customer data.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./no-real-weather.js');
 const path = require('path');
 const url = require('url');
 

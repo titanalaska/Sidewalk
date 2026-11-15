@@ -13,7 +13,7 @@
 // its tests twice). It answers like the real server and no better: every POST reply carries `action`; Matt's bootstrap
 // and getZones include archived records and a crew member's never do; crew and leads are refused a restore with the same
 // words as an archive attempt; a stale rev is a conflict; a record that is not archived, or not there, is `invalid`.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./no-real-weather.js');
 const path = require('path');
 const url = require('url');
 const SnowPoints = require('../lib/points.js');

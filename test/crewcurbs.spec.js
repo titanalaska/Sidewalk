@@ -5,7 +5,7 @@
 //   Spruce Office (S2): crew_curbs true -> a Yes site. Z2 sidewalk "Front walk", Z4 curb line "Curb - lot" (1,200 sq ft = 300 ft).
 //   The Sites tab line at Birch: "Curbs: 300 ft in 1 item" + " · the crew doesn't see them"; at Spruce: "Curbs: 300 ft in 1 item" alone.
 //   The map at Birch draws [Z1]; with Edit map on, [Z1, Z3]; after Done, [Z1] again. At Spruce it draws [Z2, Z4] always.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./no-real-weather.js');
 const path = require('path');
 const url = require('url');
 

@@ -1,4 +1,4 @@
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./no-real-weather.js');
 const { spawn } = require('child_process');
 const path = require('path');
 

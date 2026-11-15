@@ -8,7 +8,7 @@
 //
 // This file has its own small fake backend (a spec exports nothing, and requiring another would run its tests twice). It
 // answers like the real server and no better: every POST reply names its `action` and the version the phone expects.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./no-real-weather.js');
 const path = require('path');
 const url = require('url');
 

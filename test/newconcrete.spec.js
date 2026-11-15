@@ -6,7 +6,7 @@
 //     to sidewalk keeps true (Review Focus 2)
 // The fade of a done striped zone is in test/ui.spec.js beside the other map-tap tests (it needs the Storm tab's world).
 // The fake answers sitedone-1 and echoes `action` on every reply, like the server (lib/api.js refuses a same-version reply that does not). Made-up site, no customer data. The fake backend echoes the saved record, so what the page sent is what it gets back.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./no-real-weather.js');
 const path = require('path');
 const url = require('url');
 

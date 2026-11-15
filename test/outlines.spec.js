@@ -6,7 +6,7 @@
 // way snow-app-script's Code.js does, with the SAME lib/points.js (byte for byte the server's): on
 // `slim === true` and nothing else, the points are worked out from the outlines the zones still have,
 // then the rings are dropped. ui.spec.js pins the same behaviour on its bigger fake.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./no-real-weather.js');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');

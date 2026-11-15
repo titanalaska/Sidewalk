@@ -10,7 +10,7 @@
 //   Site treated at S1 after that would write only Z2 (cleared -> treated): Z1 problem, Z5 treated, heated never.
 // Spruce Office (S2) has no zones: one "Whole site" walk. Cedar Hall (S3) is a No site (no crew_curbs) with a sidewalk and a "Curb - east" line.
 // Every row the fake writes is stamped 7:50:18 AM Alaska time on 10/3.
-const { test, expect } = require('@playwright/test');
+const { test, expect } = require('./no-real-weather.js');
 const path = require('path');
 const url = require('url');
 const SL = require('../lib/shiftlog.js');

@@ -446,16 +446,24 @@ test('M2: a refused Undo clears itself once a newer row lands at the site', asyn
 
 test('M3: an Undo in flight at a site with no buttons left marks the row busy', async ({ page }) => {
   // Cedar Hall (S3): Site done clears its sidewalk, Site treated then treats it; after that neither button has a walk to write.
+  // 11/14/26: this used to pass only when some other redraw happened to land while the Undo was out. That redraw was the snow
+  // forecast: each api.weather.gov answer calls draw(), and this file never stubbed the weather, so real answers landed at
+  // random. Under the full suite's load none landed in the window, and the row never showed busy (failed 3 of 4 full runs).
+  // Now the weather is refused at once (its answers all land at page load), the page clock is run 5 s so every queued
+  // forecast fetch has fired, and the reply is held 3 s: the busy row must come from the Undo itself, within 1 s.
+  await page.route(/api\.weather\.gov/, (route) => route.abort());
   const w = world();
-  await openStorm(page, w, { undoDelay: 900 });
+  await openStorm(page, w, { undoDelay: 3000 });
   await btn(page, 'S3', 'done').click();
   await expect(page.locator('[data-siteline="S3"]')).toBeVisible();
   await btn(page, 'S3', 'treated').click();
   await expect(btn(page, 'S3', 'treated')).toHaveCount(0);
   await expect(btn(page, 'S3', 'done')).toHaveCount(0);
   await expect(page.locator('[data-sitetaprow="S3"]')).toHaveCount(0);
+  await page.clock.runFor(5000);
+  await expect(page.locator('[data-sitetaprow="S3"]')).toHaveCount(0);
   await page.locator('[data-siteline="S3"] [data-undobatch]').click();
-  await expect(page.locator('[data-sitetaprow="S3"]')).toHaveAttribute('aria-busy', 'true');
+  await expect(page.locator('[data-sitetaprow="S3"]')).toHaveAttribute('aria-busy', 'true', { timeout: 1000 });
   await expect(page.locator('#toast')).toHaveText('Undone: 1 walk.');
 });
 

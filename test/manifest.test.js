@@ -64,6 +64,19 @@ test('the page loads points.js before mapview.js, and outlines.js; the shell car
   for (const f of ['lib/points.js', 'lib/outlines.js']) assert.ok(shell.includes(f), f + ' is not in the shell');
 });
 
+// Breaking up the long site lists (11/15/26): lib/grouplist.js (SnowGroupList) is what the Sites tab and the
+// route editor's Add sites view draw from, so the page loads it before app.js, and the shell carries it so a
+// list still draws with no signal.
+test('the page loads grouplist.js before app.js; the shell carries it', () => {
+  const html = read('index.html').toString();
+  const loaded = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(loaded.includes('lib/grouplist.js'), 'lib/grouplist.js is not loaded by index.html');
+  assert.ok(loaded.indexOf('lib/grouplist.js') < loaded.indexOf('lib/app.js'), 'lib/grouplist.js must load before lib/app.js');
+  const sw = read('sw.js').toString();
+  const shell = JSON.parse(sw.match(/var SHELL = (\[[\s\S]*?\]);/)[1].replace(/'/g, '"'));
+  assert.ok(shell.includes('lib/grouplist.js'), 'lib/grouplist.js is not in the shell');
+});
+
 test('the offline shell carries the manifest and icons', () => {
   const sw = read('sw.js').toString();
   for (const f of ['manifest.json', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png']) assert.ok(sw.includes("'" + f + "'"), f);

@@ -2652,18 +2652,18 @@ test('the Sites tab: the customer buttons count the live sites, and the one that
   await sitesTabOf(page, listWorld());
   // All 16 live sites; ANTHC 14, MOA 1, no customer 1 (the archived Old Yard counts nowhere).
   await expect(page.locator('#site_chips [data-sitecust]')).toHaveCount(4);
-  await expect(page.locator('[data-sitecust="*"]')).toHaveText('All 16');
+  await expect(page.locator('[data-siteany]')).toHaveText('All 16');
   await expect(page.locator('[data-sitecust="ANTHC"]')).toHaveText('ANTHC 14');
   await expect(page.locator('[data-sitecust="MOA"]')).toHaveText('MOA 1');
   await expect(page.locator('[data-sitecust=""]')).toHaveText('No customer yet 1');
-  await expect(page.locator('[data-sitecust="*"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-siteany]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('[data-sitecust="MOA"]')).toHaveAttribute('aria-pressed', 'false');
   // MOA on: only Beta, the bar still there, the button says it is on, All says it is off. A filter left on must be visible.
   await page.click('[data-sitecust="MOA"]');
   expect(await siteIds(page)).toEqual(['S30']);
   expect(await page.locator('.grp-bar .site-group').allTextContents()).toEqual(['MOA']);
   await expect(page.locator('[data-sitecust="MOA"]')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('[data-sitecust="*"]')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('[data-siteany]')).toHaveAttribute('aria-pressed', 'false');
   // The buttons do not move with the filter: ANTHC still says 14.
   await expect(page.locator('[data-sitecust="ANTHC"]')).toHaveText('ANTHC 14');
   // No customer yet: Gamma alone, and it keeps its bar because the world has customers.
@@ -2675,10 +2675,63 @@ test('the Sites tab: the customer buttons count the live sites, and the one that
   await page.click('[data-sitecust="ANTHC"]');
   expect(await siteIds(page)).toEqual(LIST_IDS);
   expect(await page.locator('.grp-letter').count()).toBe(13);
-  await page.click('[data-sitecust="*"]');
+  await page.click('[data-siteany]');
   expect(await siteIds(page)).toEqual(ALL_LIST_IDS);
-  await expect(page.locator('[data-sitecust="*"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-siteany]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('[data-sitecust="ANTHC"]')).toHaveAttribute('aria-pressed', 'false');
+});
+
+// Final review (11/15/26): All used to be data-sitecust="*", so a customer actually named * could not be filtered here. All now carries
+// data-siteany as well (as the pick view's All carries data-pickany), and the click and the pressed marks key off that. The fixture, worked
+// on paper: five live sites, ANTHC has Birch Court S2 and Cedar Yard S5, MOA has Fir Annex S11, and the customer called * has Elm Plaza S7
+// and Dogwood Row S9 (by name Dogwood is above Elm). So All 5, ANTHC 2, MOA 1, * 2.
+test('the Sites tab: a customer named * is its own button that filters to its own sites, and All stays All', async ({ page }) => {
+  const w = world();
+  w.sites = [
+    { id: 'S2', name: 'Birch Court', rev: 1, customer: 'ANTHC' }, { id: 'S5', name: 'Cedar Yard', rev: 1, customer: 'ANTHC' },
+    { id: 'S7', name: 'Elm Plaza', rev: 1, customer: '*' }, { id: 'S9', name: 'Dogwood Row', rev: 1, customer: '*' },
+    { id: 'S11', name: 'Fir Annex', rev: 1, customer: 'MOA' },
+  ];
+  const calls = await sitesTabOf(page, w);
+  const star = page.locator('#site_chips [data-sitecust="*"]:not([data-siteany])');
+  const any = page.locator('[data-siteany]');
+  const moa = page.locator('[data-sitecust="MOA"]');
+  // Two buttons carry data-sitecust="*": All (marked as the one that means every customer) and the customer called *.
+  await expect(page.locator('#site_chips [data-sitecust="*"]')).toHaveCount(2);
+  await expect(page.locator('#site_chips [data-sitecust]')).toHaveCount(4);
+  await expect(any).toHaveCount(1);
+  await expect(any).toHaveText('All 5');
+  await expect(star).toHaveText('* 2');
+  await expect(any).toHaveAttribute('aria-pressed', 'true');
+  await expect(star).toHaveAttribute('aria-pressed', 'false');                 // All on does not turn the * customer on
+  expect((await siteIds(page)).sort()).toEqual(['S11', 'S2', 'S5', 'S7', 'S9']);
+  // The * customer: its own two sites, not everything; All is off, and so is MOA.
+  await star.click();
+  expect(await siteIds(page)).toEqual(['S9', 'S7']);
+  await expect(star).toHaveAttribute('aria-pressed', 'true');
+  await expect(any).toHaveAttribute('aria-pressed', 'false');
+  await expect(moa).toHaveAttribute('aria-pressed', 'false');
+  // MOA: Fir Annex alone; the * button goes off.
+  await moa.click();
+  expect(await siteIds(page)).toEqual(['S11']);
+  await expect(moa).toHaveAttribute('aria-pressed', 'true');
+  await expect(star).toHaveAttribute('aria-pressed', 'false');
+  await expect(any).toHaveAttribute('aria-pressed', 'false');
+  // All: everything again, and only All is on.
+  await any.click();
+  expect((await siteIds(page)).sort()).toEqual(['S11', 'S2', 'S5', 'S7', 'S9']);
+  await expect(any).toHaveAttribute('aria-pressed', 'true');
+  await expect(star).toHaveAttribute('aria-pressed', 'false');
+  await expect(moa).toHaveAttribute('aria-pressed', 'false');
+  // The * customer on and a search that finds nothing in it, then Clear: back to All, the * button off (the buttons are marked in place).
+  await star.click();
+  await page.fill('#site_q', 'birch');                                          // Birch Court is ANTHC's, not the * customer's
+  await expect(page.locator('#site_list')).toContainText('No sites match');
+  await page.click('#site_clear');
+  expect((await siteIds(page)).sort()).toEqual(['S11', 'S2', 'S5', 'S7', 'S9']);
+  await expect(any).toHaveAttribute('aria-pressed', 'true');
+  await expect(star).toHaveAttribute('aria-pressed', 'false');
+  expect(calls.errors).toEqual([]);
 });
 
 // Review Focus 1: typing keeps the keyboard. The box is never rebuilt by the redraw (only #site_list is), so after each key it is
@@ -2764,10 +2817,26 @@ test('the Sites tab: no match says so, the buttons stay, and Clear puts everythi
   await expect(page.locator('#site_list')).toContainText('No sites match');
   await page.click('#site_clear');
   await expect(page.locator('#site_q')).toHaveValue('');
-  await expect(page.locator('[data-sitecust="*"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-siteany]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('[data-sitecust="MOA"]')).toHaveAttribute('aria-pressed', 'false');
   expect(await siteIds(page)).toEqual(ALL_LIST_IDS);
   await expect(page.locator('#site_clear')).toHaveCount(0);
+});
+
+// Final review (11/15/26): #site_clear sits inside the redrawn #site_list, so tapping it used to leave the focus on the page. It goes
+// to the search box now (empty, with everything back under it), so the next key is a new search.
+test('the Sites tab: Clear hands the keyboard to the search box, which is empty', async ({ page }) => {
+  await sitesTabOf(page, listWorld());
+  await page.fill('#site_q', 'zzz');
+  await expect(page.locator('#site_clear')).toBeVisible();
+  await page.click('#site_clear');
+  expect(await activeId(page)).toBe('site_q');
+  await expect(page.locator('#site_q')).toHaveValue('');
+  expect(await siteIds(page)).toEqual(ALL_LIST_IDS);
+  // A key typed now lands in the box: "bet" finds Beta (S30) alone.
+  await page.keyboard.type('bet');
+  await expect(page.locator('#site_q')).toHaveValue('bet');
+  expect(await siteIds(page)).toEqual(['S30']);
 });
 
 test('the Sites tab: search and customer survive a tab switch and the redraw after a save', async ({ page }) => {
@@ -2800,7 +2869,7 @@ test('the Sites tab: search and customer survive a tab switch and the redraw aft
   await page.click('nav [data-tab="routes"]');
   await page.click('nav [data-tab="sites"]');
   await expect(page.locator('[data-sitecust="MOA"]')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('[data-sitecust="*"]')).toHaveAttribute('aria-pressed', 'false');   // drawn again: MOA on means All is off
+  await expect(page.locator('[data-siteany]')).toHaveAttribute('aria-pressed', 'false');   // drawn again: MOA on means All is off
   expect(await siteIds(page)).toEqual(['S30']);
   expect(await counts()).toEqual(['All 16', 'ANTHC 14', 'MOA 1', 'No customer yet 1']);
   // Nothing was written to this phone for any of it: the search and the filter are in memory only (never localStorage).
@@ -2817,7 +2886,7 @@ test('the Sites tab: a customer filter whose customer has no live site left is d
   await page.click('#s_save');
   await expect(page.locator('#dlg')).toBeHidden();
   await expect(page.locator('[data-sitecust="MOA"]')).toHaveCount(0);
-  await expect(page.locator('[data-sitecust="*"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-siteany]')).toHaveAttribute('aria-pressed', 'true');
   // All 16 again, ANTHC now 15 (the 14 and Beta) with its letters, no customer 1.
   await expect(page.locator('[data-sitecust="ANTHC"]')).toHaveText('ANTHC 15');
   expect(await page.locator('.grp-bar .grp-count').allTextContents()).toEqual(['15', '1']);
@@ -2871,7 +2940,7 @@ test('the Sites tab: signing out lets go of the search and the customer button',
   await page.click('#si_go');
   await page.click('nav [data-tab="sites"]');
   await expect(page.locator('#site_q')).toHaveValue('');
-  await expect(page.locator('[data-sitecust="*"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-siteany]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('[data-sitecust="MOA"]')).toHaveAttribute('aria-pressed', 'false');
   expect(await siteIds(page)).toEqual(ALL_LIST_IDS);
 });
@@ -2932,7 +3001,7 @@ test('Spanish: the Sites tab search, buttons and empty line read in Spanish; sit
   await sitesTabOf(page, w);
   await expect(page.locator('#site_q')).toHaveAttribute('placeholder', 'Buscar sitios');
   await expect(page.locator('#site_q')).toHaveAttribute('aria-label', 'Buscar sitios');
-  await expect(page.locator('[data-sitecust="*"]')).toHaveText('Todos 17');   // 14 + Beta + Pine Walk + Gamma
+  await expect(page.locator('[data-siteany]')).toHaveText('Todos 17');   // 14 + Beta + Pine Walk + Gamma
   await expect(page.locator('[data-sitecust="ANTHC"]')).toHaveText('ANTHC 14');
   await expect(page.locator('[data-sitecust="Valley"]')).toHaveText('Valley 1');
   await expect(page.locator('[data-grp="Valley"] .site-group')).toHaveText('Valley');
@@ -3244,6 +3313,109 @@ test('Add sites: the phone\'s Back from the pick view returns to the route view 
   await page.click('#pick_back');
   await page.fill('#r_name', 'Night 9');
   expect((await savedRoute(page, calls)).name).toBe('Night 9');
+  expect(calls.errors).toEqual([]);
+});
+
+// Final review (11/15/26): ticks survive Back by design, but nothing on the route view said so, and Save sends the route without them.
+// The route view now says it, beside Add sites… in the slot "N added" uses. The line follows the ticks as they stand (never the last
+// Add ticked's count), shows only on the route view, and never beside "N added" (Add ticked lets go of the ticks).
+test('Add sites: ticks left behind by Back are named on the route view, and the line follows the ticks', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });                     // the narrowest phone: the line may drop under the button, never off the screen
+  const calls = await routeEditorOf(page, pickWorld());
+  // The pick view is open and three are ticked: the line belongs to the route view, so it is nowhere yet.
+  await page.click('[data-pick="S5"]');
+  await page.click('[data-pick="S2"]');
+  await page.click('[data-pick="S9"]');
+  await expect(page.locator('#pick_add')).toHaveText('Add ticked (3)');
+  await expect(page.locator('#r_ticked')).toHaveCount(0);
+  // Back: three ticked, none added. The line sits in the row of Add sites… and is announced (role status); "N added" is not there.
+  await page.click('#pick_back');
+  await expect(page.locator('#r_ticked')).toBeVisible();
+  await expect(page.locator('#r_ticked')).toHaveText('3 ticked, not added yet');
+  await expect(page.locator('#r_ticked')).toHaveAttribute('role', 'status');
+  await expect(page.locator('.row:has(#r_pick) > #r_ticked')).toHaveCount(1);
+  await expect(page.locator('#r_added')).toHaveCount(0);
+  const edge = await page.evaluate(() => ({ right: Math.ceil(document.querySelector('#r_ticked').getBoundingClientRect().right), wide: document.documentElement.scrollWidth }));
+  expect(edge.right).toBeLessThanOrEqual(320);
+  expect(edge.wide).toBeLessThanOrEqual(320);
+  expect(await page.locator('#r_ticked').evaluate((el) => getComputedStyle(el).alignSelf)).toBe('center');   // level with the button, as "N added" is
+  // The route is still S1 alone: the three are ticks, not sites on the route.
+  await expect(page.locator('ol.sitelist.edit li')).toHaveCount(1);
+  // The route view redraws on a Remove: the line is still there, still the ticks' count.
+  await page.click('[data-del="0"]');
+  await expect(page.locator('ol.sitelist.edit li')).toHaveCount(0);
+  await expect(page.locator('#r_ticked')).toHaveText('3 ticked, not added yet');
+  // Back to the pick view (the three are still ticked, in screen order: ANTHC's Birch Court S2 and Cedar Yard S5, then MOA's Dogwood Row
+  // S9) and one tick taken off (S2): Back says 2, which is the ticks as they stand now, not the 3 it said before. S1, taken off the
+  // route a moment ago, is a row again and unticked, so it changes nothing.
+  await page.click('#r_pick');
+  expect(await tickedIds(page)).toEqual(['S2', 'S5', 'S9']);
+  await expect(page.locator('#r_ticked')).toHaveCount(0);                      // the pick view is open again: not there
+  await page.click('[data-pick="S2"]');
+  await expect(page.locator('#pick_add')).toHaveText('Add ticked (2)');
+  await page.click('#pick_back');
+  await expect(page.locator('#r_ticked')).toHaveText('2 ticked, not added yet');
+  expect(calls.errors).toEqual([]);
+});
+
+test('Add sites: Clear ticks takes the line away, and Add ticked says "N added" and never both', async ({ page }) => {
+  const calls = await routeEditorOf(page, pickWorld());
+  await page.click('[data-pick="S5"]');
+  await page.click('[data-pick="S2"]');
+  await page.click('#pick_back');
+  await expect(page.locator('#r_ticked')).toHaveText('2 ticked, not added yet');
+  // Back in, Clear ticks, Back out: nothing is ticked, so nothing is said.
+  await page.click('#r_pick');
+  await page.click('#pick_clear');
+  await expect(page.locator('#pick_add')).toHaveText('Add ticked (0)');
+  await page.click('#pick_back');
+  await expect(page.locator('#r_pick')).toBeVisible();
+  await expect(page.locator('#r_ticked')).toHaveCount(0);
+  await expect(page.locator('#r_added')).toHaveCount(0);
+  // Two ticked and Add ticked: the route says "2 added" and the ticks are gone, so the other line is not there.
+  await page.click('#r_pick');
+  await page.click('[data-pick="S9"]');
+  await page.click('[data-pick="S7"]');
+  await page.click('#pick_add');
+  await expect(page.locator('#r_added')).toHaveText('2 added');
+  await expect(page.locator('#r_ticked')).toHaveCount(0);
+  // A look at the pick view with nothing ticked and Back starts a new count: neither line.
+  await page.click('#r_pick');
+  await page.click('#pick_back');
+  await expect(page.locator('#r_added')).toHaveCount(0);
+  await expect(page.locator('#r_ticked')).toHaveCount(0);
+  expect(calls.errors).toEqual([]);
+});
+
+test('Add sites: Save sends the route without the ticks left behind (the line is the warning), and a reopened route starts with none', async ({ page }) => {
+  const calls = await routeEditorOf(page, pickWorld());
+  await page.click('[data-pick="S2"]');
+  await page.click('[data-pick="S5"]');
+  await page.click('#pick_back');
+  await expect(page.locator('#r_ticked')).toHaveText('2 ticked, not added yet');
+  // Save as it stands: R1 holds S1 alone, and S2 and S5 were only ticked, so the saved route is S1 alone. (This pins what Save does
+  // today: it neither adds the ticks nor warns or blocks.)
+  const saved = await savedRoute(page, calls);
+  expect(saved.site_ids).toEqual(['S1']);
+  expect(saved.site_ids).not.toContain('S2');
+  expect(saved.site_ids).not.toContain('S5');
+  await expect(page.locator('#dlg')).toBeHidden();
+  await backSettled(page);
+  // The same again, leaving by Cancel with the line showing: the next editor on the route starts clean, no ticks, no line.
+  await page.click('[data-edit="route:R1"]');
+  await page.click('#r_pick');
+  await page.click('[data-pick="S2"]');
+  await page.click('#pick_back');
+  await expect(page.locator('#r_ticked')).toHaveText('1 ticked, not added yet');
+  await page.click('#dlgClose');
+  await expect(page.locator('#dlg')).toBeHidden();
+  await backSettled(page);
+  await page.click('[data-edit="route:R1"]');
+  await expect(page.locator('#r_pick')).toBeVisible();
+  await expect(page.locator('#r_ticked')).toHaveCount(0);
+  await expect(page.locator('#r_added')).toHaveCount(0);
+  await page.click('#r_pick');
+  expect(await tickedIds(page)).toEqual([]);
   expect(calls.errors).toEqual([]);
 });
 

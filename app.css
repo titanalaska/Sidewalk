@@ -410,4 +410,4 @@ header #who{flex:1 1 auto;min-width:0;text-align:left}
 .pickbar button{flex:1 1 0;min-width:0}
 .pickbar #pick_add{flex:2 1 0}
 .pickbar button:disabled{opacity:.5}
-#r_added{align-self:center}
+#r_added,#r_ticked{align-self:center}

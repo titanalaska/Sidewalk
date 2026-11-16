@@ -2774,6 +2774,9 @@ test('the Sites tab: search and customer survive a tab switch and the redraw aft
   await page.click('nav [data-tab="sites"]');
   await expect(page.locator('#site_q')).toHaveValue('court');
   expect(await siteIds(page)).toEqual(['S2', 'S4']);
+  // The tab switch drew the buttons again, with the search on: they still count every live site (16; 14, 1, 1), never what the search finds.
+  const counts = async () => (await page.locator('#site_chips [data-sitecust]').allTextContents()).map((t) => t.trim());
+  expect(await counts()).toEqual(['All 16', 'ANTHC 14', 'MOA 1', 'No customer yet 1']);
   // A save redraws the tab: Aspen Court's notes change, the search is still on and still finds the same two.
   await page.click('[data-edit="site:S2"]');
   await page.fill('#s_mat', '2 bags');
@@ -2782,13 +2785,16 @@ test('the Sites tab: search and customer survive a tab switch and the redraw aft
   expect(calls.filter((c) => c.body.action === 'saveSite')).toHaveLength(1);
   await expect(page.locator('#site_q')).toHaveValue('court');
   expect(await siteIds(page)).toEqual(['S2', 'S4']);
+  expect(await counts()).toEqual(['All 16', 'ANTHC 14', 'MOA 1', 'No customer yet 1']);   // and after the save's redraw
   // The customer button is kept the same way: MOA on, away to Routes and back.
   await page.fill('#site_q', '');
   await page.click('[data-sitecust="MOA"]');
   await page.click('nav [data-tab="routes"]');
   await page.click('nav [data-tab="sites"]');
   await expect(page.locator('[data-sitecust="MOA"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-sitecust="*"]')).toHaveAttribute('aria-pressed', 'false');   // drawn again: MOA on means All is off
   expect(await siteIds(page)).toEqual(['S30']);
+  expect(await counts()).toEqual(['All 16', 'ANTHC 14', 'MOA 1', 'No customer yet 1']);
   // Nothing was written to this phone for any of it: the search and the filter are in memory only (never localStorage).
   expect(await phone()).toBe(before);
 });

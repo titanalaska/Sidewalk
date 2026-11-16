@@ -348,6 +348,9 @@ function fakeSnow(state, opts = {}) {
           // standing Left (a return visit) and a Left after a standing Arrived are written.
           const latest = SL.latestMark(state.log, st0.storm_id, siteId, shiftId);
           if (latest && latest.state === body.kind) return { ok: true, record: markShown(latest), ...v };
+          // HELP VISITS (Code.js siteMark_, 11/15/26): a Left by a helper (offRoute; an admin never is) does not close a visit whose latest standing mark is
+          // an Arrived that was not itself a helper's: refused (conflict), nothing written. The site's own crew's Left, and a helper's own flagged visit, go on.
+          if (body.kind === 'left' && latest && latest.state === 'arrived' && latest.off_route !== true && offRoute) return refuse('conflict', "That site's own crew is still there");
           const row = markRow({ site_id: siteId, state: body.kind, shift_id: shiftId, off_route: offRoute });
           state.log.push(row);
           return { ok: true, record: markShown(row), ...v };
@@ -7855,6 +7858,49 @@ test('help visit: a member on N1 taps Arrived at N2\'s site: the request is the 
   // PAC, his own route's site, was never touched: still Arrived, no row.
   await expect(arrivedBtn(page, 'S1')).toBeVisible();
   expect(w.log.filter((r) => r.site_id === 'S1')).toEqual([]);
+});
+
+test('help visit: the fake refuses a helper\'s Left over the site\'s own crew\'s open visit as the server does', () => {
+  // Code.js siteMark_ (11/15/26), the cases sitetimes-api.test.js works out on paper. In this world Alex leads N1 (site S1); Jordan is moved to N2 (site S2)
+  // and helps at S1, so his rows there are flagged and Alex's are not.
+  const STILL = "That site's own crew is still there";
+  const world = () => { const w = timesWorld(); w.moves = [{ id: 'M1', at: '2026-10-01T17:00:00.000-08:00', worker: 'C01', to_route: 'R1', role: 'lead' },
+    { id: 'M2', at: '2026-10-01T17:00:00.000-08:00', worker: 'C03', to_route: 'R2', role: 'member' }]; return w; };
+  const w = world(), f = fakeSnow(w);
+  const as = (token, body) => f({ token, ...body });
+  expect(as('tok-alex', { action: 'siteMark', kind: 'arrived', site_id: 'S1' })).toMatchObject({ ok: true, record: { off_route: false } });
+  const no = as('tok-jordan', { action: 'siteMark', kind: 'left', site_id: 'S1' });
+  expect(no).toMatchObject({ ok: false, code: 'conflict', reason: STILL, action: 'siteMark' });
+  expect(w.log.map((r) => [r.state, r.by_key, r.off_route])).toEqual([['arrived', 'C01', false]]);   // nothing written
+  // The crew's own Left lands, unflagged; then the helper's own Arrived (a return visit, flagged) and his Left close a visit HE opened.
+  expect(as('tok-alex', { action: 'siteMark', kind: 'left', site_id: 'S1' })).toMatchObject({ ok: true, record: { state: 'left', by_key: 'C01', off_route: false } });
+  expect(as('tok-jordan', { action: 'siteMark', kind: 'arrived', site_id: 'S1' })).toMatchObject({ ok: true, record: { off_route: true } });
+  expect(as('tok-jordan', { action: 'siteMark', kind: 'left', site_id: 'S1' })).toMatchObject({ ok: true, record: { state: 'left', by_key: 'C03', off_route: true } });
+  expect(w.log.map((r) => [r.state, r.by_key, r.off_route])).toEqual([['arrived', 'C01', false], ['left', 'C01', false], ['arrived', 'C03', true], ['left', 'C03', true]]);
+  // Matt (an admin, never flagged) opened it: the helper's Left is refused too. With no Arrived at all, the helper's Left is written, as before.
+  const m = world(), g = fakeSnow(m);
+  g({ token: 'tok-matt', action: 'siteMark', kind: 'arrived', site_id: 'S1' });
+  expect(g({ token: 'tok-jordan', action: 'siteMark', kind: 'left', site_id: 'S1' })).toMatchObject({ ok: false, code: 'conflict', reason: STILL });
+  const n = world(), h = fakeSnow(n);
+  expect(h({ token: 'tok-jordan', action: 'siteMark', kind: 'left', site_id: 'S1' })).toMatchObject({ ok: true, record: { state: 'left', off_route: true } });
+});
+
+test('help visit: a helper taps Left while the site\'s own crew is still there: the server\'s words show, no Retry, and nothing changes', async ({ page }) => {
+  // Jordan (N1) helps at TUDOR-TRANSIT (S2, N2's), where Alex's crew arrived at 5:40 AM and is still there. The phone offers him Left (the latest mark is an
+  // Arrived: R38) and sends it; the server refuses (siteMark_, a conflict) and writes nothing. The words show under the buttons with no Retry (a conflict is
+  // not resent), the buttons stay as they were, and the line still reads In 5:40 AM with no Out.
+  const w = timesWorld();
+  w.log = [logRow(1, 'S2', '*', 'arrived', 'Alex Test', { at: tAt('05:40:00') })];
+  const calls = await openStorm(page, w);
+  await page.click('#otherRoutes');
+  await expect(leftBtn(page, 'S2')).toBeVisible();
+  await leftBtn(page, 'S2').click();
+  await expect(page.locator('[data-markrow="S2"] .walk-fail')).toHaveText("Not saved: That site's own crew is still there");
+  await expect(page.locator('[data-markrow="S2"] .walk-fail [data-retry]')).toHaveCount(0);
+  await expect(leftBtn(page, 'S2')).toBeVisible();
+  await expect(timesLine(page, 'S2')).toHaveText('In 5:40 AM · Out');
+  expect(w.log).toHaveLength(1);
+  expect(siteActionCalls(calls, 'siteMark')).toHaveLength(1);
 });
 
 test('help visit: the buttons are not offered with no storm open, or to a non-admin the fresh Post does not list, on any site', async ({ browser }) => {

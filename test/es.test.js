@@ -180,6 +180,7 @@ const REFUSALS = [
   ['Arrived or Left', 'Llegué o Salí'],
   ['Unknown site', 'Sitio desconocido'],
   ['That site is not on your route', 'Ese sitio no está en tu ruta'],
+  ["That site's own crew is still there", 'La cuadrilla de ese sitio todavía está ahí'],
   ['No Arrived to take back', 'No hay ningún "Llegué" que deshacer'],
   ['No Left to take back', 'No hay ningún "Salí" que deshacer'],
   ['That cannot be undone', 'Eso no se puede deshacer'],

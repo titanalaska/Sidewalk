@@ -805,11 +805,14 @@ test('a photo becomes a small thumbnail in the record', async ({ page }) => {
 });
 
 test('the route editor orders sites and saves the order', async ({ page }) => {
+  // Add sites... (11/15/26) replaced the one-site dropdown: R1 holds S1; S2 is ticked in the pick view and added, lands after S1,
+  // and the up arrow on the second row puts it first.
   const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
   await page.click('nav [data-tab="routes"]');
   await page.click('[data-edit="route:R1"]');
-  await page.selectOption('#r_add', 'S2');
-  await page.click('#r_addbtn');
+  await page.click('#r_pick');
+  await page.click('[data-pick="S2"]');
+  await page.click('#pick_add');
   await page.click('[data-up="1"]');
   await page.click('#r_save');
   await expect(page.locator('#dlg')).toBeHidden();
@@ -2562,7 +2565,10 @@ test('short site names show their address on the Routes tab, in the route editor
   await expect(page.locator('.sitelist li').first()).toContainText('PAC');
   await expect(page.locator('.sitelist li').first()).toContainText('4001 TUDOR CENTRE');
   await page.click('[data-edit="route:R2"]');
-  await expect(page.locator('#r_add option[value="S1"]')).toHaveText('PAC · 4001 TUDOR CENTRE');
+  await page.click('#r_pick');
+  await expect(page.locator('[data-pick="S1"]')).toContainText('PAC');
+  await expect(page.locator('[data-pick="S1"]')).toContainText('4001 TUDOR CENTRE');
+  await page.click('#pick_back');
   await page.click('#dlgClose');
   // Closing the editor pops its Back step with history.go(-1), which lands later; a goto
   // started before it lands is cancelled (net::ERR_ABORTED, 10/9/26). Wait for the stack to settle.
@@ -2936,6 +2942,507 @@ test('Spanish: the Sites tab search, buttons and empty line read in Spanish; sit
   await expect(page.locator('#site_clear')).toHaveText('Borrar');
   await expect(page.getByText('No sites match', { exact: true })).toHaveCount(0);
   await expect(page.getByText('Clear', { exact: true })).toHaveCount(0);
+});
+
+// ---------- The route editor's Add sites view (Matt, 11/15/26: a 65-site route by one dropdown is 65 rounds of choose-and-Add) ----------
+// "Add sites…" swaps the same dialog to a pick view: a search box, one button per customer, the sites not yet on the route under customer
+// bars (letter rows when more than 12 show), a tick box on every row, Tick all / Untick all on each bar and a bar at the bottom that reads
+// "Add ticked (N)". The fixture, worked on paper: R1 holds S1 (Alder Lot, ANTHC). Not yet on it: ANTHC has Birch Court S2 and Cedar Yard S5;
+// MOA has Dogwood Row S9 and Elm Plaza S7 (the ids run against the names, so the screen order is S9 then S7); Fir Annex S11 has no
+// customer; Old Yard S50 is archived (never a row, never counted). Made-up names and addresses only (public repo), and nothing but Birch Court
+// holds "birch", nothing but Cedar Yard "cedar".
+const pickWorld = () => {
+  const w = world();
+  w.sites = [
+    { id: 'S1', name: 'Alder Lot', address: '11 Spruce Lane', customer: 'ANTHC', rev: 1 },
+    { id: 'S2', name: 'Birch Court', address: '22 Spruce Lane', customer: 'ANTHC', rev: 1 },
+    { id: 'S5', name: 'Cedar Yard', address: '33 Spruce Lane', customer: 'ANTHC', rev: 1 },
+    { id: 'S7', name: 'Elm Plaza', address: '44 Larch Road', customer: 'MOA', rev: 1 },
+    { id: 'S9', name: 'Dogwood Row', address: '55 Larch Road', customer: 'MOA', rev: 1 },
+    { id: 'S11', name: 'Fir Annex', address: '66 Larch Road', rev: 1 },
+    { id: 'S50', name: 'Old Yard', address: '77 Larch Road', customer: 'ANTHC', rev: 1, archived: true },
+  ];
+  return w;
+};
+// 65 ANTHC sites (63 plain "Lot NN", one 70-character name with nowhere to break, one 90-character name and address with spaces), one MOA,
+// one with no customer, and a route holding none of them.
+const BIG_UNBROKEN = 'Q' + 'z'.repeat(69);
+const BIG_LONG = 'wide words wrap '.repeat(6).slice(0, 90);
+const bigPickWorld = () => {
+  const w = world();
+  w.routes = [{ id: 'R1', name: 'N1', rev: 1, site_ids: [] }];
+  w.sites = [];
+  for (let i = 1; i <= 63; i++) w.sites.push({ id: 'S' + (100 + 2 * i), name: 'Lot ' + String(i).padStart(2, '0'), address: i + ' Made Up Way', customer: 'ANTHC', rev: 1 });
+  w.sites.push({ id: 'S300', name: BIG_UNBROKEN, address: BIG_UNBROKEN, customer: 'ANTHC', rev: 1 }, { id: 'S302', name: BIG_LONG, address: BIG_LONG, customer: 'ANTHC', rev: 1 },
+    { id: 'S400', name: 'Beta Lot', rev: 1, customer: 'MOA' }, { id: 'S402', name: 'Gamma Lot', rev: 1 });
+  return w;
+};
+// Screen order of the 65 ANTHC sites: Lot 01 to Lot 63 (by name, zero-padded), then Q..., then w... (L < Q < w).
+const BIG_ANTHC_IDS = [...Array(63)].map((_, i) => 'S' + (100 + 2 * (i + 1))).concat(['S300', 'S302']);
+const routeEditorOf = async (page, w, o = {}) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
+  calls.errors = errors;
+  await page.click('nav [data-tab="routes"]');
+  await page.click('[data-edit="route:' + (o.route || 'R1') + '"]');
+  if (o.pick !== false) await page.click('#r_pick');
+  return calls;
+};
+const pickIds = (page) => page.locator('[data-pick]').evaluateAll((els) => els.map((e) => e.dataset.pick));
+const tickedIds = (page) => page.locator('[data-pick] input:checked').evaluateAll((els) => els.map((e) => e.closest('[data-pick]').dataset.pick));
+const savedRoute = async (page, calls) => {
+  await page.click('#r_save');
+  await expect.poll(() => calls.filter((c) => c.body.action === 'saveRoute').length).toBeGreaterThan(0);
+  return calls.filter((c) => c.body.action === 'saveRoute').at(-1).body.record;
+};
+const dialogStack = (page) => page.evaluate(() => (history.state && history.state.snow) || []);
+
+test('Add sites: the pick view lists what is not on the route under customer bars with counts; the archived site and the one on the route are nowhere', async ({ page }) => {
+  const calls = await routeEditorOf(page, pickWorld(), { pick: false });
+  // The route view first: the one-site dropdown and its Add are gone; one button opens the pick view; nothing says "added" yet.
+  await expect(page.locator('#r_pick')).toHaveText('Add sites…');
+  await expect(page.locator('#r_add, #r_addbtn')).toHaveCount(0);
+  await expect(page.locator('#r_added')).toHaveCount(0);
+  await page.click('#r_pick');
+  // Customers A to Z, none last; sites A to Z inside; S1 is on R1 and S50 is archived, so neither is a row.
+  expect(await page.locator('.grp-bar .site-group').allTextContents()).toEqual(['ANTHC', 'MOA', 'No customer yet']);
+  expect(await page.locator('.grp-bar .grp-count').allTextContents()).toEqual(['2', '2', '1']);
+  expect(await pickIds(page)).toEqual(['S2', 'S5', 'S9', 'S7', 'S11']);
+  await expect(page.locator('.grp-letter')).toHaveCount(0);                   // no group shows more than 12
+  await expect(page.locator('[data-pick="S1"], [data-pick="S50"]')).toHaveCount(0);
+  // Each row: a tick box, the name, the address under it.
+  await expect(page.locator('[data-pick="S2"] input[type="checkbox"]')).not.toBeChecked();
+  await expect(page.locator('[data-pick="S2"] .grp-site')).toHaveText('Birch Court');
+  await expect(page.locator('[data-pick="S2"] .site-addr')).toHaveText('22 Spruce Lane');
+  // The buttons: All, then a button per customer with its sites not on the route (S1 and S50 count nowhere); the one that is on says so.
+  await expect(page.locator('#pick_chips [data-pickcust]')).toHaveText(['All 5', 'ANTHC 2', 'MOA 2', 'No customer yet 1']);
+  await expect(page.locator('[data-pickcust="*"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-pickcust="ANTHC"]')).toHaveAttribute('aria-pressed', 'false');
+  await page.click('[data-pickcust="MOA"]');
+  expect(await pickIds(page)).toEqual(['S9', 'S7']);
+  await expect(page.locator('[data-pickcust="MOA"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-pickcust="*"]')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('[data-pickcust="ANTHC"]')).toHaveText('ANTHC 2');   // the buttons do not move with the filter
+  await page.click('[data-pickcust=""]');
+  expect(await pickIds(page)).toEqual(['S11']);
+  await expect(page.locator('[data-pickcust=""]')).toHaveAttribute('aria-pressed', 'true');
+  await page.click('[data-pickcust="*"]');
+  expect(await pickIds(page)).toEqual(['S2', 'S5', 'S9', 'S7', 'S11']);
+  await expect(page.locator('[data-pickcust="*"]')).toHaveAttribute('aria-pressed', 'true');
+  // Nothing ticked: the bar says 0 and neither of its buttons does anything; every bar offers Tick all; no hidden line.
+  await expect(page.locator('#pick_add')).toHaveText('Add ticked (0)');
+  await expect(page.locator('#pick_add')).toBeDisabled();
+  await expect(page.locator('#pick_clear')).toBeDisabled();
+  await expect(page.locator('#pick_hidden')).toBeHidden();
+  await expect(page.locator('[data-pickall]')).toHaveText(['Tick all', 'Tick all', 'Tick all']);
+  expect(calls.errors).toEqual([]);
+});
+
+test('Add sites: Add ticked appends in the order the sites were ticked, and Tick all is one block in screen order', async ({ page }) => {
+  const calls = await routeEditorOf(page, pickWorld());
+  // Cedar Yard (S5) first, then Birch Court (S2): the screen has them the other way round (S2 above S5).
+  await page.click('[data-pick="S5"]');
+  await page.click('[data-pick="S2"]');
+  await expect(page.locator('#pick_add')).toHaveText('Add ticked (2)');
+  // Tick all on MOA: Dogwood Row (S9) is above Elm Plaza (S7) on the screen by name, though S7 comes first by id. One block, screen order.
+  await page.click('[data-pickall="MOA"]');
+  expect(await tickedIds(page)).toEqual(['S2', 'S5', 'S9', 'S7']);             // (the screen's order, whatever the order of ticks)
+  await expect(page.locator('#pick_add')).toHaveText('Add ticked (4)');
+  await page.click('#pick_add');
+  // Back on the route view: it says how many came in; the route is S1 (already there), then S5, S2, S9, S7.
+  await expect(page.locator('#r_pick')).toBeVisible();
+  await expect(page.locator('#r_added')).toHaveText('4 added');
+  await expect(page.locator('ol.sitelist.edit li')).toHaveCount(5);
+  expect((await savedRoute(page, calls)).site_ids).toEqual(['S1', 'S5', 'S2', 'S9', 'S7']);
+});
+
+test('Add sites: Tick all adds only the rows not yet ticked, after the ones already ticked; the next tap is Untick all', async ({ page }) => {
+  const calls = await routeEditorOf(page, pickWorld());
+  await page.click('[data-pick="S7"]');                                        // Elm Plaza by hand: first in the sequence
+  await expect(page.locator('[data-pickall="MOA"]')).toHaveText('Tick all');   // Dogwood Row is still not ticked
+  await page.click('[data-pickall="MOA"]');                                    // adds Dogwood Row after it
+  await expect(page.locator('[data-pickall="MOA"]')).toHaveText('Untick all');
+  await expect(page.locator('#pick_add')).toHaveText('Add ticked (2)');
+  await page.click('#pick_add');
+  expect((await savedRoute(page, calls)).site_ids).toEqual(['S1', 'S7', 'S9']);  // S7 first, as ticked; never S9, S7 re-sorted
+  // The same button the other way round, in a fresh editor on the saved route (S2 and S5, ANTHC's two, are still to add).
+  await backSettled(page);
+  await page.click('[data-edit="route:R1"]');
+  await page.click('#r_pick');
+  await page.click('[data-pickall="ANTHC"]');
+  await expect(page.locator('[data-pickall="ANTHC"]')).toHaveText('Untick all');
+  expect(await tickedIds(page)).toEqual(['S2', 'S5']);
+  await page.click('[data-pickall="ANTHC"]');
+  await expect(page.locator('[data-pickall="ANTHC"]')).toHaveText('Tick all');
+  expect(await tickedIds(page)).toEqual([]);
+  await expect(page.locator('#pick_add')).toHaveText('Add ticked (0)');
+});
+
+test('Add sites: ticks survive a search and a customer button; the bar counts every tick and says how many are hidden; Untick all touches only the rows showing', async ({ page }) => {
+  const calls = await routeEditorOf(page, pickWorld());
+  await page.click('[data-pick="S2"]');
+  await page.click('[data-pick="S5"]');
+  await expect(page.locator('[data-pickall="ANTHC"]')).toHaveText('Untick all');   // both of its rows are ticked
+  await expect(page.locator('#pick_hidden')).toBeHidden();
+  // "birch" is in Birch Court alone: one row shows, the bar still counts both ticks, and says one is out of sight.
+  await page.fill('#pick_q', 'birch');
+  expect(await pickIds(page)).toEqual(['S2']);
+  await expect(page.locator('#pick_add')).toHaveText('Add ticked (2)');
+  await expect(page.locator('#pick_hidden')).toBeVisible();
+  await expect(page.locator('#pick_hidden')).toHaveText('1 hidden by search');
+  // Untick all (the one row showing is ticked): S2 goes, Cedar Yard (S5), hidden, stays.
+  await expect(page.locator('[data-pickall="ANTHC"]')).toHaveText('Untick all');
+  await page.click('[data-pickall="ANTHC"]');
+  await expect(page.locator('#pick_add')).toHaveText('Add ticked (1)');
+  await expect(page.locator('#pick_hidden')).toHaveText('1 hidden by search');
+  await expect(page.locator('[data-pickall="ANTHC"]')).toHaveText('Tick all');
+  // Search cleared: Cedar Yard is there, still ticked; Birch Court is not.
+  await page.fill('#pick_q', '');
+  expect(await tickedIds(page)).toEqual(['S5']);
+  await expect(page.locator('#pick_hidden')).toBeHidden();
+  // A customer button hides too, and says so in its own words; both together say both.
+  await page.click('[data-pickcust="MOA"]');
+  await expect(page.locator('#pick_add')).toHaveText('Add ticked (1)');
+  await expect(page.locator('#pick_hidden')).toHaveText('1 hidden by the customer button');
+  await page.fill('#pick_q', 'dogwood');
+  await expect(page.locator('#pick_hidden')).toHaveText('1 hidden by search and the customer button');
+  await page.fill('#pick_q', '');
+  await page.click('[data-pickcust="*"]');
+  expect(await tickedIds(page)).toEqual(['S5']);
+  // Add ticked adds every tick, hidden ones too: tick Fir Annex, hide it with a search, add.
+  await page.click('[data-pick="S11"]');
+  await page.fill('#pick_q', 'cedar');
+  await expect(page.locator('#pick_hidden')).toHaveText('1 hidden by search');
+  await page.click('#pick_add');
+  await expect(page.locator('#r_added')).toHaveText('2 added');
+  expect((await savedRoute(page, calls)).site_ids).toEqual(['S1', 'S5', 'S11']);
+  expect(calls.errors).toEqual([]);
+});
+
+test('Add sites: the search is plain text over the name and the address, and nothing matching says so with a Clear', async ({ page }) => {
+  const calls = await routeEditorOf(page, pickWorld());
+  // "larch" is in three addresses (S7, S9, S11), no name: the ANTHC bar goes, MOA keeps both, no customer keeps its one.
+  await page.fill('#pick_q', '  LARCH ');
+  expect(await pickIds(page)).toEqual(['S9', 'S7', 'S11']);
+  expect(await page.locator('.grp-bar .site-group').allTextContents()).toEqual(['MOA', 'No customer yet']);
+  expect(await page.locator('.grp-bar .grp-count').allTextContents()).toEqual(['2', '1']);
+  // A bracket is a character, not a pattern: nothing has one, and nothing throws.
+  await page.fill('#pick_q', '(');
+  await expect(page.locator('#pick_list')).toContainText('No sites match');
+  await expect(page.locator('[data-pick]')).toHaveCount(0);
+  await expect(page.locator('#pick_chips [data-pickcust]')).toHaveText(['All 5', 'ANTHC 2', 'MOA 2', 'No customer yet 1']);
+  // Spaces only is no search.
+  await page.fill('#pick_q', '   ');
+  expect(await pickIds(page)).toEqual(['S2', 'S5', 'S9', 'S7', 'S11']);
+  // Tick all ticks what is showing and nothing else: "dogwood" shows Dogwood Row (S9) alone under MOA, so Tick all there ticks S9, not Elm Plaza (S7).
+  await page.fill('#pick_q', 'dogwood');
+  await page.click('[data-pickall="MOA"]');
+  await expect(page.locator('#pick_add')).toHaveText('Add ticked (1)');
+  await page.fill('#pick_q', '');
+  expect(await tickedIds(page)).toEqual(['S9']);
+  await page.click('#pick_clear');
+  // Clear: the search is emptied, the customer button goes back to All, the list is whole, and the focus is not left on a button that went.
+  await page.click('[data-pickcust="MOA"]');
+  await page.fill('#pick_q', 'cedar');                                         // Cedar Yard is ANTHC's, not MOA's
+  await expect(page.locator('#pick_reset')).toHaveText('Clear');
+  await page.click('#pick_reset');
+  await expect(page.locator('#pick_q')).toHaveValue('');
+  await expect(page.locator('[data-pickcust="*"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-pickcust="MOA"]')).toHaveAttribute('aria-pressed', 'false');
+  expect(await pickIds(page)).toEqual(['S2', 'S5', 'S9', 'S7', 'S11']);
+  expect(await page.evaluate(() => document.activeElement && document.activeElement.id)).toBe('pick_scroll');
+  expect(calls.errors).toEqual([]);
+});
+
+test('Add sites: typing keeps the keyboard on every key, and a tap never leaves the focus on a button that went away or turned off', async ({ page }) => {
+  await routeEditorOf(page, pickWorld());
+  const q = page.locator('#pick_q');
+  await q.click();
+  await q.evaluate((el) => { el.dataset.mark = 'kept'; });                     // a rebuilt box would lose this mark
+  const typed = 'ced';
+  for (let i = 0; i < typed.length; i++) {
+    await page.keyboard.type(typed[i]);
+    expect(await activeId(page), 'after "' + typed.slice(0, i + 1) + '"').toBe('pick_q');
+    expect(await q.inputValue()).toBe(typed.slice(0, i + 1));
+    expect(await q.evaluate((el) => el.dataset.mark)).toBe('kept');
+    expect(await q.evaluate((el) => [el.selectionStart, el.selectionEnd])).toEqual([i + 1, i + 1]);   // the caret stays at the end
+  }
+  expect(await pickIds(page)).toEqual(['S5']);
+  await q.fill('');
+  // Tick all keeps the focus on its own button (the same one, now Untick all).
+  await page.click('[data-pickall="MOA"]');
+  expect(await page.evaluate(() => document.activeElement.dataset.pickall)).toBe('MOA');
+  await expect(page.locator('[data-pickall="MOA"]')).toHaveText('Untick all');
+  // Clear ticks: it works, then it has nothing left to do and turns off; the focus goes to the list, not to the page behind the dialog.
+  await page.click('#pick_clear');
+  expect(await tickedIds(page)).toEqual([]);
+  await expect(page.locator('#pick_clear')).toBeDisabled();
+  expect(await activeId(page)).toBe('pick_scroll');
+  // Back and Add ticked each land on the button that opens the pick view again.
+  await page.click('#pick_back');
+  expect(await activeId(page)).toBe('r_pick');
+  await page.click('#r_pick');
+  await page.click('[data-pick="S9"]');
+  await page.click('#pick_add');
+  expect(await activeId(page)).toBe('r_pick');
+});
+
+test('Add sites: the phone\'s Back from the pick view returns to the route view with the name, the order and the ticks kept, and the dialog stays open', async ({ page }) => {
+  const calls = await routeEditorOf(page, pickWorld(), { pick: false });
+  expect(await dialogStack(page)).toEqual(['dlg']);
+  await page.fill('#r_name', 'Night 9');
+  await page.click('#r_pick');
+  expect(await dialogStack(page)).toEqual(['dlg', 'pick']);                    // the pick view is its own step above the dialog
+  await page.click('[data-pick="S5"]');
+  await page.fill('#pick_q', 'cedar');
+  await page.goBack();                                                         // the phone's Back
+  await expect(page.locator('#r_pick')).toBeVisible();
+  await expect(page.locator('#dlg')).toBeVisible();                            // the dialog is still open
+  await expect(page.locator('#r_name')).toHaveValue('Night 9');
+  await expect(page.locator('ol.sitelist.edit li')).toHaveCount(1);            // the order is as it was: Alder Lot alone
+  expect(await dialogStack(page)).toEqual(['dlg']);
+  // Reopened: the tick and the search are as they were left.
+  await page.click('#r_pick');
+  await expect(page.locator('#pick_q')).toHaveValue('cedar');
+  expect(await tickedIds(page)).toEqual(['S5']);
+  await expect(page.locator('#pick_add')).toHaveText('Add ticked (1)');
+  // The dialog's own Back button does the same, and the stack follows.
+  await page.click('#pick_back');
+  await expect(page.locator('#r_pick')).toBeVisible();
+  await page.waitForFunction(() => history.state.snow.length === 1);
+  await expect(page.locator('#r_name')).toHaveValue('Night 9');
+  // Add ticked lets go of the ticks AND the search (the box was left saying "cedar"); the buttons are counted again without Cedar Yard.
+  await page.click('#r_pick');
+  await page.click('#pick_add');
+  await expect(page.locator('#r_added')).toHaveText('1 added');
+  await page.click('#r_pick');
+  await expect(page.locator('#pick_q')).toHaveValue('');
+  expect(await tickedIds(page)).toEqual([]);
+  await expect(page.locator('#pick_add')).toHaveText('Add ticked (0)');
+  await expect(page.locator('#pick_chips [data-pickcust]')).toHaveText(['All 4', 'ANTHC 1', 'MOA 2', 'No customer yet 1']);
+  await page.click('#pick_back');
+  await expect(page.locator('#r_added')).toHaveCount(0);                       // a new look at the pick view starts a new count
+  await page.click('#r_pick');
+  expect(await pickIds(page)).toEqual(['S2', 'S9', 'S7', 'S11']);
+  // Closing the dialog with the ticks still up lets go of them: Back twice (pick view, then the dialog), then a fresh editor.
+  await page.click('[data-pick="S2"]');
+  await page.goBack();
+  await expect(page.locator('#r_pick')).toBeVisible();
+  await page.goBack();
+  await expect(page.locator('#dlg')).toBeHidden();
+  await backSettled(page);
+  await page.click('[data-edit="route:R1"]');
+  await expect(page.locator('#r_name')).toHaveValue('N1');                     // the saved name, not the one typed and never saved
+  await expect(page.locator('ol.sitelist.edit li')).toHaveCount(1);
+  await page.click('#r_pick');
+  expect(await tickedIds(page)).toEqual([]);
+  await expect(page.locator('#pick_add')).toHaveText('Add ticked (0)');
+  // The route saved from here is the one Matt typed in the first place, order and all.
+  await page.click('#pick_back');
+  await page.fill('#r_name', 'Night 9');
+  expect((await savedRoute(page, calls)).name).toBe('Night 9');
+  expect(calls.errors).toEqual([]);
+});
+
+test('Add sites: Escape in the pick view closes the dialog, and the next dialog starts on its route view with nothing ticked', async ({ page }) => {
+  await routeEditorOf(page, pickWorld());
+  await page.click('[data-pick="S2"]');
+  expect(await dialogStack(page)).toEqual(['dlg', 'pick']);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#dlg')).toBeHidden();
+  await backSettled(page);                                                     // both steps are popped
+  await page.click('[data-edit="route:R1"]');
+  await expect(page.locator('#r_pick')).toBeVisible();
+  expect(await dialogStack(page)).toEqual(['dlg']);                            // no 'pick' left over from the editor that was closed
+  await page.click('#r_pick');
+  expect(await tickedIds(page)).toEqual([]);
+});
+
+test('Add sites: a route that holds every site says so, with no buttons and no rows', async ({ page }) => {
+  const w = pickWorld();
+  w.routes[0].site_ids = ['S1', 'S2', 'S5', 'S7', 'S9', 'S11'];                // every live site (S50 is archived)
+  await routeEditorOf(page, w);
+  await expect(page.locator('#pick_none')).toHaveText('Every site is already on this route.');
+  await expect(page.locator('[data-pickcust], [data-pick], .grp-bar, #pick_add')).toHaveCount(0);
+  await page.click('#pick_back');
+  await expect(page.locator('#r_pick')).toBeVisible();                         // the way back is still there
+});
+
+test('Add sites: a customer whose sites are all on the route has no button and no bar', async ({ page }) => {
+  // All of ANTHC (S1, S2, S5) is on the route; MOA and no customer remain: the buttons are All 3, MOA 2, none 1, and two bars.
+  const w = pickWorld();
+  w.routes[0].site_ids = ['S1', 'S2', 'S5'];
+  await routeEditorOf(page, w);
+  await expect(page.locator('#pick_none')).toHaveCount(0);
+  await expect(page.locator('#pick_chips [data-pickcust]')).toHaveText(['All 3', 'MOA 2', 'No customer yet 1']);
+  await expect(page.locator('[data-pickcust="ANTHC"]')).toHaveCount(0);
+  expect(await page.locator('.grp-bar .site-group').allTextContents()).toEqual(['MOA', 'No customer yet']);
+});
+
+test('Add sites: with no live site at all the pick view says so, not that every site is on the route', async ({ page }) => {
+  const w = world();
+  w.sites = [{ id: 'S1', name: 'Old Yard', rev: 1, archived: true }];
+  w.routes = [{ id: 'R1', name: 'N1', rev: 1, site_ids: [] }];
+  await routeEditorOf(page, w);
+  await expect(page.locator('#pick_none')).toHaveText('No sites yet. Add them on the Sites tab.');
+  await expect(page.locator('[data-pick], [data-pickcust], #pick_add')).toHaveCount(0);
+});
+
+test('Add sites: a site taken off the route is offered again, with its customer button counted again', async ({ page }) => {
+  const calls = await routeEditorOf(page, pickWorld(), { pick: false });
+  await page.click('[data-del="0"]');                                          // Alder Lot (S1) off R1
+  await page.click('#r_pick');
+  expect(await pickIds(page)).toEqual(['S1', 'S2', 'S5', 'S9', 'S7', 'S11']);
+  await expect(page.locator('#pick_chips [data-pickcust]')).toHaveText(['All 6', 'ANTHC 3', 'MOA 2', 'No customer yet 1']);
+  await page.click('[data-pick="S1"]');
+  await page.click('#pick_add');
+  expect((await savedRoute(page, calls)).site_ids).toEqual(['S1']);
+});
+
+test('Add sites: a customer named * is not the All button, and a name with quotes, an ampersand and tags is only text', async ({ page }) => {
+  const odd = 'Smith & "Sons" <b>x</b>';
+  const w = pickWorld();
+  w.sites = [
+    { id: 'S2', name: 'Birch Court', rev: 1, customer: 'ANTHC' }, { id: 'S5', name: 'Cedar Yard', rev: 1, customer: 'ANTHC' },
+    { id: 'S7', name: 'Elm Plaza', rev: 1, customer: '*' }, { id: 'S9', name: 'Dogwood Row', rev: 1, customer: '*' },
+    { id: 'S11', name: 'Fir Annex', rev: 1, customer: odd },
+  ];
+  w.routes[0].site_ids = [];
+  const calls = await routeEditorOf(page, w);
+  // Two buttons carry data-pickcust="*": All (marked as the one that means every customer) and the customer called *.
+  const star = page.locator('#pick_chips [data-pickcust="*"]:not([data-pickany])');
+  await expect(page.locator('#pick_chips [data-pickcust="*"]')).toHaveCount(2);
+  await expect(star).toHaveText('* 2');
+  await expect(page.locator('[data-pickany]')).toHaveText('All 5');
+  await expect(page.locator('[data-pickany]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(star).toHaveAttribute('aria-pressed', 'false');                 // All on does not turn the * customer on
+  await star.click();
+  expect((await pickIds(page)).sort()).toEqual(['S7', 'S9']);                  // the customer's own two sites, not everything
+  await expect(star).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-pickany]')).toHaveAttribute('aria-pressed', 'false');
+  await page.click('[data-pickall="*"]');                                      // Tick all of the * customer
+  expect(await tickedIds(page)).toEqual(['S9', 'S7']);                         // screen order: Dogwood Row, Elm Plaza
+  await page.click('[data-pickany]');
+  expect((await pickIds(page)).sort()).toEqual(['S11', 'S2', 'S5', 'S7', 'S9']);
+  await expect(page.locator('[data-pickany]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(star).toHaveAttribute('aria-pressed', 'false');
+  // The odd name: a plain button and a plain bar, no element made of the tags in it, and its Tick all ticks its own row.
+  const oddBtn = page.locator('#pick_chips button', { hasText: 'Smith' });
+  await expect(oddBtn).toHaveText(odd + ' 1');
+  await oddBtn.click();
+  await expect(page.locator('.grp-bar .site-group')).toHaveText(odd);
+  await expect(page.locator('.grp-bar .site-group *')).toHaveCount(0);         // the tags in the name made no element
+  await expect(oddBtn.locator('b')).toHaveCount(1);                            // the button's only <b> is its count
+  expect(await pickIds(page)).toEqual(['S11']);
+  await page.locator('.grp-bar button[data-pickall]').click();
+  expect(await tickedIds(page)).toEqual(['S11']);                              // (the two * rows, ticked before, are out of sight now)
+  await expect(page.locator('#pick_add')).toHaveText('Add ticked (3)');
+  await expect(page.locator('#pick_hidden')).toHaveText('2 hidden by the customer button');
+  await page.click('[data-pickany]');
+  await page.click('#pick_add');
+  expect((await savedRoute(page, calls)).site_ids).toEqual(['S9', 'S7', 'S11']);
+  expect(calls.errors).toEqual([]);
+});
+
+test('Add sites: 65 sites are one Tick all and one Add ticked; at 320 px nothing goes sideways and the bar never covers the last row', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  expect(BIG_LONG.length).toBe(90);
+  const calls = await routeEditorOf(page, bigPickWorld());
+  await expect(page.locator('#pick_chips [data-pickcust]')).toHaveText(['All 67', 'ANTHC 65', 'MOA 1', 'No customer yet 1']);
+  await page.click('[data-pickall="ANTHC"]');
+  await expect(page.locator('#pick_add')).toHaveText('Add ticked (65)');
+  expect(await tickedIds(page)).toEqual(BIG_ANTHC_IDS);
+  // Nothing sideways: the page, the dialog, the list's own scroller, and the right edge of every piece of the list.
+  const m = await page.evaluate(() => {
+    const dlg = document.getElementById('dlg').getBoundingClientRect(), pane = document.getElementById('pick_scroll'), outer = document.getElementById('dlgIn');
+    const els = (sel) => Array.from(document.querySelectorAll(sel));
+    const rights = els('.pickview *').filter((e) => e.getClientRects().length && e.closest('#pick_scroll') !== null && !e.matches('#pick_scroll'))
+      .map((e) => Math.ceil(e.getBoundingClientRect().right));
+    return {
+      docWide: document.documentElement.scrollWidth, inner: window.innerWidth, dlgRight: Math.ceil(dlg.right),
+      pane: [pane.scrollWidth, pane.clientWidth], outer: [outer.scrollHeight, outer.clientHeight, outer.scrollWidth, outer.clientWidth],
+      widest: Math.max.apply(null, rights),
+      rowMin: Math.min.apply(null, els('[data-pick]').map((e) => e.getBoundingClientRect().height)),
+    };
+  });
+  expect(m.docWide).toBeLessThanOrEqual(m.inner);
+  expect(m.dlgRight).toBeLessThanOrEqual(m.inner);
+  expect(m.pane[0]).toBeLessThanOrEqual(m.pane[1]);                            // the list does not scroll sideways
+  expect(m.outer[0]).toBeLessThanOrEqual(m.outer[1]);                          // the dialog itself does not scroll (one scroller, the list)
+  expect(m.outer[2]).toBeLessThanOrEqual(m.outer[3]);
+  expect(m.widest).toBeLessThanOrEqual(m.dlgRight);
+  expect(m.rowMin).toBeGreaterThanOrEqual(44);                                 // finger-sized rows (the long ones are taller)
+  // Scrolled to the last row: it is above the bar, and what is on top at its centre is the row, not the bar.
+  await page.locator('[data-pick]').last().evaluate((el) => el.scrollIntoView({ block: 'end' }));
+  const g = await page.evaluate(() => {
+    const rows = document.querySelectorAll('[data-pick]'), last = rows[rows.length - 1], r = last.getBoundingClientRect();
+    const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return { lastBottom: r.bottom, addTop: document.getElementById('pick_add').getBoundingClientRect().top,
+      barBottom: document.querySelector('.pickbar').getBoundingClientRect().bottom, high: window.innerHeight, topmost: !!(at && at.closest('[data-pick]') === last) };
+  });
+  expect(g.lastBottom).toBeLessThanOrEqual(g.addTop);
+  expect(g.topmost).toBe(true);
+  expect(g.barBottom).toBeLessThanOrEqual(g.high);                             // and the bar itself is on the screen
+  // One tap on Add ticked: all 65, in screen order, and the route view says so.
+  await page.click('#pick_add');
+  await expect(page.locator('#r_added')).toHaveText('65 added');
+  await expect(page.locator('ol.sitelist.edit li')).toHaveCount(65);
+  expect((await savedRoute(page, calls)).site_ids).toEqual(BIG_ANTHC_IDS);
+  expect(calls.errors).toEqual([]);
+});
+
+// Both heading bars and letter rows are the Sites tab's own classes; in the pick view the scroller is the list pane, with no top bar above
+// it, so the bar sticks flush at the pane's top edge (the Sites tab sticks it 61 px down, under its own header).
+test('Add sites: a heading bar sticks flush at the top of the pick list, not 61 px down', async ({ page }) => {
+  await routeEditorOf(page, bigPickWorld());
+  await page.locator('#pick_scroll').evaluate((el) => { el.scrollTop = 900; });
+  const st = await page.evaluate(() => {
+    const pane = document.getElementById('pick_scroll').getBoundingClientRect(), head = document.querySelector('.pickhead').getBoundingClientRect();
+    const bar = document.querySelector('[data-grp="ANTHC"] .grp-bar').getBoundingClientRect();
+    const at = document.elementFromPoint(bar.left + bar.width / 2, bar.top + bar.height / 2);
+    return { paneTop: pane.top, headBottom: head.bottom, barTop: bar.top, barH: bar.height, scrolled: document.getElementById('pick_scroll').scrollTop, barOnTop: !!(at && at.closest('.grp-bar')) };
+  });
+  expect(st.scrolled).toBeGreaterThan(500);                                    // really scrolled: the bar left its own place
+  expect(Math.abs(st.barTop - st.paneTop)).toBeLessThan(1);                    // flush, no gap
+  expect(Math.abs(st.paneTop - st.headBottom)).toBeLessThan(1);                // the Back row sits right above the list
+  expect(st.barH).toBeGreaterThanOrEqual(44);
+  expect(st.barOnTop).toBe(true);
+});
+
+// Every second site row is striped and every row has a line, in light and dark; the route view's own order list keeps its plain look
+// (.sitelist is also the Routes tab and Tonight: the lines belong to the pick list's own classes, never to a bare .sitelist li).
+test('Add sites: every second row is striped and every row has a line in light and dark, and the route list keeps its plain look', async ({ page }) => {
+  await routeEditorOf(page, pickWorld());
+  for (const scheme of ['light', 'dark']) {
+    await page.emulateMedia({ colorScheme: scheme });
+    const m = await page.evaluate(() => {
+      const rgb = (c) => c.match(/[\d.]+/g).slice(0, 3).map(Number);
+      const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; const [r, g, b] = rgb(c); return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+      const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+      const css = (el) => getComputedStyle(el), row = (id) => document.querySelector('[data-pick="' + id + '"]');
+      const card = css(document.getElementById('dlg')).backgroundColor;
+      const read = (id, bg) => ({ bg: css(row(id)).backgroundColor, line: css(row(id)).borderBottomWidth + ' ' + css(row(id)).borderBottomStyle,
+        name: ratio(css(row(id).querySelector('.grp-name')).color, bg), addr: ratio(css(row(id).querySelector('.site-addr')).color, bg) });
+      const plain = read('S2', card), striped = read('S5', css(row('S5')).backgroundColor);
+      return { card, plain, striped, mo: [css(row('S9')).backgroundColor, css(row('S7')).backgroundColor] };
+    });
+    // ANTHC: Birch Court (S2) plain, Cedar Yard (S5) striped; MOA starts over: Dogwood Row (S9) plain, Elm Plaza (S7) striped.
+    expect(m.plain.bg, scheme + ': the first row shows the card behind it').toBe('rgba(0, 0, 0, 0)');
+    expect(m.striped.bg, scheme + ': the second row is striped').not.toBe('rgba(0, 0, 0, 0)');
+    expect(m.striped.bg, scheme + ': the stripe is told apart from the card').not.toBe(m.card);
+    expect(m.mo, scheme + ': the stripe starts over in each customer').toEqual(['rgba(0, 0, 0, 0)', m.striped.bg]);
+    expect(m.plain.line, scheme + ': a line under each row').toBe('1px solid');
+    expect(m.striped.line).toBe('1px solid');
+    for (const k of ['name', 'addr']) {
+      expect(m.plain[k], scheme + ': ' + k + ' on the card').toBeGreaterThanOrEqual(4.5);
+      expect(m.striped[k], scheme + ': ' + k + ' on the stripe').toBeGreaterThanOrEqual(4.5);
+    }
+  }
+  // The route view's own list: no line, no stripe.
+  await page.click('#pick_back');
+  const plainList = await page.evaluate(() => { const li = document.querySelector('ol.sitelist.edit li'), c = getComputedStyle(li); return [c.borderBottomWidth, c.backgroundColor]; });
+  expect(plainList).toEqual(['0px', 'rgba(0, 0, 0, 0)']);
 });
 
 // Callouts and day ranking (Part B2, Matt 10/4/26): two numbers Matt decides per site, so they ship

@@ -383,3 +383,31 @@ header #who{flex:1 1 auto;min-width:0;text-align:left}
 #site_chips:empty{display:none}
 #site_chips button{min-width:0;max-width:100%;overflow-wrap:anywhere}
 #site_chips button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+
+/* The route editor's Add sites view (Matt, 11/15/26). The dialog's own scroller (.in, 16 px of padding, 85vh) is covered by .pickview, which
+   pulls out to the dialog's edges and splits into a title row, ONE scroller (#pick_scroll) and the bar, as three rows of a column: the bar is
+   under the list, never over it, so it can never cover the last row, and the list's own heading bars stick flush at the top of its scroller
+   (the Sites tab's 61 px is the top bar's height, and there is no top bar here). .grp-list, .grp-row and .grp-alt are new classes on purpose:
+   the lines and the stripe belong to this list and never to a bare .sitelist li (Routes, Tonight and the route editor's own order list). */
+.pickview{display:flex;flex-direction:column;max-height:85vh;margin:-16px}
+.pickhead{flex:none;display:flex;align-items:center;gap:12px;padding:12px 16px 8px}
+.pickhead h2{flex:1;min-width:0;margin:0;font-size:20px}
+.pickscroll{flex:1 1 auto;min-height:0;overflow:auto;padding:0 16px 8px;outline:none}
+.pickscroll .grp-bar{top:0}
+.pickscroll .grp-bar button{flex:none;margin:0;min-height:36px}
+#pick_q{min-height:44px;margin:0}
+#pick_chips{margin-top:8px}
+#pick_chips:empty{display:none}
+#pick_chips button{min-width:0;max-width:100%;overflow-wrap:anywhere}
+#pick_chips button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.grp-row{display:flex;align-items:center;gap:12px;min-height:44px;margin:0;padding:6px 8px;color:var(--ink);font-size:16px;border-bottom:1px solid var(--line);cursor:pointer;scroll-margin-top:60px}
+.grp-row.grp-alt{background:var(--chip)}
+.grp-row input{flex:none;width:24px;height:24px;margin:0;padding:0;accent-color:var(--accent)}
+.grp-row .grp-name{flex:1;min-width:0;display:flex;flex-direction:column;overflow-wrap:anywhere}
+.grp-row .site-addr{font-size:14px}
+.pickbar{flex:none;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 16px;background:var(--card);border-top:2px solid var(--accent)}
+.pickbar #pick_hidden{flex:1 0 100%}
+.pickbar button{flex:1 1 0;min-width:0}
+.pickbar #pick_add{flex:2 1 0}
+.pickbar button:disabled{opacity:.5}
+#r_added{align-self:center}

@@ -136,6 +136,22 @@ test("site times: the single words translate only as a whole text node", () => {
   }
 });
 
+// The Sites tab's search and customer buttons (Matt, 11/15/26). "Search sites" and "No sites match" are whole phrases, so they are rows.
+// "All" and "Clear" are bare words: as rows they would turn "Clear all snow" or "All sites" half Spanish, so each is a rule on an exact
+// text node (the customer button reads "All " beside its count, in its own element). Tú, plain words.
+test('the Sites tab: the search box, the All button, the Clear button and the empty line', () => {
+  const cases = { 'Search sites': 'Buscar sitios', 'All': 'Todos', 'Clear': 'Borrar', 'No sites match': 'Ningún sitio coincide' };
+  for (const [en, es] of Object.entries(cases)) assert.equal(Es.translateString(en), es, en);
+  assert.equal(Es.translateString('All '), 'Todos ', 'the button text node keeps its space before the count');
+});
+test('the Sites tab: All and Clear change only as a whole text node, never inside longer English', () => {
+  assert.equal(Es.ES['All'], undefined);
+  assert.equal(Es.ES['Clear'], undefined);
+  for (const keep of ['Clear all snow', 'All sites', 'Clear ticks', 'All clear', 'Not all done', 'Clear the dock', 'All day']) {
+    assert.equal(Es.translateString(keep), keep, keep);
+  }
+});
+
 test("site times: the Set times box and its date line", () => {
   const cases = {
     "Set times": "Poner horas", "Set times: ": "Poner horas: ", "typed by": "escrito por",

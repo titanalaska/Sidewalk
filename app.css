@@ -370,3 +370,16 @@ header #who{flex:1 1 auto;min-width:0;text-align:left}
 .clockrow .clockline{flex:1 1 9em;min-width:0;font-size:14px;overflow-wrap:anywhere}
 .clockrow .clockline:empty{display:none}
 .clockrow button{margin-left:auto}
+
+/* The Sites tab, broken up (Matt, 11/15/26): a heading bar per customer, letter rows, a search box and one button per customer.
+   .grp-bar, .grp-count and .grp-letter are the shared look: the route editor's Add sites view and release 2's screens reuse them. All
+   colours are the existing tokens, so dark follows. The bar sticks right under the top bar (header: 10 + 40 + 10 padding + 1 border = 61 px;
+   test/ui.spec.js measures the two against each other). */
+.grp-bar{position:sticky;top:61px;z-index:4;display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:44px;margin:16px 0 8px;padding:6px 12px;background:var(--lead-bg);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:8px}
+.grp-bar .site-group{flex:1;min-width:0;margin:0;font-size:17px;font-weight:700;overflow-wrap:anywhere}
+.grp-count{flex:none;min-width:28px;padding:1px 10px;border-radius:999px;background:var(--accent);color:var(--on-accent);font-size:14px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums}
+.grp-letter{margin:8px 0 6px;padding:2px 4px;border-bottom:1px solid var(--line);color:var(--accent);font-size:14px;font-weight:700}
+#site_q{min-height:44px;margin:0}
+#site_chips:empty{display:none}
+#site_chips button{min-width:0;max-width:100%;overflow-wrap:anywhere}
+#site_chips button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}

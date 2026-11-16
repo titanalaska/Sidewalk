@@ -2589,6 +2589,349 @@ test('the Sites tab groups sites by customer, and the site form edits it', async
   expect(calls.find((c) => c.body.action === 'saveSite').body.record.customer).toBe('MOA');
 });
 
+// ---------- The Sites tab, broken up (Matt, 11/15/26: "you're just scrolling through a bunch of words with no separation") ----------
+// Each customer is a heading bar with the count of its sites; a customer with MORE THAN 12 sites showing gets letter rows; a search
+// box and one button per customer sit above the list. The fixture, worked on paper: ANTHC holds 14 live sites (ids with gaps, Aspen
+// right after Alder so the letter A holds two), MOA holds Beta, Gamma has no customer, and S50 is archived in ANTHC (it is in no list
+// and no count). Made-up names only (public repo), none of them with "bet" in it, so the search test finds Beta alone.
+const LIST_NAMES = ['Alder Lot', 'Aspen Court', 'Birch Court', 'Cedar Yard', 'Dogwood Row', 'Elm Plaza', 'Fir Annex',
+  'Grove Wing', 'Hazel Gate', 'Ivy Hall', 'Juniper Walk', 'Kestrel Pad', 'Larch Depot', 'Maple Dock'];
+const LIST_IDS = ['S1', 'S2', 'S4', 'S5', 'S7', 'S8', 'S10', 'S11', 'S13', 'S14', 'S16', 'S17', 'S19', 'S20'];
+const listWorld = () => {
+  const w = world();
+  w.sites = LIST_NAMES.map((name, i) => ({ id: LIST_IDS[i], name, rev: 1, customer: 'ANTHC' }))
+    .concat([{ id: 'S30', name: 'Beta', rev: 1, customer: 'MOA' }, { id: 'S40', name: 'Gamma', rev: 1 },
+      { id: 'S50', name: 'Old Yard', rev: 1, customer: 'ANTHC', archived: true }]);
+  return w;
+};
+const siteIds = (page) => page.locator('.site-card').evaluateAll((els) => els.map((e) => e.dataset.site));
+const sitesTabOf = async (page, w, o = {}) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  const calls = await open(page, { token: o.token || 'tok-matt', snow: fakeSnow(w), inv: o.inv });
+  calls.errors = errors;
+  await page.click('nav [data-tab="sites"]');
+  return calls;
+};
+const ALL_LIST_IDS = [...LIST_IDS, 'S30', 'S40'];
+const activeId = (page) => page.evaluate(() => document.activeElement && document.activeElement.id);
+
+test('the Sites tab: a heading bar per customer with its count, letters only where more than 12 sites show, the archived site nowhere', async ({ page }) => {
+  const calls = await sitesTabOf(page, listWorld());
+  // Bars, in the order customers sort (ANTHC, MOA, then no customer last); the count is its own element, the heading is the bare name.
+  expect(await page.locator('.grp-bar .site-group').allTextContents()).toEqual(['ANTHC', 'MOA', 'No customer yet']);
+  expect(await page.locator('.grp-bar .grp-count').allTextContents()).toEqual(['14', '1', '1']); // S50 is archived: 14, not 15
+  // 14 > 12, so ANTHC has letter rows: A (Alder, Aspen), B, C ... M = 13 letters. MOA and Gamma hold 1 each: none.
+  expect(await page.locator('.grp-letter').allTextContents()).toEqual(['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M']);
+  expect(await page.locator('[data-grp="ANTHC"] .grp-letter').count()).toBe(13);
+  expect(await page.locator('[data-grp="MOA"] .grp-letter').count()).toBe(0);
+  expect(await page.locator('[data-grp=""] .grp-letter').count()).toBe(0);
+  // Top to bottom inside ANTHC: the bar, the A row, Alder (S1), Aspen (S2), the B row, Birch (S4).
+  const flow = await page.locator('[data-grp="ANTHC"] > *').evaluateAll((els) => els.slice(0, 6).map((e) =>
+    e.classList.contains('grp-bar') ? 'bar' : e.classList.contains('grp-letter') ? 'letter ' + e.textContent : e.dataset.site));
+  expect(flow).toEqual(['bar', 'letter A', 'S1', 'S2', 'letter B', 'S4']);
+  // Every live site once, A to Z inside its customer, the customers in bar order; the archived one is not among them.
+  expect(await siteIds(page)).toEqual(ALL_LIST_IDS);
+  await expect(page.locator('.site-card[data-site="S50"]')).toHaveCount(0);
+  await expect(page.locator('#archivedSites summary')).toHaveText('Archived (1)');
+  // Each site card is the card it always was (Map, and Edit for Matt).
+  await expect(page.locator('[data-site="S1"] [data-map="S1"]')).toBeVisible();
+  await expect(page.locator('[data-site="S1"] [data-edit="site:S1"]')).toBeVisible();
+  expect(calls.errors).toEqual([]);
+});
+
+test('the Sites tab: the customer buttons count the live sites, and the one that is on says so', async ({ page }) => {
+  await sitesTabOf(page, listWorld());
+  // All 16 live sites; ANTHC 14, MOA 1, no customer 1 (the archived Old Yard counts nowhere).
+  await expect(page.locator('#site_chips [data-sitecust]')).toHaveCount(4);
+  await expect(page.locator('[data-sitecust="*"]')).toHaveText('All 16');
+  await expect(page.locator('[data-sitecust="ANTHC"]')).toHaveText('ANTHC 14');
+  await expect(page.locator('[data-sitecust="MOA"]')).toHaveText('MOA 1');
+  await expect(page.locator('[data-sitecust=""]')).toHaveText('No customer yet 1');
+  await expect(page.locator('[data-sitecust="*"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-sitecust="MOA"]')).toHaveAttribute('aria-pressed', 'false');
+  // MOA on: only Beta, the bar still there, the button says it is on, All says it is off. A filter left on must be visible.
+  await page.click('[data-sitecust="MOA"]');
+  expect(await siteIds(page)).toEqual(['S30']);
+  expect(await page.locator('.grp-bar .site-group').allTextContents()).toEqual(['MOA']);
+  await expect(page.locator('[data-sitecust="MOA"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-sitecust="*"]')).toHaveAttribute('aria-pressed', 'false');
+  // The buttons do not move with the filter: ANTHC still says 14.
+  await expect(page.locator('[data-sitecust="ANTHC"]')).toHaveText('ANTHC 14');
+  // No customer yet: Gamma alone, and it keeps its bar because the world has customers.
+  await page.click('[data-sitecust=""]');
+  expect(await siteIds(page)).toEqual(['S40']);
+  expect(await page.locator('.grp-bar .site-group').allTextContents()).toEqual(['No customer yet']);
+  await expect(page.locator('[data-sitecust=""]')).toHaveAttribute('aria-pressed', 'true');
+  // ANTHC: 14 sites, letters back; All: everything.
+  await page.click('[data-sitecust="ANTHC"]');
+  expect(await siteIds(page)).toEqual(LIST_IDS);
+  expect(await page.locator('.grp-letter').count()).toBe(13);
+  await page.click('[data-sitecust="*"]');
+  expect(await siteIds(page)).toEqual(ALL_LIST_IDS);
+  await expect(page.locator('[data-sitecust="*"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-sitecust="ANTHC"]')).toHaveAttribute('aria-pressed', 'false');
+});
+
+// Review Focus 1: typing keeps the keyboard. The box is never rebuilt by the redraw (only #site_list is), so after each key it is
+// the same element, still the active one, holding what has been typed so far.
+test('the Sites tab: typing a search keeps focus and the caret on every key, and finds Beta alone', async ({ page }) => {
+  const calls = await sitesTabOf(page, listWorld());
+  const q = page.locator('#site_q');
+  await q.click();
+  await q.evaluate((el) => { el.dataset.mark = 'kept'; }); // a rebuilt box would lose this mark
+  const typed = 'bet';
+  for (let i = 0; i < typed.length; i++) {
+    await page.keyboard.type(typed[i]);
+    expect(await activeId(page), 'after "' + typed.slice(0, i + 1) + '"').toBe('site_q');
+    expect(await q.inputValue()).toBe(typed.slice(0, i + 1));
+    expect(await q.evaluate((el) => el.dataset.mark)).toBe('kept');
+    expect(await q.evaluate((el) => [el.selectionStart, el.selectionEnd])).toEqual([i + 1, i + 1]); // the caret is at the end
+  }
+  // "bet" is in Beta and no other name or address: one site, the MOA bar with a count of 1, no letters, no ANTHC bar.
+  expect(await siteIds(page)).toEqual(['S30']);
+  expect(await page.locator('.grp-bar .site-group').allTextContents()).toEqual(['MOA']);
+  expect(await page.locator('.grp-bar .grp-count').allTextContents()).toEqual(['1']);
+  expect(await page.locator('.grp-letter').count()).toBe(0);
+  // The buttons still say what is on the list overall (14 ANTHC), whatever is typed.
+  await expect(page.locator('[data-sitecust="ANTHC"]')).toHaveText('ANTHC 14');
+  // Capitals and spaces around the words do not matter.
+  await q.fill('  BETA ');
+  expect(await siteIds(page)).toEqual(['S30']);
+  expect(calls.errors).toEqual([]);
+});
+
+test('the Sites tab: letters follow what is showing: narrowed to 12 or fewer they go, and the bar counts what is showing', async ({ page }) => {
+  await sitesTabOf(page, listWorld());
+  // "court" is in Aspen Court (S2) and Birch Court (S4) and nowhere else: 2 showing in ANTHC, so no letters, and the bar says 2.
+  await page.fill('#site_q', 'court');
+  expect(await siteIds(page)).toEqual(['S2', 'S4']);
+  expect(await page.locator('.grp-bar .grp-count').allTextContents()).toEqual(['2']);
+  expect(await page.locator('.grp-letter').count()).toBe(0);
+  // "a" is in 11 of the 14 ANTHC names, worked name by name: Alder S1, Aspen S2, Cedar S5, Elm Plaza S8, Fir Annex S10, Hazel S13,
+  // Ivy Hall S14, Juniper S16, Kestrel S17, Larch S19, Maple S20 (not Birch Court, Dogwood Row, Grove Wing); and Beta, Gamma too.
+  // 11 is not more than 12: no letters, though the group is the one that has them at 14. The bars say 11, 1, 1.
+  await page.fill('#site_q', 'a');
+  expect(await siteIds(page)).toEqual(['S1', 'S2', 'S5', 'S8', 'S10', 'S13', 'S14', 'S16', 'S17', 'S19', 'S20', 'S30', 'S40']);
+  expect(await page.locator('.grp-bar .grp-count').allTextContents()).toEqual(['11', '1', '1']);
+  expect(await page.locator('.grp-letter').count()).toBe(0);
+  // Cleared: 14 again, and the 13 letters come back.
+  await page.fill('#site_q', '');
+  expect(await page.locator('.grp-bar .grp-count').allTextContents()).toEqual(['14', '1', '1']);
+  expect(await page.locator('.grp-letter').count()).toBe(13);
+});
+
+// The rule is MORE THAN 12 (Matt's spec): 12 sites in a customer get no letter rows, 13 do. The first 13 names run Alder, Aspen, Birch,
+// Cedar, Dogwood, Elm, Fir, Grove, Hazel, Ivy, Juniper, Kestrel, Larch: the letters A to L, 12 rows (A holds two). The first 12 stop at Kestrel.
+for (const [count, drop, letters] of [[12, ['Larch Depot', 'Maple Dock'], []], [13, ['Maple Dock'], ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L']]]) {
+  test('the Sites tab: ' + count + ' sites in a customer ' + (letters.length ? 'get their letter rows' : 'get none') + ' (more than 12 is the rule)', async ({ page }) => {
+    const w = listWorld();
+    w.sites = w.sites.filter((s) => !drop.includes(s.name));
+    await sitesTabOf(page, w);
+    expect(await page.locator('[data-grp="ANTHC"] .grp-count').allTextContents()).toEqual([String(count)]);
+    expect(await page.locator('[data-grp="ANTHC"] .grp-letter').allTextContents()).toEqual(letters);
+  });
+}
+
+test('the Sites tab: no match says so, the buttons stay, and Clear puts everything back', async ({ page }) => {
+  await sitesTabOf(page, listWorld());
+  await page.fill('#site_q', 'zzz');
+  await expect(page.locator('#site_list')).toContainText('No sites match');
+  await expect(page.locator('#site_clear')).toBeVisible();
+  expect(await siteIds(page)).toEqual([]);
+  await expect(page.locator('.grp-bar')).toHaveCount(0);
+  await expect(page.locator('[data-sitecust="ANTHC"]')).toHaveText('ANTHC 14'); // the buttons are not counted by the search
+  // The search is plain text: no name or address holds a dot, a bracket or a star, so each finds nothing (as a pattern, "." finds all 16).
+  for (const text of ['.', '(', '*', '[a', '.*']) {
+    await page.fill('#site_q', text);
+    await expect(page.locator('#site_list'), JSON.stringify(text)).toContainText('No sites match');
+    expect(await siteIds(page), JSON.stringify(text)).toEqual([]);
+  }
+  // Spaces only is no search at all: everything.
+  await page.fill('#site_q', '   ');
+  expect(await siteIds(page)).toEqual(ALL_LIST_IDS);
+  // A customer on AND a search that finds nothing in it: Clear lets go of both.
+  await page.click('[data-sitecust="MOA"]');
+  await page.fill('#site_q', 'alder');   // Alder Lot is ANTHC's, not MOA's
+  await expect(page.locator('#site_list')).toContainText('No sites match');
+  await page.click('#site_clear');
+  await expect(page.locator('#site_q')).toHaveValue('');
+  await expect(page.locator('[data-sitecust="*"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-sitecust="MOA"]')).toHaveAttribute('aria-pressed', 'false');
+  expect(await siteIds(page)).toEqual(ALL_LIST_IDS);
+  await expect(page.locator('#site_clear')).toHaveCount(0);
+});
+
+test('the Sites tab: search and customer survive a tab switch and the redraw after a save', async ({ page }) => {
+  const calls = await sitesTabOf(page, listWorld());
+  const phone = () => page.evaluate(() => JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage)]));
+  const before = await phone();
+  // "court" finds Aspen Court (S2) and Birch Court (S4).
+  await page.fill('#site_q', 'court');
+  expect(await siteIds(page)).toEqual(['S2', 'S4']);
+  await page.click('nav [data-tab="routes"]');
+  await expect(page.locator('#site_q')).toHaveCount(0);
+  await page.click('nav [data-tab="sites"]');
+  await expect(page.locator('#site_q')).toHaveValue('court');
+  expect(await siteIds(page)).toEqual(['S2', 'S4']);
+  // A save redraws the tab: Aspen Court's notes change, the search is still on and still finds the same two.
+  await page.click('[data-edit="site:S2"]');
+  await page.fill('#s_mat', '2 bags');
+  await page.click('#s_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(calls.filter((c) => c.body.action === 'saveSite')).toHaveLength(1);
+  await expect(page.locator('#site_q')).toHaveValue('court');
+  expect(await siteIds(page)).toEqual(['S2', 'S4']);
+  // The customer button is kept the same way: MOA on, away to Routes and back.
+  await page.fill('#site_q', '');
+  await page.click('[data-sitecust="MOA"]');
+  await page.click('nav [data-tab="routes"]');
+  await page.click('nav [data-tab="sites"]');
+  await expect(page.locator('[data-sitecust="MOA"]')).toHaveAttribute('aria-pressed', 'true');
+  expect(await siteIds(page)).toEqual(['S30']);
+  // Nothing was written to this phone for any of it: the search and the filter are in memory only (never localStorage).
+  expect(await phone()).toBe(before);
+});
+
+test('the Sites tab: a customer filter whose customer has no live site left is dropped, never left on', async ({ page }) => {
+  await sitesTabOf(page, listWorld());
+  await page.click('[data-sitecust="MOA"]');
+  expect(await siteIds(page)).toEqual(['S30']);
+  // Beta moves to ANTHC: MOA has no site now, so its button is gone. The list must not sit empty under a button that is not there.
+  await page.click('[data-edit="site:S30"]');
+  await page.fill('#s_cust', 'ANTHC');
+  await page.click('#s_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  await expect(page.locator('[data-sitecust="MOA"]')).toHaveCount(0);
+  await expect(page.locator('[data-sitecust="*"]')).toHaveAttribute('aria-pressed', 'true');
+  // All 16 again, ANTHC now 15 (the 14 and Beta) with its letters, no customer 1.
+  await expect(page.locator('[data-sitecust="ANTHC"]')).toHaveText('ANTHC 15');
+  expect(await page.locator('.grp-bar .grp-count').allTextContents()).toEqual(['15', '1']);
+  expect(await siteIds(page)).toHaveLength(16);
+});
+
+// A world with no customers at all, or one customer, shows no customer buttons (one choice is no choice); the bar rule is as it was:
+// a bar when there is more than one group or the group has a name.
+test('the Sites tab: a world of sites with no customer has no heading bar and no customer buttons, but the search is there', async ({ page }) => {
+  await sitesTabOf(page, world()); // PAC and TUDOR-TRANSIT, neither with a customer
+  expect(await siteIds(page)).toEqual(['S1', 'S2']);                 // PAC before TUDOR-TRANSIT
+  await expect(page.locator('.grp-bar')).toHaveCount(0);
+  await expect(page.locator('.site-group')).toHaveCount(0);
+  await expect(page.locator('[data-sitecust]')).toHaveCount(0);
+  await expect(page.locator('#site_q')).toBeVisible();
+  await page.fill('#site_q', 'tudor');
+  expect(await siteIds(page)).toEqual(['S2']);
+  await page.fill('#site_q', 'zzz');
+  await expect(page.locator('#site_list')).toContainText('No sites match');
+});
+
+test('the Sites tab: one customer gets its bar and no customer buttons', async ({ page }) => {
+  const w = world();
+  w.sites = [{ id: 'S1', name: 'PAC', rev: 1, customer: 'ANTHC' }, { id: 'S3', name: 'APMB', rev: 1, customer: 'ANTHC' }];
+  await sitesTabOf(page, w);
+  expect(await page.locator('.grp-bar .site-group').allTextContents()).toEqual(['ANTHC']);
+  expect(await page.locator('.grp-bar .grp-count').allTextContents()).toEqual(['2']);
+  await expect(page.locator('[data-sitecust]')).toHaveCount(0);
+});
+
+test('the Sites tab: no sites at all says so, without a search box', async ({ page }) => {
+  const w = world();
+  w.sites = [{ id: 'S3', name: 'APMB', rev: 1, customer: 'ANTHC', archived: true }];
+  await sitesTabOf(page, w);
+  await expect(page.locator('#main')).toContainText('No sites yet.');
+  await expect(page.locator('#site_q')).toHaveCount(0);
+  await expect(page.locator('#archivedSites summary')).toHaveText('Archived (1)');
+});
+
+test('the Sites tab: signing out lets go of the search and the customer button', async ({ page }) => {
+  await sitesTabOf(page, listWorld(), { inv: (p) => p.action === 'getProfiles' ? { profiles: PROFILES }
+    : p.action === 'verifyPin' && p.id === '1' && p.pin === '1111' ? { valid: true, success: true, id: 1, name: 'Matthew', status: 'approved', token: 'tok-matt' } : { valid: false, attemptsLeft: 4 } });
+  await page.fill('#site_q', 'bet');
+  await page.click('[data-sitecust="MOA"]');
+  expect(await siteIds(page)).toEqual(['S30']);
+  await page.click('#signout');
+  await expect(page.locator('#signin')).toBeVisible();
+  // Matthew signs in again on the same phone: the list is whole, the box empty, All on.
+  await page.selectOption('#si_who', '1');
+  await page.fill('#si_pin', '1111');
+  await page.click('#si_go');
+  await page.click('nav [data-tab="sites"]');
+  await expect(page.locator('#site_q')).toHaveValue('');
+  await expect(page.locator('[data-sitecust="*"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-sitecust="MOA"]')).toHaveAttribute('aria-pressed', 'false');
+  expect(await siteIds(page)).toEqual(ALL_LIST_IDS);
+});
+
+// 320 px, light and dark. Nothing may go sideways (a 60-character customer with no space to wrap at is the worst case), every new text reads
+// (WCAG AA, 4.5:1, computed from the colours the page really paints), and a heading bar sticks right under the top bar, never under it.
+test('the Sites tab at 320 px, light and dark: nothing sideways, the texts read, and a heading bar sticks just under the top bar', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 640 });
+  const w = listWorld();
+  const LONG = 'Z' + 'x'.repeat(59);                                   // 60 characters, nowhere to break
+  w.sites.push({ id: 'S60', name: 'Pine Walk', address: '1 Long Test Way ' + 'lane '.repeat(14), rev: 1, customer: LONG });
+  await sitesTabOf(page, w);
+  await expect(page.locator('.grp-bar')).toHaveCount(4);              // ANTHC, MOA, the long one, no customer
+  for (const scheme of ['light', 'dark']) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.evaluate(() => window.scrollTo(0, 0));
+    const m = await page.evaluate(() => {
+      const rgb = (c) => c.match(/[\d.]+/g).slice(0, 3).map(Number);
+      const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; const [r, g, b] = rgb(c); return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+      const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+      const css = (el) => getComputedStyle(el);
+      const bar = document.querySelector('.grp-bar'), pressed = document.querySelector('#site_chips [aria-pressed="true"]');
+      const edge = (sel) => Array.from(document.querySelectorAll(sel)).map((e) => Math.ceil(e.getBoundingClientRect().right));
+      return {
+        wide: document.documentElement.scrollWidth,
+        rights: edge('.grp-bar, .grp-count, .grp-letter, #site_q, #site_chips button, .site-card'),
+        bar: ratio(css(bar.querySelector('.site-group')).color, css(bar).backgroundColor),
+        count: ratio(css(bar.querySelector('.grp-count')).color, css(bar.querySelector('.grp-count')).backgroundColor),
+        letter: ratio(css(document.querySelector('.grp-letter')).color, css(document.body).backgroundColor),
+        pressed: ratio(css(pressed).color, css(pressed).backgroundColor),
+        barBg: css(bar).backgroundColor, pageBg: css(document.body).backgroundColor,
+      };
+    });
+    expect(m.wide, scheme + ': page width').toBeLessThanOrEqual(320);
+    for (const r of m.rights) expect(r, scheme + ': an edge past the screen').toBeLessThanOrEqual(320);
+    for (const k of ['bar', 'count', 'letter', 'pressed']) expect(m[k], scheme + ': contrast of ' + k).toBeGreaterThanOrEqual(4.5);
+    expect(m.barBg, scheme + ': the bar is told apart from the page').not.toBe(m.pageBg);
+  }
+  // Scrolled well into ANTHC, its bar is stuck with its top edge on the top bar's bottom edge, and the top bar is still on top of it.
+  await page.evaluate(() => window.scrollTo(0, 500));
+  const st = await page.evaluate(() => {
+    const head = document.querySelector('header').getBoundingClientRect();
+    const bar = document.querySelector('[data-grp="ANTHC"] .grp-bar').getBoundingClientRect();
+    const over = document.elementFromPoint(10, Math.floor(head.bottom) - 4);
+    return { headBottom: head.bottom, barTop: bar.top, barH: bar.height, headOnTop: !!(over && over.closest('header')) };
+  });
+  expect(st.barTop).toBeCloseTo(st.headBottom, 0);
+  expect(st.barH).toBeGreaterThanOrEqual(44);   // a finger-sized heading
+  expect(st.headOnTop).toBe(true);
+});
+
+// Spanish (Matt's crew read the Storm tab in ES; this tab is theirs too). Tú, plain words. Names stay as typed.
+test('Spanish: the Sites tab search, buttons and empty line read in Spanish; site and customer names stay as typed', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  // A customer typed as "Valley" is a customer's name, not the word the dictionary knows (it has a row, "El Valle"): it must stay as typed.
+  const w = listWorld();
+  w.sites.push({ id: 'S60', name: 'Pine Walk', rev: 1, customer: 'Valley' });
+  await sitesTabOf(page, w);
+  await expect(page.locator('#site_q')).toHaveAttribute('placeholder', 'Buscar sitios');
+  await expect(page.locator('#site_q')).toHaveAttribute('aria-label', 'Buscar sitios');
+  await expect(page.locator('[data-sitecust="*"]')).toHaveText('Todos 17');   // 14 + Beta + Pine Walk + Gamma
+  await expect(page.locator('[data-sitecust="ANTHC"]')).toHaveText('ANTHC 14');
+  await expect(page.locator('[data-sitecust="Valley"]')).toHaveText('Valley 1');
+  await expect(page.locator('[data-grp="Valley"] .site-group')).toHaveText('Valley');
+  await expect(page.locator('[data-sitecust=""]')).toHaveText('Sin cliente todavía 1');
+  await expect(page.locator('.grp-bar .site-group').last()).toHaveText('Sin cliente todavía');
+  await expect(page.locator('[data-site="S30"] .site-name')).toHaveText('Beta');
+  await page.fill('#site_q', 'zzz');
+  await expect(page.locator('#site_list')).toContainText('Ningún sitio coincide');
+  await expect(page.locator('#site_clear')).toHaveText('Borrar');
+  await expect(page.getByText('No sites match', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Clear', { exact: true })).toHaveCount(0);
+});
+
 // Callouts and day ranking (Part B2, Matt 10/4/26): two numbers Matt decides per site, so they ship
 // blank and blank is sent as null, never 0. PAC (S1) is a site saved before this work: it has no
 // callout_in or day_rank key at all, and its boxes must read empty, never "undefined".

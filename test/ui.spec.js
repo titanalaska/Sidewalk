@@ -347,7 +347,9 @@ function fakeSnow(state, opts = {}) {
           // R29 + R38: a tap of the SAME kind as the latest standing mark there writes nothing and answers that row; an Arrived after a
           // standing Left (a return visit) and a Left after a standing Arrived are written.
           const latest = SL.latestMark(state.log, st0.storm_id, siteId, shiftId);
-          if (latest && latest.state === body.kind) return { ok: true, record: markShown(latest), ...v };
+          // The one exception (Code.js siteMark_, 11/15/26): an Arrived that is not a helper's is written over a standing helper's (flagged) Arrived.
+          const crewOverHelper = body.kind === 'arrived' && latest && latest.state === 'arrived' && latest.off_route === true && !offRoute;
+          if (latest && latest.state === body.kind && !crewOverHelper) return { ok: true, record: markShown(latest), ...v };
           // HELP VISITS (Code.js siteMark_, 11/15/26): a Left by a helper (offRoute; an admin never is) does not close a visit whose latest standing mark is
           // an Arrived that was not itself a helper's: refused (conflict), nothing written. The site's own crew's Left, and a helper's own flagged visit, go on.
           if (body.kind === 'left' && latest && latest.state === 'arrived' && latest.off_route !== true && offRoute) return refuse('conflict', "That site's own crew is still there");
@@ -7883,6 +7885,16 @@ test('help visit: the fake refuses a helper\'s Left over the site\'s own crew\'s
   expect(g({ token: 'tok-jordan', action: 'siteMark', kind: 'left', site_id: 'S1' })).toMatchObject({ ok: false, code: 'conflict', reason: STILL });
   const n = world(), h = fakeSnow(n);
   expect(h({ token: 'tok-jordan', action: 'siteMark', kind: 'left', site_id: 'S1' })).toMatchObject({ ok: true, record: { state: 'left', off_route: true } });
+  // The mirror case (Matt, 11/15/26: "Let the crews arrived win too"): the crew's Arrived over a helper's earlier Arrived is written, the one exception to the
+  // same-kind rule. Then a repeat by the crew writes nothing, the helper's Left is refused, and the crew's own Left is the Out.
+  const r = world(), k = fakeSnow(r);
+  expect(k({ token: 'tok-jordan', action: 'siteMark', kind: 'arrived', site_id: 'S1' })).toMatchObject({ ok: true, record: { id: 'L-1', off_route: true } });
+  expect(k({ token: 'tok-jordan', action: 'siteMark', kind: 'arrived', site_id: 'S1' })).toMatchObject({ ok: true, record: { id: 'L-1' } });   // a helper's own repeat writes nothing
+  expect(k({ token: 'tok-alex', action: 'siteMark', kind: 'arrived', site_id: 'S1' })).toMatchObject({ ok: true, record: { id: 'L-2', by_key: 'C01', off_route: false } });
+  expect(k({ token: 'tok-alex', action: 'siteMark', kind: 'arrived', site_id: 'S1' })).toMatchObject({ ok: true, record: { id: 'L-2' } });
+  expect(k({ token: 'tok-jordan', action: 'siteMark', kind: 'left', site_id: 'S1' })).toMatchObject({ ok: false, code: 'conflict', reason: STILL });
+  expect(k({ token: 'tok-alex', action: 'siteMark', kind: 'left', site_id: 'S1' })).toMatchObject({ ok: true, record: { state: 'left', by_key: 'C01', off_route: false } });
+  expect(r.log.map((x) => [x.state, x.by_key, x.off_route])).toEqual([['arrived', 'C03', true], ['arrived', 'C01', false], ['left', 'C01', false]]);
 });
 
 test('help visit: a helper taps Left while the site\'s own crew is still there: the server\'s words show, no Retry, and nothing changes', async ({ page }) => {

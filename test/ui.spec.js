@@ -5963,6 +5963,9 @@ test('print sheets: the walks are folded, a problem keeps its line, the walk rec
   await expect(view).toContainText('Walks: 2 of 3 done');
   await expect(view.locator('.note')).toHaveText('ice');
   await expect(view).not.toContainText('Walk record');
+  // A done walk is folded into the count and never named: neither Cleared walk's own line prints (worked on paper: Z1 and Z4 are Cleared).
+  await expect(view).not.toContainText('Main entry');
+  await expect(view).not.toContainText('Side lot');
   // Only the route's own sheet (the first .sheet): the handoff and crew-times pages are not what is counted.
   await expect(view.locator('.sheet').first().locator('li')).toHaveCount(0);
   await expect(view.locator('.sheet').first().locator('h1')).toContainText('Route N1');

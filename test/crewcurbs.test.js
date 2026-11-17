@@ -78,7 +78,9 @@ test('route sheet: an earlier curbs-1 tap at S2 prints as Curbs with its state, 
       note: '', by_name: 'Alex Test', at: '2026-12-04T19:01:00-09:00', snowing_warned: false, undoes: null }],
   };
   const data = RS.sheetData(o, 'R1', 'night-2026-12-04');
-  const html = RS.sheetBody(data, '2026-12-05T06:00:00-09:00', false);
+  // The words of a tapped walk (its name Curbs, its state Cleared, never Removed zone) are the WALK RECORD's walk line; the billing page
+  // would only say "Curbs: 1 of 1" in its count line (short route sheet, 11/17/26). So this reads the record.
+  const html = RS.recordBody(data, '2026-12-05T06:00:00-09:00', false);
   const w = data.sites[0].walks.filter(x => x.state === 'cleared');
   assert.equal(w.length, 1);
   assert.equal(w[0].name, 'Curbs');

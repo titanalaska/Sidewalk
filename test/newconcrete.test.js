@@ -65,13 +65,17 @@ test('NO_SALT is the exact copy', () => {
 });
 
 // Route sheet: one site, two walks both Treated: "Striped path" (new concrete) and "Plain path".
+// Short route sheet, 11/17/26: the sheet is two parts. The BILLING PAGE (sheetBody) folds walks into a count line and gives a walk its
+// own line only for a Problem or a note; the WALK RECORD (recordBody) is the walk-by-walk list, one <li> per walk with its word. These
+// tests are about the words on a walk's own line (Sanded, Sand only, no salt, Not done, ': Treated', 'while snowing'), which only the
+// walk record prints for a plain tap, so they read the record. (The billing page's own count line is pinned in routesheet tests.)
 function sheetFor(zones, log) {
   const o = {
     storm_id: 'ST-1', zones, log, visits: [], storms: [{ kind: 'start', storm_id: 'ST-1', seq: 1 }],
     sites: [{ id: 'S1', name: 'Test Site' }], routes: [{ id: 'R1', name: 'Route 1', site_ids: ['S1'] }],
   };
   const data = RS.sheetData(o, 'R1', 'night-2026-12-04');
-  return { data, html: RS.sheetBody(data, '2026-12-05T06:00:00-09:00', false) };
+  return { data, html: RS.recordBody(data, '2026-12-05T06:00:00-09:00', false) };
 }
 const tapRow = (n, zid, state) => ({ id: 'L-' + n, seq: n, storm_id: 'ST-1', shift_id: 'night-2026-12-04', site_id: 'S1', zone_id: zid, state,
   note: '', by_name: 'Alex Test', at: '2026-12-04T19:0' + n + ':00-09:00', snowing_warned: false, undoes: null });

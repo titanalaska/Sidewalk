@@ -5940,6 +5940,48 @@ test('Print sheets shows one page per route and shift, with not-done sites', asy
   expect(await page.evaluate(() => getComputedStyle(document.querySelector('header h1')).fontFamily)).not.toMatch(/Arial/);
 });
 
+test('print sheets: the walks are folded, a problem keeps its line, the walk record is not printed', async ({ page }) => {
+  // BILLING PAGE (sheetBody). Short route sheet, 11/17/26. PAC (S1) gets a third walk, "Side lot" (Z4, a sidewalk),
+  // beside Main entry (Z1) and Heated walk (Z2); Ski trail (no_touch) is never a walk. Worked by hand:
+  //   Z1 cleared, Z4 cleared, Z2 problem "ice"  ->  3 walks; done = the two Cleared (a Problem is not done) = 2.
+  // So the count line reads "Walks: 2 of 3 done" (nobody Treated, so no treated part, and no curbs, so none of that).
+  // One exception line: the Problem keeps its own line with its note "ice". Walks WERE done, so a "Not done:" line
+  // exists only for walks left undone: none are (the Problem is on its own line), so none is printed here.
+  // The walk-by-walk record is the other part (recordBody) and is not on this page: no "Walk record", no <li>.
+  const w = stormWorld();
+  w.zones = [...w.zones, { id: 'Z4', site_id: 'S1', type: 'sidewalk', name: 'Side lot', rev: 1 }];
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: at('06:30') }),
+    logRow(2, 'S1', 'Z4', 'cleared', 'Alex Test', { at: at('06:32') }),
+    logRow(3, 'S1', 'Z2', 'problem', 'Alex Test', { note: 'ice', at: at('06:35') })];
+  await stubPrint(page);
+  await openStorm(page, w, { token: 'tok-matt' });
+  await page.click('#printSheets');
+  const view = page.locator('#printsheets');
+  await expect(view).toContainText('Walks: 2 of 3 done');
+  await expect(view.locator('.note')).toHaveText('ice');
+  await expect(view).not.toContainText('Walk record');
+  // Only the route's own sheet (the first .sheet): the handoff and crew-times pages are not what is counted.
+  await expect(view.locator('.sheet').first().locator('li')).toHaveCount(0);
+  await expect(view.locator('.sheet').first().locator('h1')).toContainText('Route N1');
+});
+
+test('print sheets: machine minutes and materials are on the short page', async ({ page }) => {
+  // BILLING PAGE (sheetBody). PAC's Site cards: Alex (C01) ran the Bobcat 45 min and used "2 bags"; Jordan (C03)
+  // ran the Blower 30 min. Worked by hand: the page keeps "Bobcat" with "Alex Test 45 min", "Blower" with
+  // "Jordan Demo 30 min", and "Used:" with "Alex Test 2 bags" (these are billing facts, not walk lines).
+  const w = stormWorld();
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: at('06:30') })];
+  w.visits = [visitRow(1, 'S1', 'C01', 'Alex Test', { materials_used: '2 bags', equipment: { blower: '', snowrator: '', bobcat: 45, sweepster: '' } }),
+    visitRow(2, 'S1', 'C03', 'Jordan Demo', { equipment: { blower: 30, snowrator: '', bobcat: '', sweepster: '' } })];
+  await stubPrint(page);
+  await openStorm(page, w, { token: 'tok-matt' });
+  await page.click('#printSheets');
+  const site = page.locator('#printsheets .sheet').first().locator('.site').filter({ hasText: 'PAC' });
+  await expect(site).toContainText('Bobcat: Alex Test 45 min');
+  await expect(site).toContainText('Blower: Jordan Demo 30 min');
+  await expect(site).toContainText('Used: Alex Test 2 bags');
+});
+
 test('Back closes the print view', async ({ page }) => {
   await stubPrint(page);
   await openStorm(page, stormWorld(), { token: 'tok-matt' });

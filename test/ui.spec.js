@@ -5962,6 +5962,10 @@ test('print sheets: the walks are folded, a problem keeps its line, the walk rec
   const view = page.locator('#printsheets');
   await expect(view).toContainText('Walks: 2 of 3 done');
   await expect(view.locator('.note')).toHaveText('ice');
+  // The Problem walk is Z2, whose name in this fixture is "Heated walk": its own line starts with that name then ": Problem".
+  // No walk was left undone (Z1, Z4 Cleared; Z2 a Problem, not Not done), so no "Not done:" line prints.
+  await expect(view).toContainText('Heated walk: Problem');
+  await expect(view).not.toContainText('Not done:');
   await expect(view).not.toContainText('Walk record');
   // A done walk is folded into the count and never named: neither Cleared walk's own line prints (worked on paper: Z1 and Z4 are Cleared).
   await expect(view).not.toContainText('Main entry');

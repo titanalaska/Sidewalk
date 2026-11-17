@@ -5923,8 +5923,11 @@ test('Print sheets shows one page per route and shift, with not-done sites', asy
   await expect(sheets).toHaveCount(2);
   await expect(sheets.nth(0)).toContainText('Route N1');
   await expect(sheets.nth(0)).toContainText('Night of 10/2');
-  await expect(sheets.nth(0).locator('.site').filter({ hasText: 'PAC' })).toContainText('Main entry: Cleared');
-  await expect(sheets.nth(0).locator('.site').filter({ hasText: 'PAC' })).toContainText('Heated walk: Not done');
+  // Reworked 11/17/26 for the short route sheet: this page is the BILLING PAGE, which folds walks. PAC has two walks (Main entry,
+  // Heated walk), one tap (Main entry Cleared, 6:30): done 1 of 2, so 'Walks: 1 of 2 done'; Heated walk was never tapped, so it is named
+  // on the 'Not done:' line. (The per-walk words 'Main entry: Cleared' now belong to the walk record, not printed here.)
+  await expect(sheets.nth(0).locator('.site').filter({ hasText: 'PAC' })).toContainText('Walks: 1 of 2 done');
+  await expect(sheets.nth(0).locator('.site').filter({ hasText: 'PAC' })).toContainText('Not done: Heated walk');
   await expect(sheets.nth(0).locator('.site').filter({ hasText: 'EXTRA' })).toContainText('Not done this shift');
   await expect(sheets.nth(1)).toContainText('Route N2');
   await expect(sheets.nth(1).locator('.site').filter({ hasText: 'TUDOR-TRANSIT' })).toContainText('Not done this shift');

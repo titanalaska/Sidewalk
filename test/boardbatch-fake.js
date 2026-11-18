@@ -25,7 +25,8 @@ module.exports = function boardBatchFake(state, body, c) {
   state.moves = state.moves || [];
   const had = state.moves.filter((m) => m.batch === body.batch);
   if (had.length) return { ok: true, written: 0, skipped: 0, left: 0, already: true, lead_kept: false, records: had, moves: state.moves.slice() };
-  const pool = (state.crew || []).filter((p) => p.pending !== true);
+  // A live card only, as the server's crewPool_: a pending or an archived card is not crew ("Unknown worker <id>" for a ticked one).
+  const pool = (state.crew || []).filter((p) => p.pending !== true && p.archived !== true);
   const live = (state.routes || []).filter((r) => !r.archived);
   const board = B.boardFrom(state.moves, live, Object.fromEntries(pool.map((p) => [p.id, p])));
   let plan, skipped = 0, left = 0, leadKept = false;
@@ -33,6 +34,8 @@ module.exports = function boardBatchFake(state, body, c) {
     plan = BB.planAdd(board, String(body.route_id || ''), body.workers, body.lead || null);
     skipped = plan.skipped; leadKept = plan.lead_kept;
   } else if (kind === 'clear') {
+    // The field must be there (null = every route), as on the server: a missing one is refused, nothing written.
+    if (!Object.prototype.hasOwnProperty.call(body, 'route_id')) return refuse('invalid', 'Pick a route');
     plan = BB.planClear(board, body.route_id == null ? null : String(body.route_id));
   } else {
     plan = BB.planUndo(state.moves, board, body.clear);

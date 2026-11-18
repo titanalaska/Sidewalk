@@ -420,4 +420,7 @@ header #who{flex:1 1 auto;min-width:0;text-align:left}
 .grp-row.off{opacity:.6}
 .grp-row button{flex:none;margin:0;min-height:36px}
 .pickbar #ppl_hidden{flex:1 0 100%}
+.pickbar #ppl_err{flex:1 0 100%;margin:0}
 #ppl_none,#ppl_nomatch{margin:16px 0}
+/* The Undo line's words sit level with the buttons of their row (final review F9). */
+#bulkrow{align-items:center}

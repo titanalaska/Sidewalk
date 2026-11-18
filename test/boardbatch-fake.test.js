@@ -132,3 +132,21 @@ test('a pending card and an archived route are left out of the Board', () => {
   assert.deepEqual(fake(s, { action: 'boardBatch', kind: 'add', batch: 'B-add00006', route_id: 'R3', workers: ['C5'] }, admin),
     { ok: false, code: 'invalid', reason: 'Pick a route' });
 });
+
+// Final review F3: the server refuses a clear that does not name its route (null = every route; a missing field is a phone that did not
+// say which). The fake must say the same, so a phone that forgot the field fails its own tests.
+test('clear with no route_id field: invalid "Pick a route", nothing written; null still clears every route', () => {
+  const s = world();
+  assert.deepEqual(fake(s, { action: 'boardBatch', kind: 'clear', batch: 'B-clear005' }, admin), { ok: false, code: 'invalid', reason: 'Pick a route' });
+  assert.equal(s.moves.length, 5);
+  assert.equal(fake(s, { action: 'boardBatch', kind: 'clear', batch: 'B-clear005', route_id: null }, admin).written, 3);
+});
+
+// Final review F8 needs the fake to refuse a card archived after the phone loaded, as the server's crewPool_ does.
+test('an archived card is not crew: adding them is refused "Unknown worker", nothing written', () => {
+  const s = world();
+  s.crew.find((c) => c.id === 'C5').archived = true;
+  assert.deepEqual(fake(s, { action: 'boardBatch', kind: 'add', batch: 'B-add00007', route_id: 'R3', workers: ['C6', 'C5'], lead: null }, admin),
+    { ok: false, code: 'invalid', reason: 'Unknown worker C5' });
+  assert.equal(s.moves.length, 5);
+});

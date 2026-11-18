@@ -77,6 +77,7 @@ function fakeSnow(w) {
 // o.delay: ms to hold boardBatch replies. o.abortIf(body): drop the call before the server sees it (a lost signal).
 // o.loseReply(body): the server DOES it, the reply is lost. o.forbid: boardBatch answers like a server without the action.
 // o.refuse: boardBatch answers invalid with that reason. o.noShiftLog: the shift-log read never gets an answer (aborted).
+// o.signinIf(body): boardBatch answers the expired-session reply (code signin) for that call.
 async function open(page, w, o = {}) {
   const calls = [];
   await page.clock.install({ time: new Date(CLOCK) });
@@ -87,7 +88,8 @@ async function open(page, w, o = {}) {
     if (body.action === 'getShiftLog' && o.noShiftLog) return route.abort();
     if (o.abortIf && o.abortIf(body)) return route.abort();
     if (o.delay && body.action === 'boardBatch') await sleep(o.delay);
-    let reply = fake(body);
+    const expired = o.signinIf && body.action === 'boardBatch' && o.signinIf(body);   // the server never sees an expired call
+    let reply = expired ? { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', version: 'sitedone-1', action: 'boardBatch' } : fake(body);
     if (o.forbid && body.action === 'boardBatch') reply = { ok: false, code: 'forbidden', reason: 'Only Matt can do that.', version: 'sitedone-1', action: 'boardBatch' };
     if (o.refuse && body.action === 'boardBatch') reply = { ok: false, code: 'invalid', reason: o.refuse, version: 'sitedone-1', action: 'boardBatch' };
     if (o.loseReply && o.loseReply(body)) return route.abort();
@@ -105,6 +107,13 @@ const moveCalls = (calls) => calls.filter((c) => c.body.action === 'addMove');
 const rest = (body) => { const { token, action, ...r } = body; return r; };   // the request without the envelope
 const backSettled = (page) => page.waitForFunction(() => !((history.state && history.state.snow) || []).length);
 const toast = (page) => page.locator('#toast');
+// The Add people view's own error line (final review F4). The dialog is in the browser's top layer: #toast paints UNDER it, so a toast
+// can be "visible" to a locator and covered on screen. Every failure of the Add path is asserted here, and with a real hit test.
+const pplErr = (page) => page.locator('#ppl_err');
+const onTop = (page, sel) => page.evaluate((q) => {
+  const el = document.querySelector(q), r = el.getBoundingClientRect(), hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+  return !!hit && (hit === el || el.contains(hit));
+}, sel);
 const chipsOf = (page, rid) => page.locator('[data-route="' + rid + '"] .chip');
 const unassigned = (page) => page.locator('section.card:has(h2:text-is("Unassigned")) .chip');
 const confirmClear = async (page) => { await expect(page.locator('#clr_go')).toBeVisible(); await page.click('#clr_go'); };
@@ -745,7 +754,10 @@ test('Add people: a failed save keeps the dialog, the ticks, the lead and the se
   await leadBtn(page, 'C05').click();
   await page.fill('#ppl_q', 'li');
   await addBtn(page).click();
-  await expect(toast(page)).toHaveText('Not saved: no signal');
+  await expect(pplErr(page)).toBeVisible();
+  await expect(pplErr(page)).toHaveText('Not saved: no signal');
+  expect(await onTop(page, '#ppl_err')).toBe(true);
+  await expect(toast(page)).toBeHidden();   // the dialog is open: the words are in the list, not in a toast under it
   await expect(page.locator('#dlg')).toBeVisible();
   await expect(addBtn(page)).toBeEnabled();
   await expect(addBtn(page)).toHaveText('Add ticked (2)');
@@ -755,12 +767,14 @@ test('Add people: a failed save keeps the dialog, the ticks, the lead and the se
   await expect(chipsOf(page, 'R3')).toHaveCount(0);
   await addBtn(page).click();   // the same request again
   await expect.poll(() => batchCalls(calls).length).toBe(2);
-  await expect(toast(page)).toHaveText('Not saved: no signal');
+  await expect(pplErr(page)).toHaveText('Not saved: no signal');
   await expect(addBtn(page)).toBeEnabled();
   await page.fill('#ppl_q', '');
   await tick(page, 'C06');   // untick Fay: a different request
+  await expect(pplErr(page)).toBeHidden();   // a tick clears the old error
   await addBtn(page).click();
   await expect(toast(page)).toHaveText('Added 1 to Night 3');
+  await expect(pplErr(page)).toHaveText('');   // the try that saved left no error behind
   await expect(page.locator('#dlg')).toBeHidden();
   const bb = batchCalls(calls);
   expect(bb).toHaveLength(3);
@@ -780,7 +794,8 @@ test('Add people: a lost reply, then Add again: "Already saved", written once, a
   await tick(page, 'C05');
   await tick(page, 'C06');
   await addBtn(page).click();
-  await expect(toast(page)).toHaveText('Not saved: no signal');
+  await expect(pplErr(page)).toBeVisible();
+  await expect(pplErr(page)).toHaveText('Not saved: no signal');
   expect(w.moves.filter((m) => m.batch)).toHaveLength(2);   // it landed
   await expect(chipsOf(page, 'R3')).toHaveCount(0);          // the phone does not know
   await addBtn(page).click();
@@ -1025,3 +1040,272 @@ for (const scheme of ['light', 'dark']) {
     for (const r of fits.rows) { expect(r.card.ok, JSON.stringify(r)).toBe(true); expect(r.row && r.row.ok, JSON.stringify(r)).toBe(true); }
   });
 }
+
+// ---------- Final review fix wave (11/18/26) ----------
+const failAll = (b) => b.action === 'boardBatch';
+
+// F4. At 320 px with 65 unassigned the dialog fills the screen: a toast under it is covered. The words must be in the list, on top.
+test('F4: a failed Add ticked at 320 px with 65 unassigned says so in the list, visible and on top, and not in a toast', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 700 });
+  const w = pworld();
+  for (let i = 1; i <= 65; i++) w.crew.push({ id: 'Z' + String(i).padStart(3, '0'), name: 'Person Number ' + String(i).padStart(3, '0') + ' Longname', rev: 1, pending: false, archived: false, on_call: true });
+  await open(page, w, { abortIf: failAll });
+  await openPpl(page, 'R3');
+  await tick(page, 'Z001');
+  await addBtn(page).click();
+  await expect(pplErr(page)).toBeVisible();
+  await expect(pplErr(page)).toHaveText('Not saved: no signal');
+  expect(await onTop(page, '#ppl_err')).toBe(true);
+  await expect(pplErr(page)).toBeInViewport();
+  await expect(toast(page)).toBeHidden();
+  await expect(addBtn(page)).toBeEnabled();
+});
+
+test('F4: the other words a failure can carry (a server without the action) land in the list too', async ({ page }) => {
+  await open(page, pworld(), { forbid: true });
+  await openPpl(page, 'R3');
+  await tick(page, 'C05');
+  await addBtn(page).click();
+  await expect(pplErr(page)).toHaveText('Not saved: the server is not updated yet');
+  expect(await onTop(page, '#ppl_err')).toBe(true);
+  await expect(toast(page)).toBeHidden();
+});
+
+test('F4: the error goes away on the next tick, Lead pick, search key and Clear; a failed try shows it again', async ({ page }) => {
+  await open(page, pworld(), { abortIf: failAll });
+  await openPpl(page, 'R3');
+  await tick(page, 'C05');
+  const fail = async () => { await addBtn(page).click(); await expect(pplErr(page)).toHaveText('Not saved: no signal'); };
+  await fail();
+  await tick(page, 'C06');
+  await expect(pplErr(page)).toBeHidden();
+  await fail();
+  await leadBtn(page, 'C05').click();
+  await expect(pplErr(page)).toBeHidden();
+  await fail();
+  await page.fill('#ppl_q', 'zzz');   // a search key; nothing matches
+  await expect(pplErr(page)).toBeHidden();
+  await fail();
+  await page.click('#ppl_reset');
+  await expect(pplErr(page)).toBeHidden();
+  await expect(page.locator('#ppl_q')).toHaveValue('');
+});
+
+test('F4: Back during the save, then a failure: the words go to the toast (the view is gone) and the list shows no error', async ({ page }) => {
+  const calls = await open(page, pworld(), { delay: 1500, refuse: 'Pick a route' });
+  await openPpl(page, 'R3');
+  await tick(page, 'C05');
+  await addBtn(page).click();
+  await expect.poll(() => batchCalls(calls).length).toBe(1);
+  await page.goBack();
+  await expect(page.locator('#dlg')).toBeHidden();
+  await expect(toast(page)).toHaveText('Not saved: Pick a route', { timeout: 5000 });
+  await expect(pplErr(page)).toHaveText('');
+});
+
+// The Clear paths keep the toast: their dialog is closed (Clear) or there is none (Undo) when the reply lands.
+test('F4: Clear Board still says a failure in the toast, and nothing covers it', async ({ page }) => {
+  await open(page, world(), { abortIf: failAll });
+  await page.click('#clearboard');
+  await confirmClear(page);
+  await expect(toast(page)).toBeVisible();
+  await expect(toast(page)).toHaveText('Not saved: no signal');
+  expect(await onTop(page, '#toast')).toBe(true);
+});
+
+// F5. A session that expired while a bulk save was out: the sign-in screen, not a modal over it, and a Board that works afterwards.
+// The Inventory fake that lets Matt sign in again; registered BEFORE the expiry so the sign-in screen's name list loads from it.
+const inventoryForSignIn = (page) => page.route(isInv, async (route) => {
+    const b = Object.fromEntries(new URL(route.request().url()).searchParams);   // Inventory's sign-in calls are GETs
+    const reply = b.action === 'getProfiles' ? { profiles: [{ id: '1', name: 'Matthew', status: 'approved', hasPin: true }] }
+      : b.action === 'verifyPin' ? { valid: true, success: true, id: 1, name: 'Matthew', status: 'approved', token: 'tok-matt' } : {};
+    await route.fulfill({ contentType: 'application/json', body: JSON.stringify(reply) });
+  });
+// Counts the times the tab bar was shown from now on (sign-in hides it; a Board render would show it again).
+const watchTabs = (page) => page.evaluate(() => {
+  window.__tabsShown = 0;
+  new MutationObserver(() => { if (!document.getElementById('tabs').hidden) window.__tabsShown++; }).observe(document.getElementById('tabs'), { attributes: true, attributeFilter: ['hidden'] });
+});
+const signInAgain = async (page) => {
+  await expect(page.locator('#si_who option')).toHaveCount(2);
+  await page.selectOption('#si_who', '1');
+  await page.fill('#si_pin', '1111');
+  await page.click('#si_go');
+  await page.click('nav [data-tab="board"]');
+  await expect(page.locator('#post')).toBeVisible();
+};
+
+test('F5: the session expires during Add ticked: the dialog is closed, the sign-in screen shows, no page error, and the Board works after signing in', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  let n = 0;
+  const calls = await open(page, pworld(), { signinIf: () => ++n === 1 });
+  await inventoryForSignIn(page);
+  await openPpl(page, 'R3');
+  await tick(page, 'C05');
+  await watchTabs(page);
+  await addBtn(page).click();
+  await expect(page.locator('#signin')).toBeVisible();
+  await expect(page.locator('#dlg')).toBeHidden();
+  await expect(page.locator('#tabs')).toBeHidden();      // no Board drawn under the sign-in screen: its tab bar and Sign out stay away
+  await expect(page.locator('#signout')).toBeHidden();
+  // Nothing drew the Board back over it, not even for a moment (the sign-in screen's own load can hide a late render's tab bar again).
+  expect(await page.evaluate(() => window.__tabsShown), 'the tab bar came back after sign-in took over').toBe(0);
+  await expect(page.locator('#si_err')).toHaveText('Session expired. Sign in again.');
+  await signInAgain(page);
+  // busy is not stuck: the Board's buttons are enabled and a Clear goes through
+  await expect(page.locator('#clearboard')).toBeEnabled();
+  await page.click('#clearboard');
+  await confirmClear(page);
+  await expect(toast(page)).toHaveText('Took 3 people off the Board');
+  expect(errors).toEqual([]);
+  expect(batchCalls(calls)).toHaveLength(2);
+});
+
+test('F5: the session expires during Clear Board: the sign-in screen shows, no page error, and the Board works after signing in', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  let n = 0;
+  await open(page, world(), { signinIf: () => ++n === 1 });
+  await inventoryForSignIn(page);
+  await page.click('#clearboard');
+  await watchTabs(page);
+  await confirmClear(page);
+  await expect(page.locator('#signin')).toBeVisible();
+  await expect(page.locator('#dlg')).toBeHidden();
+  await expect(page.locator('#tabs')).toBeHidden();      // no Board drawn under the sign-in screen: its tab bar and Sign out stay away
+  await expect(page.locator('#signout')).toBeHidden();
+  // Nothing drew the Board back over it, not even for a moment (the sign-in screen's own load can hide a late render's tab bar again).
+  expect(await page.evaluate(() => window.__tabsShown), 'the tab bar came back after sign-in took over').toBe(0);
+  await signInAgain(page);
+  await expect(page.locator('#clearboard')).toBeEnabled();
+  await expect(chipsOf(page, 'R1')).toHaveCount(2);
+  await page.click('#clearboard');
+  await confirmClear(page);
+  await expect(toast(page)).toHaveText('Took 3 people off the Board');
+  expect(errors).toEqual([]);
+});
+
+// F6. A failed request keeps its batch id only while a retry is plausible: the same request, within 5 minutes of the failure.
+test('F6: fail, then succeed, then the SAME request again (after an Undo) sends a NEW batch id', async ({ page }) => {
+  let aborts = 1;
+  const calls = await open(page, world(), { abortIf: (b) => b.action === 'boardBatch' && aborts-- > 0 });
+  await page.click('#clearboard');
+  await confirmClear(page);
+  await expect(toast(page)).toHaveText('Not saved: no signal');
+  await page.click('#clearboard');
+  await confirmClear(page);
+  await expect(toast(page)).toHaveText('Took 3 people off the Board');
+  await page.click('#undoclear');
+  await expect(toast(page)).toHaveText('Put 3 back.');
+  await page.click('#clearboard');   // the very same request as the first: { kind: 'clear', route_id: null }
+  await confirmClear(page);
+  await expect(toast(page)).toHaveText('Took 3 people off the Board');
+  const bb = batchCalls(calls);
+  expect(bb.map((c) => c.body.kind)).toEqual(['clear', 'clear', 'undo', 'clear']);
+  expect(bb[1].body.batch).toBe(bb[0].body.batch);       // the retry kept it
+  expect(bb[3].body.batch).not.toBe(bb[0].body.batch);   // the success dropped it
+});
+
+test('F6: fail, 6 minutes pass on the page clock, the same request again sends a NEW batch id', async ({ page }) => {
+  let aborts = 1;
+  const calls = await open(page, world(), { abortIf: (b) => b.action === 'boardBatch' && aborts-- > 0 });
+  await page.click('#clearboard');
+  await confirmClear(page);
+  await expect(toast(page)).toHaveText('Not saved: no signal');
+  await page.clock.fastForward(6 * 60 * 1000);
+  await page.click('#clearboard');
+  await confirmClear(page);
+  await expect(toast(page)).toHaveText('Took 3 people off the Board');
+  const bb = batchCalls(calls);
+  expect(bb).toHaveLength(2);
+  expect(bb[1].body.kind).toBe(bb[0].body.kind);
+  expect(bb[1].body.route_id).toBe(bb[0].body.route_id);   // the same request
+  expect(bb[1].body.batch).not.toBe(bb[0].body.batch);
+});
+
+test('F6: fail, 1 minute passes, the same request again keeps its batch id', async ({ page }) => {
+  let aborts = 1;
+  const calls = await open(page, world(), { abortIf: (b) => b.action === 'boardBatch' && aborts-- > 0 });
+  await page.click('#clearboard');
+  await confirmClear(page);
+  await expect(toast(page)).toHaveText('Not saved: no signal');
+  await page.clock.fastForward(60 * 1000);
+  await page.click('#clearboard');
+  await confirmClear(page);
+  await expect(toast(page)).toHaveText('Took 3 people off the Board');
+  const bb = batchCalls(calls);
+  expect(bb).toHaveLength(2);
+  expect(bb[1].body.batch).toBe(bb[0].body.batch);
+});
+
+// F7. A late Add reply must not close a dialog that is not the Add people view.
+test('F7: Back during the save, a worker card opened meanwhile stays open when the reply lands; the toast shows and the Board is redrawn', async ({ page }) => {
+  const calls = await open(page, pworld(), { delay: 2500 });
+  await openPpl(page, 'R3');
+  await tick(page, 'C05');
+  await addBtn(page).click();
+  await expect.poll(() => batchCalls(calls).length).toBe(1);
+  await page.goBack();
+  await expect(page.locator('#dlg')).toBeHidden();
+  await backSettled(page);
+  await page.click('nav [data-tab="roster"]');
+  await page.click('[data-open="C04"]');   // Dee's card: a dialog that can be opened while the save is out
+  await expect(page.locator('#w_place')).toBeVisible();
+  await expect(toast(page)).toHaveText('Added 1 to Night 3', { timeout: 6000 });
+  await expect(page.locator('#w_place')).toBeVisible();   // still Dee's card
+  await expect(page.locator('#dlg')).toBeVisible();
+  await page.click('#dlgClose');
+  await backSettled(page);
+  await page.click('nav [data-tab="board"]');
+  await expect(chipsOf(page, 'R3')).toHaveCount(1);
+  await expect(page.locator('[data-route="R3"] .chip')).toContainText('Eli Test');
+});
+
+// F8. An archived person ticked on this phone: the server refuses the whole add by id. The list says who.
+test('F8: a ticked person archived on another phone: "<Name> is no longer on the crew list", the name as text, nothing added', async ({ page }) => {
+  const w = pworld();
+  w.crew.find((c) => c.id === 'C05').name = 'Eli <b>Test</b>';
+  const calls = await open(page, w);
+  await openPpl(page, 'R3');
+  await tick(page, 'C06');
+  await tick(page, 'C05');
+  w.crew.find((c) => c.id === 'C05').archived = true;   // archived elsewhere after this phone loaded: its list still has Eli
+  await addBtn(page).click();
+  await expect(pplErr(page)).toBeVisible();
+  await expect(pplErr(page)).toHaveText('Not saved: Eli <b>Test</b> is no longer on the crew list. Untick them and try again.');
+  await expect(pplErr(page).locator('b')).toHaveCount(0);
+  expect(await onTop(page, '#ppl_err')).toBe(true);
+  expect(batchCalls(calls)[0].body.workers).toEqual(['C06', 'C05']);
+  expect(w.moves.filter((m) => m.batch)).toHaveLength(0);
+  // Unticking them lets the rest go through.
+  await tick(page, 'C05');
+  await addBtn(page).click();
+  await expect(toast(page)).toHaveText('Added 1 to Night 3');
+});
+
+test('F8: an id that is not a row in the list keeps the server\'s own words', async ({ page }) => {
+  await open(page, pworld(), { refuse: 'Unknown worker C99' });
+  await openPpl(page, 'R3');
+  await tick(page, 'C05');
+  await addBtn(page).click();
+  await expect(pplErr(page)).toHaveText('Not saved: Unknown worker C99');
+});
+
+// F9. The Undo line's words sit level with the buttons in the same row.
+test('F9: "Cleared N people" is vertically centred against the Undo button', async ({ page }) => {
+  await open(page, world());
+  await page.click('#clearboard');
+  await confirmClear(page);
+  await expect(toast(page)).toHaveText('Took 3 people off the Board');
+  await placeByHand(page, 'C04', 'R3');   // the row now holds Clear Board, the words and Undo
+  await expect(page.locator('#clearedline')).toBeVisible();
+  const d = await page.evaluate(() => {
+    const line = document.getElementById('clearedline'), rg = document.createRange();
+    rg.selectNodeContents(line);
+    const t = rg.getBoundingClientRect(), b = document.getElementById('undoclear').getBoundingClientRect();
+    return { text: t.top + t.height / 2, button: b.top + b.height / 2, buttonH: b.height, textH: t.height };
+  });
+  expect(d.buttonH).toBeGreaterThan(d.textH + 4);   // the button really is the taller one, so the test can tell
+  expect(Math.abs(d.text - d.button)).toBeLessThanOrEqual(1.5);
+});

@@ -110,6 +110,8 @@ function fakeSnow(state, opts = {}) {
       list.push(rec);
       return { ok: true, record: rec, ...v };
     }
+    // Board bulk place (11/18/26): the server's rules and reply shapes (test/boardbatch-fake.js, also used by boardbulk.spec.js).
+    if (body.action === 'boardBatch') return { ...require('./boardbatch-fake.js')(state, body, { role }), ...v };
     if (body.action === 'saveCallout') {
       const rec = { ...body.record, id: body.record.shift, rev: (body.record.rev || 0) + 1 };
       state.callouts = state.callouts.filter((x) => x.id !== rec.id).concat([rec]);

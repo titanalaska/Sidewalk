@@ -138,6 +138,7 @@ test('with nobody placed there is no Clear Board, no Clear route and no bulk row
 test('the confirm for the whole Board and for one route: the words, from this phone\'s copy', async ({ page }) => {
   const calls = await open(page, world());
   await page.click('#clearboard');
+  await expect(page.locator('#clr_q')).toBeVisible();
   await expect(page.locator('#clr_q')).toHaveText('Take 3 people off 2 routes?');
   await expect(page.locator(GO.post)).toHaveText('The crew still sees the last Post until you tap Post.');
   await expect(page.locator(GO.storm)).toHaveText('A storm is open: people off the Board cannot tap until they are placed again.');
@@ -148,11 +149,13 @@ test('the confirm for the whole Board and for one route: the words, from this ph
   await expect(page.locator('#dlg')).toBeHidden();
   await backSettled(page);
   await page.click('[data-clearroute="R1"]');
+  await expect(page.locator('#clr_q')).toBeVisible();
   await expect(page.locator('#clr_q')).toHaveText('Take 2 people off Night 1?');
   await expect(page.locator(GO.post)).toBeVisible();
   await page.click('#dlgClose');
   await backSettled(page);
   await page.click('[data-clearroute="R2"]');
+  await expect(page.locator('#clr_q')).toBeVisible();
   await expect(page.locator('#clr_q')).toHaveText('Take 1 person off Night 2?');
   await page.click('#dlgClose');
   expect(batchCalls(calls)).toHaveLength(0);
@@ -163,6 +166,7 @@ test('the confirm says "1 person off 1 route" when that is all there is', async 
   const w = world(); w.moves = [move(3, 'C03', 'R2', 'lead')];
   await open(page, w);
   await page.click('#clearboard');
+  await expect(page.locator('#clr_q')).toBeVisible();
   await expect(page.locator('#clr_q')).toHaveText('Take 1 person off 1 route?');
 });
 
@@ -171,10 +175,12 @@ test('the clock line: N are still on the clock, 1 is, and no line when nobody is
   w.clockRows = [clockRow(1, 'C01', '2026-10-03T03:00:00.000-08:00'), clockRow(2, 'C03', '2026-10-03T03:05:00.000-08:00')];
   await open(page, w);
   await page.click('#clearboard');
+  await expect(page.locator('#clr_q')).toBeVisible();
   await expect(page.locator(GO.clock)).toHaveText('2 are still on the clock. Tap End shift first, or their End has to be typed with Set shift.');
   await page.click('#dlgClose');
   await backSettled(page);
   await page.click('[data-clearroute="R1"]');   // only Ana is on the clock there, not Cy (R2)
+  await expect(page.locator('#clr_q')).toBeVisible();
   await expect(page.locator(GO.clock)).toHaveText('1 is still on the clock. Tap End shift first, or their End has to be typed with Set shift.');
 });
 
@@ -366,7 +372,7 @@ test('a failed Clear: "Not saved", the Board unchanged, and the same request aga
   const calls = await open(page, world(), { abortIf: (b) => b.action === 'boardBatch' && aborts-- > 0 });
   await page.click('#clearboard');
   await confirmClear(page);
-  await expect(toast(page)).toContainText('Not saved');
+  await expect(toast(page)).toHaveText('Not saved: no signal');
   await expect(chipsOf(page, 'R1')).toHaveCount(2);
   await expect(page.locator('#clearboard')).toBeEnabled();
   await expect(page.locator('#clearedline')).toHaveCount(0);
@@ -383,7 +389,7 @@ test('a failed Clear route, then a DIFFERENT request: a new batch id', async ({ 
   const calls = await open(page, world(), { abortIf: (b) => b.action === 'boardBatch' && aborts-- > 0 });
   await page.click('[data-clearroute="R1"]');
   await confirmClear(page);
-  await expect(toast(page)).toContainText('Not saved');
+  await expect(toast(page)).toHaveText('Not saved: no signal');
   await backSettled(page);
   await page.click('[data-clearroute="R2"]');
   await confirmClear(page);
@@ -400,7 +406,7 @@ test('a lost reply: the retry (same batch id) answers "Already saved" and the Bo
   const calls = await open(page, w, { loseReply: (b) => b.action === 'boardBatch' && lose-- > 0 });
   await page.click('#clearboard');
   await confirmClear(page);
-  await expect(toast(page)).toContainText('Not saved');
+  await expect(toast(page)).toHaveText('Not saved: no signal');
   expect(w.moves.filter((m) => m.batch)).toHaveLength(3);   // it landed
   await expect(chipsOf(page, 'R1')).toHaveCount(2);         // the phone does not know
   await page.click('#clearboard');
@@ -472,6 +478,64 @@ test('a single move after a clear is never sorted before it: the server\'s rows 
   expect(mv).toHaveLength(1);
   expect(Date.parse(mv[0].body.record.at)).toBeGreaterThan(clearAt);
   expect(Date.parse(mv[0].body.record.at)).toBeLessThanOrEqual(clearAt + 2000);   // just after it, not far
+});
+
+// The same rule for the other two doors a single move comes in by: the bottom bar's Unassign and Make lead, and Place on a roster worker card.
+// The setup of the test above: a clear stamped ten minutes (7:40 AM) ahead of the page's 7:30 AM; the move's `at` must come after it.
+async function clearedAhead(page, clearRoute) {
+  const w = world();
+  w.now = new Date(Date.parse(CLOCK) + 10 * 60000);
+  const calls = await open(page, w);
+  await page.click('[data-clearroute="' + clearRoute + '"]');
+  await confirmClear(page);
+  await expect(toast(page)).toContainText('Took 1 person off');
+  const clearAt = Date.parse(w.moves.find((m) => m.batch).at);
+  expect(clearAt).toBe(w.now.getTime());
+  return { w, calls, clearAt };
+}
+const justAfter = (calls, clearAt) => {
+  const mv = moveCalls(calls);
+  expect(mv).toHaveLength(1);
+  const at = Date.parse(mv[0].body.record.at);
+  expect(at).toBeGreaterThan(clearAt);
+  expect(at).toBeLessThanOrEqual(clearAt + 2000);
+  return mv[0].body.record;
+};
+
+test("after a clear, the bottom bar's Unassign is stamped after the clear's rows",async ({ page }) => {
+  const { calls, clearAt } = await clearedAhead(page, 'R2');   // Cy off; Ana (LEAD) and Ben stay on Night 1
+  await page.click('.chip[data-worker="C01"]');
+  await expect(page.locator('#bar [data-act="unassign"]')).toBeVisible();
+  await page.click('#bar [data-act="unassign"]');
+  await expect(unassigned(page)).toHaveCount(5);   // Cy, Dee, Eli, Fay, Ana
+  await expect(chipsOf(page, 'R1')).toHaveCount(1);
+  const rec = justAfter(calls, clearAt);
+  expect(rec).toMatchObject({ worker: 'C01', to_route: null });
+});
+
+test("after a clear, the bottom bar's Make lead is stamped after the clear's rows",async ({ page }) => {
+  const { calls, clearAt } = await clearedAhead(page, 'R2');
+  await page.click('.chip[data-worker="C02"]');   // Ben, a member of Night 1
+  await expect(page.locator('#bar [data-act="lead"]')).toBeVisible();
+  await page.click('#bar [data-act="lead"]');
+  await expect(page.locator('[data-route="R1"] .chip').first()).toContainText('Ben Test');
+  await expect(page.locator('[data-route="R1"] .chip').first().locator('.lead')).toHaveText('LEAD');
+  const rec = justAfter(calls, clearAt);
+  expect(rec).toMatchObject({ worker: 'C02', to_route: 'R1', role: 'lead' });
+});
+
+test("after a clear, Place on a roster worker card is stamped after the clear's rows",async ({ page }) => {
+  const { calls, clearAt } = await clearedAhead(page, 'R2');
+  await page.click('nav [data-tab="roster"]');
+  await page.click('[data-open="C04"]');   // Dee, unassigned
+  await page.selectOption('#w_route', 'R3');
+  await page.click('#w_place');
+  await expect(toast(page)).toHaveText('Dee Test placed on Night 3');
+  const rec = justAfter(calls, clearAt);
+  expect(rec).toMatchObject({ worker: 'C04', to_route: 'R3', role: 'member' });
+  await page.click('nav [data-tab="board"]');
+  await expect(chipsOf(page, 'R3')).toHaveCount(1);
+  await expect(page.locator('[data-route="R3"] .chip')).toContainText('Dee Test');
 });
 
 test('a single move right after a lone chip tap still shows Place here beside the bulk buttons', async ({ page }) => {

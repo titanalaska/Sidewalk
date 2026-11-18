@@ -40,7 +40,12 @@ test('no picture: the page says so and the list still prints; no zones: it says 
   assert.match(h, /could not be made/);
   assert.ok(!h.includes('<img'));
   assert.ok(!h.includes('Materials:') && !h.includes('Needs clearance') && !h.includes('mp-sub'));
-  assert.match(page({ items: [] }), /No zones drawn on this site yet/);
+  const none = page({ items: [] });
+  assert.match(none, /No zones drawn on this site yet/);
+  assert.ok(!none.includes('<img') && !none.includes('mp-noimg') && !none.includes('mp-legend'), 'no zones: no picture, no legend');
+  const lost = page({ items: [], img: null, loadFailed: true });
+  assert.match(lost, /couldn't be loaded on this phone/);
+  assert.ok(!lost.includes('No zones drawn') && !lost.includes('mp-zones'), 'a site that could not load never reads as having nothing drawn');
 });
 
 test('every css rule is under #printsheets, so the app is never restyled', () => {

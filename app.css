@@ -411,3 +411,13 @@ header #who{flex:1 1 auto;min-width:0;text-align:left}
 .pickbar #pick_add{flex:2 1 0}
 .pickbar button:disabled{opacity:.5}
 #r_added{align-self:center}
+
+/* The Board's Add people… view (Board bulk place, 11/18/26) wears the Add sites view's classes (.pickview, .grp-bar, .grp-row, .pickbar); these are
+   its own ids. A person who is not on call is greyed and still tickable; a ticked row carries its Lead button inside the row. */
+#ppl_q{min-height:44px;margin:0}
+#ppl_list{margin-top:8px}
+.ppl-grp .grp-bar{margin-top:8px}
+.grp-row.off{opacity:.6}
+.grp-row button{flex:none;margin:0;min-height:36px}
+.pickbar #ppl_hidden{flex:1 0 100%}
+#ppl_none,#ppl_nomatch{margin:16px 0}

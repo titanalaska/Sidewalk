@@ -147,3 +147,40 @@ test('Back from the map page leaves the map open, and the page Back button does 
   await expect(page.locator('#mapbox')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+// ---------- Print maps for a route (11/18/26) ----------
+// R1 runs PAC (drawn), Bare lot (no zones) and Far site (its zones never come and none are kept here), in that order.
+test('Print maps on a route prints one page per site in the route\'s order, and says which could not load', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  await tiles(page);
+  await page.addInitScript(() => { window.__prints = 0; window.print = () => { window.__prints++; }; });
+  const state = mapWorld();
+  state.sites.push({ id: 'S2', name: 'Bare lot', rev: 1 }, { id: 'S3', name: 'Far site', rev: 1 });
+  state.zones.push({ id: 'Z9', site_id: 'S3', type: 'sidewalk', name: 'Front', priority: false, note: '', ring: ring(PAC[0] + 0.01, PAC[1], 20, 5), area_sqft: 1000, rev: 1 });
+  state.routes[0].site_ids = ['S1', 'S2', 'S3'];
+  const base = fakeSnow(state);
+  await open(page, { token: 'tok-jordan', snow: (body) => (body.action === 'getZones' && body.site_id === 'S3' ? { ok: false, code: 'network', reason: 'no signal' } : base(body)) });
+  await page.click('nav [data-tab="routes"]');
+  await page.click('[data-printroute="R1"]');
+  await expect(page.locator('#printview[data-mapprint]')).toBeVisible({ timeout: 40000 });
+  await expect.poll(() => page.evaluate(() => window.__prints)).toBe(1);
+  const sheets = page.locator('#printsheets .mp-sheet');
+  await expect(sheets).toHaveCount(3);
+  await expect(sheets.nth(0).locator('h1')).toHaveText('PAC');
+  await expect(sheets.nth(0).locator('img.mp-img')).toHaveCount(1);
+  await expect(sheets.nth(0).locator('.mp-zones tbody tr')).toHaveCount(3);
+  await expect(sheets.nth(1).locator('h1')).toHaveText('Bare lot');
+  await expect(sheets.nth(1)).toContainText('No zones drawn on this site yet.');
+  await expect(sheets.nth(2).locator('h1')).toHaveText('Far site');
+  await expect(sheets.nth(2)).toContainText("couldn't be loaded on this phone");
+  await expect(page.locator('#toast')).toContainText("1 map couldn't be made");
+  // The picture is the page's shape, and nothing was left off screen.
+  const w = await page.evaluate(async () => { const i = document.querySelector('.mp-img'); await i.decode(); return i.naturalWidth / window.devicePixelRatio; });
+  expect(w).toBe(1000);
+  expect(await page.locator('.maplibregl-map').count()).toBe(0);
+  await page.goBack();
+  await expect(page.locator('#printview')).toHaveCount(0);
+  await expect(page.locator('[data-printroute="R1"]')).toBeEnabled();
+  expect(errors).toEqual([]);
+});

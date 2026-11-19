@@ -557,5 +557,5 @@ test('people: pure; the crew is not changed and each item is the caller\'s own o
   assert.deepEqual(crew, before);
   const people = r.items.filter((i) => i.person);
   assert.ok(people.length > 0);
-  people.forEach((i) => assert.ok(crew.indexOf(i.person) >= 0));
+  people.forEach((i) => assert.equal(i.person, crew.find((c) => c.id === i.person.id)));
 });

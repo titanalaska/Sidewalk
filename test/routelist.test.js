@@ -129,6 +129,24 @@ test('page: the heading, a blank date (never a real one), the crew lines', () =>
   assert.ok(h.includes('Bea Member, Cy Member'));
 });
 
+// A big route prints on two landscape pages since the route sheet columns (Matt 11/19/26), and a loose page 2 must still say
+// whose it is (final review, 11/19/26). A browser repeats a table's <thead> on every printed page, so the route name, the Date
+// blank and the Lead / Crew lines are the FIRST row of the thead: one cell spanning every column. By hand: N2 has a curb item
+// -> 9 column headers in the second row, so colspan="9"; with the curbs taken away (the heated-only case) -> 8.
+test('page: the route name, date and crew head the table, so every printed page carries them', () => {
+  for (const [o, cols] of [[mk(), 9], [(() => { const x = mk(); x.zones = x.zones.filter((z) => !['Z1', 'Z3', 'Z4'].includes(z.id)); return x; })(), 8]]) {
+    const h = RouteList.pageHtml(RouteList.pages(o)[0], (s) => s);
+    const head = h.slice(h.indexOf('<thead>'), h.indexOf('</thead>'));
+    const rows = head.split('<tr').slice(1);
+    assert.equal(rows.length, 2);
+    assert.match(rows[0], new RegExp('<th class="rl-pagehead" colspan="' + cols + '">'));
+    assert.match(rows[0], /<h1[^>]*>N2<\/h1>/);
+    for (const w of ['Date:', 'Lead', 'Alex Lead', 'Crew:', 'Bea Member, Cy Member']) assert.ok(rows[0].includes(w), w);
+    assert.equal(count(rows[1], '</th>'), cols);
+    assert.ok(!h.slice(0, h.indexOf('<thead>')).includes('Date:'), 'the heading is not printed twice');
+  }
+});
+
 test('page: nobody placed prints the blanks to write on', () => {
   const h = html(1);
   // Lead: ____________________   Crew: ____________________ ____________________
@@ -178,7 +196,7 @@ test('page: notes are escaped and keep their line break; names and address are e
 test('page: one row per site; Done and Shoveled always, Curbs done only with curbs; only the walks that need a word', () => {
   const h = html(0);
   assert.equal(count(h, 'class="rl-site"'), 2);
-  assert.equal(count(h, '</th>'), 9);
+  assert.equal(count(h, '</th>'), 10); // 9 column headers + the heading cell that spans them
   assert.ok(!h.includes('Treated') && !h.includes('Materials used'));
   const head = h.slice(h.indexOf('<thead>'), h.indexOf('</thead>'));
   const order = ['>Done<', '>Shoveled<', '>Curbs done<', '>In:<', '>Out:<', '>Ice melt (bags)<', '>Sand (buckets)<', '>Equipment<'].map((w) => head.indexOf(w));
@@ -206,7 +224,7 @@ test('page: a heated-only site still gets a Shoveled box; a route with no curbs 
   const o = mk();
   o.zones = o.zones.filter((z) => !['Z1', 'Z3', 'Z4'].includes(z.id));
   const h = RouteList.pageHtml(RouteList.pages(o)[0], (s) => s);
-  assert.equal(count(h, '</th>'), 8);
+  assert.equal(count(h, '</th>'), 9); // 8 column headers + the heading cell
   assert.ok(!h.includes('Curbs done'));
   assert.equal(count(h, 'class="rl-box"'), 4);
   assert.equal(count(h, 'class="rl-na"'), 0);

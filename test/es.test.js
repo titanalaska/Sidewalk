@@ -236,6 +236,11 @@ test('site done: the buttons, the toggle and the Already done toast', () => {
   assert.equal(Es.translateString('Hide walks'), 'Ocultar recorridos');
   assert.equal(Es.translateString('Already done'), 'Ya est\u00e1 hecho');
 });
+test('big site toggle: Show <n> walks, with and without the done count, k = 1 and k > 1', () => {
+  assert.equal(Es.translateString('Show 9 walks'), 'Ver 9 recorridos');
+  assert.equal(Es.translateString('Show 23 walks \u00b7 1 done'), 'Ver 23 recorridos \u00b7 1 terminado');
+  assert.equal(Es.translateString('Show 23 walks \u00b7 12 done'), 'Ver 23 recorridos \u00b7 12 terminados');
+});
 test('site done: the folded line, n = 1 and n > 1', () => {
   assert.equal(Es.translateString('All 1 walk done'), '1 recorrido terminado');
   assert.equal(Es.translateString('All 4 walks done'), 'Los 4 recorridos terminados');

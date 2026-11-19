@@ -36,8 +36,8 @@ button{font:inherit;min-height:44px;padding:8px 14px;border-radius:8px;border:1p
 .warns{margin:8px 0 0;padding:0;list-style:none}
 .warns li{color:var(--warn);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin-top:4px;font-size:14px}
 .bar{position:fixed;left:0;right:0;bottom:57px;z-index:6;background:var(--card);border-top:2px solid var(--accent);padding:8px 16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-top:12px}
-.tile{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px;text-align:center;cursor:pointer}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:8px;margin-top:12px}
+.tile{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:6px;cursor:pointer;display:flex;align-items:center;gap:10px;text-align:left}
 .tile img,.tile .ph{display:block;width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;background:var(--line)}
 dialog{border:0;border-radius:14px;padding:0;width:min(560px,calc(100vw - 32px));background:var(--card);color:var(--ink)}
 dialog::backdrop{background:rgba(0,0,0,.45)}
@@ -107,7 +107,12 @@ button.small{min-height:36px;padding:4px 10px;font-size:14px;margin-left:auto}
 .who-head{display:flex;align-items:center;gap:12px;margin-bottom:8px}
 .who-head h2{margin:0}
 .av{width:44px;height:44px;border-radius:50%;object-fit:cover;flex:none;background:var(--pill);color:var(--muted);display:inline-flex;align-items:center;justify-content:center;font-weight:600;font-size:14px}
-.tile .av{width:100%;height:auto;aspect-ratio:1;border-radius:8px;font-size:28px}
+.tile .av{width:64px;height:64px;border-radius:50%;font-size:22px;flex:none}
+.tile .photobtn{display:block;flex:none;border-radius:50%;line-height:0}
+.tile .tile-text{min-width:0;flex:1;overflow-wrap:anywhere}
+.tile .tile-name{font-weight:600;line-height:1.25}
+.tile .where{line-height:1.25}
+.bigphoto{display:block;width:100%;max-height:70vh;object-fit:contain;border-radius:12px;margin-bottom:10px;background:var(--pill)}
 #signin,#request,#notroster{margin-top:8px}
 /* site maps */
 .row.tight{margin:0 0 0 auto;gap:4px;flex-wrap:nowrap}
@@ -424,3 +429,13 @@ header #who{flex:1 1 auto;min-width:0;text-align:left}
 #ppl_none,#ppl_nomatch{margin:16px 0}
 /* The Undo line's words sit level with the buttons of their row (final review F9). */
 #bulkrow{align-items:center}
+
+/* ---- Storm tab: a bold name bar on every site card (Matt, 11/19/26: scrolling fast you went past the next site's name) ---- */
+.shift-site{margin-top:20px;overflow:hidden}
+.site-bar{background:#12263d;color:#fff;margin:-14px -14px 10px;padding:12px 14px;border-radius:14px 14px 0 0}
+.site-bar .site-name{font-size:21px;font-weight:800;line-height:1.2;color:#fff;overflow-wrap:anywhere}
+.site-bar .site-addr{color:#c9d6e4;font-size:13px;font-weight:500;display:block}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .site-bar{background:#17457a}}
+:root[data-theme="dark"] .site-bar{background:#17457a}
+.walks-toggle{margin:2px 0 8px}
+.walks-toggle button{width:100%}

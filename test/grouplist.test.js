@@ -532,8 +532,63 @@ test('people: a phone that is a NUMBER, and one with a plus and an extension', (
   const crew = [{ id: 'n', name: 'Num Ber', phone: 9075550123 }, { id: 'e', name: 'Ext Ension', phone: '+1 (907) 555-0123 x12' }];
   const q = (s) => peopleNames(SnowGroupList.people(crew, { query: s }));
   assert.deepEqual(q('5550123'), ['Ext Ension', 'Num Ber']);    // both hold 5550123
-  assert.deepEqual(q('19075550123'), ['Ext Ension']);           // digits 1907555012312 hold it; 9075550123 does not
+  // Joined match: 11 digits starting with 1 are tried whole (1907555012312 holds it: Ext) and without the 1
+  // (9075550123: Num's digits are exactly that, and Ext's hold it too), so both show.
+  assert.deepEqual(q('19075550123'), ['Ext Ension', 'Num Ber']);
   assert.deepEqual(q('0123'), ['Ext Ension', 'Num Ber']);
+});
+
+// The joined phone match (final review, 11/19/26): a query made only of digits and - . ( ) + (spaces
+// aside) is also tried as ONE number, so a phone typed with spaces, or the way caller ID shows it,
+// finds the card. Phone digits on the fixture: Zoe 9075550123, alvaro 9075550199, Jose 9075551234,
+// 3rd Shift 5553000; Juan "" and Nico null have none.
+test('people: joined phone, "907 5" is 9075: the three 907 phones (each word alone fails: "5" is one digit)', () => {
+  assert.deepEqual(peopleNames(find('907 5')), ['álvaro Ruiz', 'José Niño', 'Zoe Adams']);
+});
+
+test('people: joined phone, "907 555 01" is 90755501: 9075550199 and 9075550123, not 9075551234', () => {
+  assert.deepEqual(peopleNames(find('907 555 01')), ['álvaro Ruiz', 'Zoe Adams']);
+});
+
+test('people: joined phone, "907 555 0123" is 9075550123: Zoe alone', () => {
+  assert.deepEqual(peopleNames(find('907 555 0123')), ['Zoe Adams']);
+});
+
+test('people: joined phone, "19075550123" (11 digits, leading 1) is also tried without the 1', () => {
+  assert.deepEqual(peopleNames(find('19075550123')), ['Zoe Adams']);
+});
+
+test('people: joined phone, "+1 907 555 0123" typed as caller ID shows it', () => {
+  assert.deepEqual(peopleNames(find('+1 907 555 0123')), ['Zoe Adams']);
+});
+
+test('people: joined phone, "1 907" is 1907: no phone holds it, so 907 is tried (4 digits, leading 1)', () => {
+  assert.deepEqual(peopleNames(find('1 907')), ['álvaro Ruiz', 'José Niño', 'Zoe Adams']);
+});
+
+test('people: joined phone, "1555" tries 555: the four 555 phones', () => {
+  assert.deepEqual(peopleNames(find('1555')), ['3rd Shift Temp', 'álvaro Ruiz', 'José Niño', 'Zoe Adams']);
+});
+
+test('people: joined phone, "155" is only 3 digits: the 1 is not dropped, and no phone holds 155', () => {
+  // José 9075551234 has 1 then 2, not 1 then 55; if the 1 were dropped, 55 would be two digits anyway.
+  assert.deepEqual(peopleNames(find('155')), []);
+});
+
+test('people: joined phone, a letter in the query is not phone-like: "juan 907" goes per word, Juan has no phone', () => {
+  assert.deepEqual(peopleNames(find('juan 907')), []);
+});
+
+test('people: joined phone, nothing moved: "3", "55" and "route 2" answer as before', () => {
+  assert.deepEqual(peopleNames(find('3')), ['3rd Shift Temp', 'José Niño']);
+  assert.deepEqual(peopleNames(find('55')), []);
+  assert.deepEqual(peopleNames(find('route 2')), ['Juan Carlos Pérez', 'Zoe Adams']);
+});
+
+test('people: joined phone, a card stored with the country code and an extension is found by "907 555 0123"', () => {
+  // Digits 1907555012312 contain 9075550123.
+  const crew = [{ id: 'e', name: 'Ext Ension', phone: '+1 (907) 555-0123 x12' }];
+  assert.deepEqual(peopleNames(SnowGroupList.people(crew, { query: '907 555 0123' })), ['Ext Ension']);
 });
 
 test('people: no name sits in # and no query finds it by name; no placeOf means no place words; null is empty', () => {

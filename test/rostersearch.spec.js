@@ -58,6 +58,12 @@ function fakeSnow(state) {
     if (body.action === 'bootstrap') return { ok: true, me, sites: state.sites, routes: state.routes, zones: state.zones, crew: state.crew, post: null, moves: state.moves, callouts: [], gear: [], ...v };
     if (body.action === 'getCrew') return { ok: true, crew: state.crew, ...v };
     if (body.action === 'getPost') return { ok: true, post: null, ...v };
+    // The real saveCrew, as test/ui.spec.js's fake answers it: the record comes back one revision on and replaces the stored one.
+    if (body.action === 'saveCrew') {
+      const rec = { ...body.record, rev: (body.record.rev || 0) + 1 };
+      state.crew = state.crew.filter((x) => x.id !== rec.id).concat([rec]);
+      return { ok: true, record: rec, ...v };
+    }
     return { ok: false, code: 'error', reason: 'not in the fake: ' + body.action, ...v };
   };
 }
@@ -154,14 +160,21 @@ test('phone digits: 555-0102 is Ana, 555 is the three with numbers, 55 is no one
   expect(await names(page)).toEqual(['Abel Stone', 'Ana Brook', 'José Niño']);
   await typed(page, '55');
   await expect(page.locator('#roster_list')).toContainText('No one matches');
+  // The joined match (final review): a phone typed with spaces or a leading 1 is one number. "1 907 555 0102" is 19075550102 = a 1, then
+  // 9075550102, which is Ana's digits alone (Abel's end 0101, José's 0108); "907 5" is 9075, which the three phones start with.
+  await typed(page, '1 907 555 0102');
+  expect(await names(page)).toEqual(['Ana Brook']);
+  await typed(page, '907 5');
+  expect(await names(page)).toEqual(['Abel Stone', 'Ana Brook', 'José Niño']);
 });
 
 test('the row\'s own words find it: what José Niño\'s row says, typed, shows him', async ({ page }) => {
   await open(page, world());
   const said = await page.locator('.tile[data-open="C08"] .where').innerText();
   expect(said).toBe('Valley 2 · lead');
+  // The words are "valley", "2", "·" and "lead". Beto Marsh's row says "Valley 2" (no lead), Abel Stone's "N1 · lead" (no valley): José alone.
   await typed(page, said);
-  expect(await names(page)).toContain('José Niño');
+  expect(await names(page)).toEqual(['José Niño']);
 });
 
 test('nobody matches: the words, a Clear, no bar, no tiles; the waiting list stays; Clear empties and focuses the box', async ({ page }) => {
@@ -183,6 +196,20 @@ test('the waiting list is never narrowed by the search', async ({ page }) => {
   await open(page, world());
   await typed(page, 'jose');
   await expect(page.locator('#waitadd')).toContainText('New Card');
+});
+
+// A save redraws the whole tab (renderRoster rebuilds the box). New Card is the only pending card: Add to crew saves it (pending false) and
+// nobody waits any more. On paper: with "jose" typed, the list is José Niño alone and the bar reads 1; New Card is now a listed person, but
+// "new card" does not contain "jose" (and its place is "Unplaced"), so the list and the bar do not change.
+test('a save with a search on: Add to crew on the waiting card redraws the tab and the search stays', async ({ page }) => {
+  await open(page, world());
+  await typed(page, 'jose');
+  await expect(page.locator('#waitadd')).toContainText('New Card');
+  await page.click('#waitadd [data-addcrew="C17"]');
+  await expect(page.locator('#waitadd')).toHaveCount(0);
+  await expect(page.locator('#roster_q')).toHaveValue('jose');
+  expect(await names(page)).toEqual(['José Niño']);
+  await expect(bar(page).locator('.grp-count')).toHaveText('1');
 });
 
 test('a key never rebuilds the box: the same element, focused, holding what was typed', async ({ page }) => {
@@ -293,29 +320,50 @@ test('twelve people are not lettered: no letter row, the bar reads 12', async ({
   await expect(bar(page).locator('.grp-count')).toHaveText('12');
 });
 
+// The box is a real tap target and does not touch Add worker (final review, 11/19/26). #site_q is 44 px tall; the Roster's box was the bare
+// input (8 + 8 padding + 2 border + about 20 of text = about 38-40) with no margin, so it sat flush under Add worker's row (that row has no
+// bottom margin). Wanted: height >= 44, and its top at least 8 px under Add worker's bottom.
+test('the search box is at least 44 px tall and sits at least 8 px under Add worker', async ({ page }) => {
+  await open(page, nobodyWaiting());
+  const m = await page.evaluate(() => {
+    const q = document.getElementById('roster_q').getBoundingClientRect(), a = document.getElementById('addWorker').getBoundingClientRect();
+    return { h: q.height, under: q.top - a.bottom };
+  });
+  expect(m.h).toBeGreaterThanOrEqual(44);
+  expect(m.under).toBeGreaterThanOrEqual(8);
+});
+
 // The room the new parts take (a phone-look test used to count six cards on the first screen; that count could not survive the box and the bar).
 // A world with nobody waiting (no pending card), 14 listed people, 320 x 700.
-//   From the bottom of Add worker to the top of the first card, worked on paper from app.css:
-//     the search box   input: 8 + 8 padding + 2 border + one line of 16 px text (about 20)      = about 38-40 (no margin; it sits right under the button's row)
-//     the Crew bar     margin-top 16 + min-height 44 (its content is 20 + 12 padding + 2 border = 34, so the 44 floor wins) = 60
-//     the grid         margin-top 12 (the bar's margin-bottom 8 collapses into it: the larger wins)   = 12
-//     the letter row   margin-top 4 (a grid item's margin does not collapse) + 14 px text (about 17) + 4 padding + 1 border = about 26
-//     the gap under it 8 (the grid gap)                                                              = 8
-//   total = 40 + 60 + 12 + 26 + 8 = 146 px, so the pin is at most 146 + 10 = 156.
-// The first screen: the first card's top is that 146 under Add worker's bottom; the header, tabs and padding put Add worker's bottom at
-// about 129 (the pre-change roster's first card sat at 141 = 129 + the grid's 12), so the first card's top is about 275. Four cards reach
-// 275 + 4 x 78 + 3 x 8 = 611, inside 700 - 60 = 640; a fifth would end at 611 + 8 + 78 = 697, outside. So 4 or more.
+// Worked on paper from app.css (every figure below was then MEASURED on the page and agrees within 0.1 px):
+//   Add worker's bottom: the header is 10 + 40 + 10 padding + 1 border = 61; main's top padding 12; the Add worker row has margin-top 0 and
+//     its button is 44 tall (min-height)                                                       61 + 12 + 44 = 117
+//   the search box:  margin-top 8, height 44 (min-height)                                       top 125, bottom 169
+//   the Crew bar:    margin-top 8 (#roster_list .grp-bar), min-height 44 (its content is 20 + 12 padding + 2 border = 34, so the floor wins)
+//                    top 169 + 8 = 177, bottom 221
+//   the grid:        margin-top 0 (#roster_list>.grid), so the bar's margin-bottom 8 is all there is between them (adjacent vertical margins
+//                    collapse: the larger wins, and 8 > 0)                                       grid top 221 + 8 = 229
+//   the A letter row: margin-top 4 (a grid item's margin does not collapse) + its own height 24.6 (14 px text at this font's normal line
+//                    height of about 19.6, + 4 padding + 1 border)                               top 233, bottom 257.6
+//   the grid gap 8, then the first card (78 tall: the 64 px photo + 12 padding + 2 border)        top 265.6, bottom 343.6
+//   cards 2 and 3 (8 gap each): bottom of the third = 265.6 + 3 x 78 + 2 x 8                      515.6
+//   the B letter row sits before the fourth card: 515.6 + 8 gap + 4 margin = top 527.6, bottom 552.2; + 8 gap = the fourth card's top 560.2,
+//                    its bottom 638.2 (that is 1.8 px inside 700 - 60 = 640: too close to pin, so no test says 4).
+// From Add worker's bottom to the first card's top: 265.6 - 117 = 148.6 (that is 8 + 44 + 8 + 44 + 8 + 4 + 24.6 + 8). The pin is at most
+// 148.6 + 10 = 158, and more than 100 (a floor, so a gap of nothing cannot pass silently). The first screen: the third card's bottom 515.6
+// is at or above 640, so at least 3 cards fit.
+// A world with nobody waiting (no pending card), 14 listed people, 320 x 700.
 const nobodyWaiting = () => without(world(), ['C17']);
-test('the new parts cost a known amount of room: Add worker to the first card is at most 156 px', async ({ page }) => {
+test('the new parts cost a known amount of room: Add worker to the first card is at most 158 px', async ({ page }) => {
   await open(page, nobodyWaiting());
   await expect(page.locator('#waitadd')).toHaveCount(0);
   const gap = await page.evaluate(() => document.querySelector('.tile').getBoundingClientRect().top - document.getElementById('addWorker').getBoundingClientRect().bottom);
-  expect(gap).toBeLessThanOrEqual(156);
+  expect(gap).toBeLessThanOrEqual(158);
   expect(gap).toBeGreaterThan(100);                                   // and the parts really are there (a gap of nothing would be a silent pass)
 });
 
-test('at least 4 cards on the first screen at 320 x 700', async ({ page }) => {
+test('at least 3 cards on the first screen at 320 x 700', async ({ page }) => {
   await open(page, nobodyWaiting());
   const fit = await page.evaluate(() => Array.from(document.querySelectorAll('.tile')).filter((e) => e.getBoundingClientRect().bottom <= window.innerHeight - 60).length);
-  expect(fit).toBeGreaterThanOrEqual(4);
+  expect(fit).toBeGreaterThanOrEqual(3);
 });

@@ -35,7 +35,8 @@ const mk = () => ({
     { id: 'RA', name: 'N1', site_ids: ['S1'], archived: true },
   ],
   sites: [
-    { id: 'S1', name: 'Alpha Court', address: '1 Main St', materials_needed: 'NO SALT: fresh concrete. Sand only.', notes: 'Gate code on <post>\nBack & forth' },
+    { id: 'S1', name: 'Alpha Court', address: '1 Main St', materials_needed: 'NO SALT: fresh concrete. Sand only.', notes: 'Gate code on <post>\nBack & forth',
+      units: { bobcat: ' BC5 ', snowrator: '' } }, // the Sites editor's unit numbers (route sheet columns, 11/19/26)
     { id: 'S2', name: 'Beta Yard' },
     { id: 'S3', name: 'Zeta Lot', address: '', materials_needed: '', notes: '   ' },
     { id: 'SA', name: 'Hidden Lot', archived: true },
@@ -164,15 +165,25 @@ test('page: notes are escaped and keep their line break; names and address are e
 // the curb item) or no walks at all; Curbs done only on a route that has a curb item, a box at the site that has one.
 // Plain walks are not listed; only the ones that need a word: ★ Priority, Heated (check only), Sand only (no salt), the
 // curb item's own line. By hand on page N2:
-//   Zeta Lot: Lot walk (plain sidewalk)          -> Done box, Treated box, Curbs "—"; no lines; "Lot walk" not printed.
+//
+// Route sheet columns (Matt, 11/19/26): Treated and Materials used are gone; Shoveled is a box at EVERY site, and Ice melt
+// (bags), Sand (buckets) and Equipment are new columns. Worked again on page N2:
+//   Zeta Lot: Lot walk (plain sidewalk)          -> Done box, Shoveled box, Curbs "—"; no lines; "Lot walk" not printed.
 //   Alpha Court: Entry pad (heated), Front walk (sidewalk, priority), the curb item
-//                                                -> Done box, Treated box (Front walk), Curbs box;
+//                                                -> Done box, Shoveled box, Curbs box;
 //                                                   "★ Priority: Front walk", "Heated, check only: Entry pad", the curb line.
-//   Boxes 2 + 3 = 5. Headers: the site column (no word), Done, Treated, Curbs done, In:, Out:, Materials used = 7.
-test('page: one row per site; Done always, Treated when there is a walk to treat, Curbs done only with curbs; only the walks that need a word', () => {
+//   Boxes 2 + 3 = 5 (the same total as before by coincidence: Shoveled took Treated's place, so the headers are checked
+//   too). Headers: the site column (no word), Done, Shoveled, Curbs done, In:, Out:, Ice melt (bags), Sand (buckets),
+//   Equipment = 9, in that order.
+test('page: one row per site; Done and Shoveled always, Curbs done only with curbs; only the walks that need a word', () => {
   const h = html(0);
   assert.equal(count(h, 'class="rl-site"'), 2);
-  assert.equal(count(h, '</th>'), 7);
+  assert.equal(count(h, '</th>'), 9);
+  assert.ok(!h.includes('Treated') && !h.includes('Materials used'));
+  const head = h.slice(h.indexOf('<thead>'), h.indexOf('</thead>'));
+  const order = ['>Done<', '>Shoveled<', '>Curbs done<', '>In:<', '>Out:<', '>Ice melt (bags)<', '>Sand (buckets)<', '>Equipment<'].map((w) => head.indexOf(w));
+  assert.ok(order.every((at) => at > 0), 'every header is there: ' + order);
+  assert.deepEqual(order, order.slice().sort((a, b) => a - b), 'headers in order');
   assert.equal(count(h, 'class="rl-box"'), 5);
   assert.equal(count(h, 'class="rl-na"'), 1); // Zeta Lot's Curbs cell
   const [zeta, alpha] = h.split('class="rl-site"').slice(1);
@@ -189,19 +200,61 @@ test('page: one row per site; Done always, Treated when there is a walk to treat
 });
 
 // By hand: take Alpha Court's Front walk and both curb zones away, so its only walk is Entry pad (heated). Nothing on the page
-// is a curb item -> no Curbs done column (6 headers). Zeta Lot: Done + Treated = 2 boxes; Alpha Court: Done, and "—" for
-// Treated (a heated walk is checked, never treated) = 1 box. 3 boxes in all, one "—".
-test('page: a heated-only site gets "—" for Treated; a route with no curbs has no Curbs done column', () => {
+// is a curb item -> no Curbs done column (8 headers). Shoveled is a box at every site, a heated-only one too (snow can still be
+// shoveled off it; Matt approved 11/19/26): Zeta Lot Done + Shoveled = 2, Alpha Court Done + Shoveled = 2. 4 boxes, no "—".
+test('page: a heated-only site still gets a Shoveled box; a route with no curbs has no Curbs done column', () => {
   const o = mk();
   o.zones = o.zones.filter((z) => !['Z1', 'Z3', 'Z4'].includes(z.id));
   const h = RouteList.pageHtml(RouteList.pages(o)[0], (s) => s);
-  assert.equal(count(h, '</th>'), 6);
+  assert.equal(count(h, '</th>'), 8);
   assert.ok(!h.includes('Curbs done'));
-  assert.equal(count(h, 'class="rl-box"'), 3);
-  assert.equal(count(h, 'class="rl-na"'), 1);
+  assert.equal(count(h, 'class="rl-box"'), 4);
+  assert.equal(count(h, 'class="rl-na"'), 0);
   const alpha = h.split('class="rl-site"')[2];
-  assert.equal(count(alpha, 'class="rl-box"'), 1);
-  assert.ok(alpha.includes('class="rl-na"'));
+  assert.equal(count(alpha, 'class="rl-box"'), 2);
+});
+
+// Ice melt (bags) and Sand (buckets) are counts the crew writes in (whole ones: Matt 11/19/26, "if you crack one open, you
+// use it"); nothing is printed in them, at any site.
+test('page: Ice melt and Sand cells are empty at every site', () => {
+  for (const h of [html(0), html(1)]) {
+    const rows = h.split('class="rl-site"').slice(1);
+    assert.ok(rows.length >= 1);
+    for (const row of rows) {
+      const cells = row.split('class="rl-write rl-amount"').slice(1);
+      assert.equal(cells.length, 2, 'two amount cells');
+      for (const c of cells) assert.equal(c.slice(c.indexOf('>') + 1, c.indexOf('</td>')).replace(/<[^>]*>/g, '').trim(), '');
+    }
+  }
+});
+
+// The Equipment cell (Matt, 11/19/26): words to CIRCLE, not a blank. Three lines:
+//   Bobcat <unit>: Bucket · Snowblower · Sweepster · Plow · Box      (no V blade: "Leave it off")
+//   Operator: ____
+//   Snowrator <unit>  Operator: ____    Walk-behind blower
+// A unit comes from the site's units (the Sites editor's Bobcat unit # / Snowrator unit #), trimmed; a blank one prints #___.
+// By hand: Alpha Court units { bobcat: ' BC5 ', snowrator: '' } -> "BC5" once, "#___" once (the Snowrator). Zeta Lot has no
+// units -> "#___" twice. Operator: twice per cell. Walk-behind blower once per cell. V blade nowhere.
+test('page: the Equipment cell, units from the site, V blade never', () => {
+  const p = RouteList.pages(mk());
+  const n2 = p.find((x) => x.name === 'N2');
+  assert.deepEqual(n2.sites.map((s) => s.units), [{ bobcat: '', snowrator: '' }, { bobcat: 'BC5', snowrator: '' }]);
+  const h = RouteList.pageHtml(n2, (s) => s);
+  const cellOf = (row) => row.slice(row.indexOf('class="rl-equip"'), row.indexOf('</td>', row.indexOf('class="rl-equip"')));
+  const [zeta, alpha] = h.split('class="rl-site"').slice(1).map(cellOf);
+  for (const c of [zeta, alpha]) {
+    const at = ['>Bobcat<', '>Bucket<', '>Snowblower<', '>Sweepster<', '>Plow<', '>Box<', '>Snowrator<', '>Walk-behind blower<'].map((w) => c.indexOf(w));
+    assert.ok(at.every((x) => x > 0), 'every word is there: ' + at);
+    assert.deepEqual(at, at.slice().sort((a, b) => a - b), 'in order');
+    assert.equal(count(c, '>Operator:<'), 2);
+    assert.equal(count(c, '>Walk-behind blower<'), 1);
+  }
+  assert.equal(count(alpha, '>BC5<'), 1);
+  assert.equal(count(alpha, '#___'), 1);
+  assert.ok(alpha.indexOf('>BC5<') < alpha.indexOf('>Bucket<'), 'the Bobcat unit beside the Bobcat');
+  assert.equal(count(zeta, '#___'), 2);
+  assert.ok(!h.includes('V blade') && !h.includes('V-blade'));
+  assert.equal(count(h, 'class="rl-box"'), 5, 'the circle words are not boxes');
 });
 
 // New concrete (11/12/26): a striped walk carries the flag onto the list and prints "(sand only, no salt)" after its name;
@@ -225,15 +278,15 @@ test('new concrete: a striped walk (and a curb item with one striped zone) print
 
 // Beta Yard has no zones: "No walks drawn yet." and still Done + Treated to tick (the crew clears the Whole site); no curbs on
 // the route -> no Curbs done column. In:, Out: and Materials used are column headings: once per page, never once per site.
-test('page: a site with no walks says so and keeps Done and Treated; In, Out and Materials used head the columns once', () => {
+// Beta Yard (no zones): Done + Shoveled = 2 boxes. The write-in columns head the table once per page, never once per site.
+test('page: a site with no walks says so and keeps Done and Shoveled; the write-in columns head the table once', () => {
   const h = html(1);
   assert.ok(h.includes('No walks drawn yet.'));
   assert.equal(count(h, 'class="rl-box"'), 2);
   assert.ok(h.includes('Beta Yard'));
   for (const hh of [html(0), h]) {
-    assert.equal(count(hh, 'Materials used'), 1);
-    assert.equal(count(hh, 'In:'), 1);
-    assert.equal(count(hh, 'Out:'), 1);
+    assert.equal(count(hh, 'Materials used'), 0);
+    for (const w of ['Ice melt (bags)', 'Sand (buckets)', 'In:', 'Out:', '>Equipment<']) assert.equal(count(hh, w), 1, w);
   }
 });
 
@@ -245,14 +298,17 @@ test('page: sites come in the page order (Zeta Lot before Alpha Court)', () => {
 test('every label goes through the translator and no data does', () => {
   const up = (s) => String(s).toUpperCase();
   const h = html(0, up);
-  for (const label of ['DATE:', 'LEAD', 'CREW:', 'MATERIALS:', 'NOTES:', 'MATERIALS USED', 'IN:', 'OUT:', 'DONE', 'TREATED', 'CURBS DONE', 'PRIORITY:', 'HEATED, CHECK ONLY:']) assert.ok(h.includes(label), label);
+  for (const label of ['DATE:', 'LEAD', 'CREW:', 'MATERIALS:', 'NOTES:', 'IN:', 'OUT:', 'DONE', 'SHOVELED', 'CURBS DONE', 'PRIORITY:', 'HEATED, CHECK ONLY:',
+    'ICE MELT (BAGS)', 'SAND (BUCKETS)', 'EQUIPMENT', 'BUCKET', 'SNOWBLOWER', 'PLOW', 'BOX', 'OPERATOR:', 'WALK-BEHIND BLOWER']) assert.ok(h.includes(label), label);
+  // Bobcat, Snowrator and Sweepster are brand names: printed as typed, never through the translator.
+  for (const brand of ['>Bobcat<', '>Snowrator<', '>Sweepster<']) assert.ok(h.includes(brand), brand);
   assert.ok(html(1, up).includes('NO WALKS DRAWN YET.'));
   // data untouched
   for (const d of ['Alpha Court', 'Zeta Lot', '1 Main St', 'NO SALT: fresh concrete. Sand only.', 'Alex Lead', 'Bea Member, Cy Member', 'Entry pad', 'Front walk', 'Curbs: clear 4 ft back (about 500 ft)', 'Back &amp; forth']) assert.ok(h.includes(d), d);
   assert.ok(!h.includes('ALPHA COURT') && !h.includes('ALEX LEAD') && !h.includes('ENTRY PAD'));
   // and no English label is left outside the data: take the data out, nothing English remains
-  const plain = html(1, up).replace(/<[^>]*>/g, ' ').replace('Beta Yard', ' ').replace(/N10/, ' ');
-  assert.ok(!/Date|Lead|Crew|Materials|Notes|In:|Out:|walks|heated|Done|Treated|Curbs|Priority|Sand/.test(plain), plain);
+  const plain = html(1, up).replace(/<[^>]*>/g, ' ').replace('Beta Yard', ' ').replace(/N10/, ' ').replace(/Bobcat|Snowrator|Sweepster/g, ' ');
+  assert.ok(!/Date|Lead|Crew|Materials|Notes|In:|Out:|walks|heated|Done|Treated|Curbs|Priority|Sand|Shoveled|Ice|Equipment|bags|buckets|Bucket|Snowblower|Plow|Box|Operator|Walk/.test(plain), plain);
 });
 
 // Everything from data is escaped, wherever it lands: route, site, address, materials, walk and crew names.
@@ -260,14 +316,14 @@ test('every label goes through the translator and no data does', () => {
 test('page: every piece of data is escaped (route, site, address, materials, walk, crew)', () => {
   const o = {
     routes: [{ id: 'R1', name: 'N<2>&', site_ids: ['S1'] }],
-    sites: [{ id: 'S1', name: 'Site <b>', address: '5 A&B St', materials_needed: 'NO <SALT> & sand', notes: 'n<1>' }],
+    sites: [{ id: 'S1', name: 'Site <b>', address: '5 A&B St', materials_needed: 'NO <SALT> & sand', notes: 'n<1>', units: { bobcat: 'B<5>&', snowrator: 'S&<1>' } }],
     zones: [{ id: 'Z1', site_id: 'S1', type: 'sidewalk', name: 'Walk <1>', priority: true }], // priority: a plain walk is not listed (11/14/26)
     crew: [{ id: 'C1', name: 'Lee <x>' }, { id: 'C2', name: 'Kai & Co' }],
     moves: [{ id: 'M1', at: '2026-11-09T07:00:00Z', worker: 'C1', to_route: 'R1', role: 'lead' }, { id: 'M2', at: '2026-11-09T08:00:00Z', worker: 'C2', to_route: 'R1', role: 'member' }],
   };
   const h = RouteList.pageHtml(RouteList.pages(o)[0], (s) => s);
-  for (const d of ['N&lt;2&gt;&amp;', 'Site &lt;b&gt;', '5 A&amp;B St', 'NO &lt;SALT&gt; &amp; sand', 'n&lt;1&gt;', 'Walk &lt;1&gt;', 'Lee &lt;x&gt;', 'Kai &amp; Co']) assert.ok(h.includes(d), d);
-  assert.ok(!/<(2|SALT|1|x)>/.test(h) && !h.includes('Site <b>'), 'a data < became a tag');
+  for (const d of ['N&lt;2&gt;&amp;', 'Site &lt;b&gt;', '5 A&amp;B St', 'NO &lt;SALT&gt; &amp; sand', 'n&lt;1&gt;', 'Walk &lt;1&gt;', 'Lee &lt;x&gt;', 'Kai &amp; Co', 'B&lt;5&gt;&amp;', 'S&amp;&lt;1&gt;']) assert.ok(h.includes(d), d);
+  assert.ok(!/<(2|SALT|1|x|5)>/.test(h) && !h.includes('Site <b>'), 'a data < became a tag');
 });
 
 test('css is a string of rules the view can scope', () => {

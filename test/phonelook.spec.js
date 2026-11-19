@@ -265,9 +265,12 @@ test('roster: each card is a compact row, under 90 px at 320 px, photo 64 px rou
   // no person without a photo gets a bigger placeholder
   const ph = await page.locator('[data-open="C02"] .av').evaluate((el) => el.getBoundingClientRect().width);
   expect(ph).toBeLessThanOrEqual(72);
-  // 14 people take far less room than the old grid: at least 6 cards fit in the 700 px viewport
-  const fit = await page.evaluate(() => Array.from(document.querySelectorAll('.tile')).filter((e) => e.getBoundingClientRect().bottom <= window.innerHeight - 60).length);
-  expect(fit).toBeGreaterThanOrEqual(6);
+  // 14 people take far less room than the old grid. Measured on the list itself, not on what sits above it (the search box, the Crew bar and
+  // the letter rows came with the roster search, 11/19/26, and the first-screen count moved to rostersearch.spec). A card is the 64 px photo
+  // + 2 x 6 px padding + 2 x 1 px border = 78 px (app.css .tile, .tile .av); the grid gap is 8 px. Six cards and the five gaps between them:
+  // 6 x 78 + 5 x 8 = 508 px, so the first card's top to the sixth card's bottom is at most 520. The old grid's six tiles (about 190 px each) took over 1,100.
+  const span = await page.evaluate(() => { const t = document.querySelectorAll('.tile'); return t[5].getBoundingClientRect().bottom - t[0].getBoundingClientRect().top; });
+  expect(span).toBeLessThanOrEqual(520);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
 });
 

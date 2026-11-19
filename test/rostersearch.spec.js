@@ -292,3 +292,30 @@ test('twelve people are not lettered: no letter row, the bar reads 12', async ({
   expect(await letters(page)).toEqual([]);
   await expect(bar(page).locator('.grp-count')).toHaveText('12');
 });
+
+// The room the new parts take (a phone-look test used to count six cards on the first screen; that count could not survive the box and the bar).
+// A world with nobody waiting (no pending card), 14 listed people, 320 x 700.
+//   From the bottom of Add worker to the top of the first card, worked on paper from app.css:
+//     the search box   input: 8 + 8 padding + 2 border + one line of 16 px text (about 20)      = about 38-40 (no margin; it sits right under the button's row)
+//     the Crew bar     margin-top 16 + min-height 44 (its content is 20 + 12 padding + 2 border = 34, so the 44 floor wins) = 60
+//     the grid         margin-top 12 (the bar's margin-bottom 8 collapses into it: the larger wins)   = 12
+//     the letter row   margin-top 4 (a grid item's margin does not collapse) + 14 px text (about 17) + 4 padding + 1 border = about 26
+//     the gap under it 8 (the grid gap)                                                              = 8
+//   total = 40 + 60 + 12 + 26 + 8 = 146 px, so the pin is at most 146 + 10 = 156.
+// The first screen: the first card's top is that 146 under Add worker's bottom; the header, tabs and padding put Add worker's bottom at
+// about 129 (the pre-change roster's first card sat at 141 = 129 + the grid's 12), so the first card's top is about 275. Four cards reach
+// 275 + 4 x 78 + 3 x 8 = 611, inside 700 - 60 = 640; a fifth would end at 611 + 8 + 78 = 697, outside. So 4 or more.
+const nobodyWaiting = () => without(world(), ['C17']);
+test('the new parts cost a known amount of room: Add worker to the first card is at most 156 px', async ({ page }) => {
+  await open(page, nobodyWaiting());
+  await expect(page.locator('#waitadd')).toHaveCount(0);
+  const gap = await page.evaluate(() => document.querySelector('.tile').getBoundingClientRect().top - document.getElementById('addWorker').getBoundingClientRect().bottom);
+  expect(gap).toBeLessThanOrEqual(156);
+  expect(gap).toBeGreaterThan(100);                                   // and the parts really are there (a gap of nothing would be a silent pass)
+});
+
+test('at least 4 cards on the first screen at 320 x 700', async ({ page }) => {
+  await open(page, nobodyWaiting());
+  const fit = await page.evaluate(() => Array.from(document.querySelectorAll('.tile')).filter((e) => e.getBoundingClientRect().bottom <= window.innerHeight - 60).length);
+  expect(fit).toBeGreaterThanOrEqual(4);
+});

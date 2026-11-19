@@ -375,3 +375,187 @@ test('tick, untick and hidden never change the arrays they are given and answer 
   // Nothing to add still answers a new array, so a caller can always keep the result.
   assert.notEqual(SnowGroupList.tick(ticks, []), ticks);
 });
+
+// ---- people (Roster search, 11/19/26): who shows on Matt's Roster, in what order, with which
+// letter rows. Expected values are worked out on paper from the rule, never from the code.
+//
+// The fixture (ids gapped and scrambled on purpose; `place` is what the test's placeOf answers):
+//   P7 "Zoe Adams"         phone "(907) 555-0123"  place "Route 2 · lead"
+//   P2 "álvaro Ruiz"       phone "907.555.0199"    place "Unplaced"  (lower-case accented first letter: under A)
+//   P5 "Juan Carlos Pérez" phone ""                place "Route 2"
+//   P4 "Ñico Soto"         phone null              place "Route 10"
+//   P9 "3rd Shift Temp"    phone "555-3000"        place "Unplaced"  (# bucket)
+//   P3 "Beto Lima"         archived                never listed
+//   P8 "Ana Wait"          pending                 never listed
+//   P6 "José Niño"         phone "9075551234"      place "Route 3"
+// Listed: 6. In order: 3rd Shift Temp (#), álvaro Ruiz (A), José Niño, Juan Carlos Pérez (J; "jo"
+// before "ju"), Ñico Soto (N), Zoe Adams (Z).
+const PLACES = { P7: 'Route 2 · lead', P2: 'Unplaced', P5: 'Route 2', P4: 'Route 10', P9: 'Unplaced', P6: 'Route 3', P1: 'Unplaced' };
+const placeOf = (p) => PLACES[p.id] || '';
+const crewMk = () => [
+  { id: 'P7', name: 'Zoe Adams', phone: '(907) 555-0123' },
+  { id: 'P2', name: 'álvaro Ruiz', phone: '907.555.0199' },
+  { id: 'P5', name: 'Juan Carlos Pérez', phone: '' },
+  { id: 'P4', name: 'Ñico Soto', phone: null },
+  { id: 'P9', name: '3rd Shift Temp', phone: '555-3000' },
+  { id: 'P3', name: 'Beto Lima', archived: true },
+  { id: 'P8', name: 'Ana Wait', pending: true },
+  { id: 'P6', name: 'José Niño', phone: '9075551234' },
+];
+const ALL6 = ['3rd Shift Temp', 'álvaro Ruiz', 'José Niño', 'Juan Carlos Pérez', 'Ñico Soto', 'Zoe Adams'];
+const peopleNames = (r) => r.items.filter((i) => i.person).map((i) => i.person.name);
+const peopleRows = (r) => r.items.map((i) => (i.person ? i.person.name : i.letter));
+const find = (query, extra) => SnowGroupList.people(crewMk().concat(extra || []), { query: query, placeOf: placeOf });
+
+test('people: no query lists the six live people in order; archived and pending are never counted', () => {
+  const r = find();
+  assert.deepEqual(peopleNames(r), ALL6);
+  assert.equal(r.total, 6);
+  assert.equal(r.matched, 6);
+  assert.equal(r.lettered, false);    // 6 is not more than 12
+});
+
+test('people: a pending card is not listed', () => {
+  const r = find('wait');
+  assert.deepEqual(peopleNames(r), []);
+  assert.equal(r.total, 6);
+  assert.equal(r.matched, 0);
+});
+
+test('people: an archived card is not listed', () => {
+  assert.deepEqual(peopleNames(find('beto')), []);
+});
+
+test('people: accents are ignored', () => {
+  assert.deepEqual(peopleNames(find('jose')), ['José Niño']);
+});
+
+test('people: case is ignored, and "nino" is not "nico"', () => {
+  assert.deepEqual(peopleNames(find('NINO')), ['José Niño']);
+});
+
+test('people: an accented query finds a plain name; "jose l" sorts before "jose n" under one J', () => {
+  const r = find('josé', [{ id: 'P1', name: 'Jose Luna', phone: null }]);
+  assert.deepEqual(peopleNames(r), ['Jose Luna', 'José Niño']);
+});
+
+test('people: every word may sit anywhere in the name', () => {
+  assert.deepEqual(peopleNames(find('juan perez')), ['Juan Carlos Pérez']);
+});
+
+test('people: every word must match the SAME person', () => {
+  assert.deepEqual(peopleNames(find('juan soto')), []);
+});
+
+test('people: the place words are searched', () => {
+  assert.deepEqual(peopleNames(find('unplaced')), ['3rd Shift Temp', 'álvaro Ruiz']);
+  assert.deepEqual(peopleNames(find('lead')), ['Zoe Adams']);
+});
+
+test('people: "route 2" is Juan and Zoe; José\'s phone holds a 2 but one digit never matches a phone', () => {
+  // José Niño: phone 9075551234 has a 2; "Route 3" has no 2. Zoe: "Route 2 · lead". Juan: "Route 2".
+  assert.deepEqual(peopleNames(find('route 2')), ['Juan Carlos Pérez', 'Zoe Adams']);
+});
+
+test('people: "route 1" is "Route 10" only; Zoe\'s phone holds a 1 and does not count', () => {
+  assert.deepEqual(peopleNames(find('route 1')), ['Ñico Soto']);
+});
+
+test('people: "3" finds the name and "Route 3", never a phone', () => {
+  // 3rd Shift Temp (name) and José Niño ("Route 3"); the phones with a 3 do not count at one digit.
+  assert.deepEqual(peopleNames(find('3')), ['3rd Shift Temp', 'José Niño']);
+});
+
+test('people: two digits never match a phone', () => {
+  assert.deepEqual(peopleNames(find('55')), []);
+});
+
+test('people: "555" finds the four with 555 in the phone digits', () => {
+  // Zoe 9075550123, álvaro 9075550199, José 9075551234, 3rd Shift 5553000; Juan "" and Ñico null have none.
+  assert.deepEqual(peopleNames(find('555')), ['3rd Shift Temp', 'álvaro Ruiz', 'José Niño', 'Zoe Adams']);
+});
+
+test('people: phone punctuation is dropped ("555-0123" is 5550123)', () => {
+  assert.deepEqual(peopleNames(find('555-0123')), ['Zoe Adams']);
+});
+
+test('people: "(907) 555" is two words; 3rd Shift Temp has no 907', () => {
+  assert.deepEqual(peopleNames(find('(907) 555')), ['álvaro Ruiz', 'José Niño', 'Zoe Adams']);
+});
+
+test('people: "300" is inside 5553000', () => {
+  assert.deepEqual(peopleNames(find('300')), ['3rd Shift Temp']);
+});
+
+test('people: a letter in the word makes it not a phone word', () => {
+  assert.deepEqual(peopleNames(find('0123x')), []);
+});
+
+test('people: ".*", "[" and "(" are plain text, never a pattern, and never throw', () => {
+  ['.*', '[', '('].forEach((q) => {
+    assert.deepEqual(peopleNames(find(q)), [], q);
+  });
+});
+
+test('people: spaces only is no search', () => {
+  assert.deepEqual(peopleNames(find('   ')), ALL6);
+});
+
+test('people: letterMin 5 draws letter rows (6 > 5); Ñ folds to N and á to A', () => {
+  const r = SnowGroupList.people(crewMk(), { placeOf: placeOf, letterMin: 5 });
+  assert.deepEqual(peopleRows(r), ['#', '3rd Shift Temp', 'A', 'álvaro Ruiz', 'J', 'José Niño', 'Juan Carlos Pérez', 'N', 'Ñico Soto', 'Z', 'Zoe Adams']);
+  assert.equal(r.lettered, true);
+});
+
+test('people: letterMin 6 draws no letter rows (6 is not more than 6)', () => {
+  const r = SnowGroupList.people(crewMk(), { placeOf: placeOf, letterMin: 6 });
+  assert.deepEqual(peopleRows(r), ALL6);
+  assert.equal(r.lettered, false);
+});
+
+test('people: the default letterMin is 12: 13 people are lettered, 12 are not', () => {
+  const crew = (n) => Array.from({ length: n }, (_, i) => ({ id: 'X' + i, name: 'Person ' + String.fromCharCode(65 + i) }));
+  assert.equal(SnowGroupList.people(crew(13)).lettered, true);
+  assert.equal(SnowGroupList.people(crew(12)).lettered, false);
+});
+
+test('people: a letter appears once, even when another letter sorts between its names', () => {
+  // In this Node 'Oa' < 'Øb' < 'Oc' by localeCompare (checked: 'Oa'.localeCompare('Øb') = -1 and
+  // 'Øb'.localeCompare('Oc') = -1), so a sort by name alone gives O, Ø, O. Ø does not fold, so it is
+  // its own letter; 'O'.localeCompare('Ø') = -1, so O comes first. Letter first: O Oa Oc Ø Øb.
+  const crew = [{ id: 'a', name: 'Oc' }, { id: 'b', name: 'Øb' }, { id: 'c', name: 'Oa' }];
+  const r = SnowGroupList.people(crew, { letterMin: 0 });
+  assert.deepEqual(peopleRows(r), ['O', 'Oa', 'Oc', 'Ø', 'Øb']);
+});
+
+test('people: a phone that is a NUMBER, and one with a plus and an extension', () => {
+  const crew = [{ id: 'n', name: 'Num Ber', phone: 9075550123 }, { id: 'e', name: 'Ext Ension', phone: '+1 (907) 555-0123 x12' }];
+  const q = (s) => peopleNames(SnowGroupList.people(crew, { query: s }));
+  assert.deepEqual(q('5550123'), ['Ext Ension', 'Num Ber']);    // both hold 5550123
+  assert.deepEqual(q('19075550123'), ['Ext Ension']);           // digits 1907555012312 hold it; 9075550123 does not
+  assert.deepEqual(q('0123'), ['Ext Ension', 'Num Ber']);
+});
+
+test('people: no name sits in # and no query finds it by name; no placeOf means no place words; null is empty', () => {
+  const crew = [{ id: 'q', phone: '907-555-0000' }, { id: 'r', name: 'Rae Roe' }];
+  assert.deepEqual(peopleRows(SnowGroupList.people(crew, { letterMin: 0 })).slice(0, 1), ['#']);
+  assert.deepEqual(SnowGroupList.people(crew, { query: 'undefined' }).items, []);
+  assert.deepEqual(SnowGroupList.people(crew, { query: 'null' }).items, []);
+  assert.deepEqual(peopleNames(SnowGroupList.people(crewMk(), { query: 'unplaced' })), []);
+  assert.deepEqual(SnowGroupList.people(null), { total: 0, matched: 0, lettered: false, items: [] });
+});
+
+test('people: two people with the same name keep the caller\'s order', () => {
+  const crew = [{ id: 't2', name: 'Sam Twin' }, { id: 't1', name: 'Sam Twin' }];
+  assert.deepEqual(SnowGroupList.people(crew).items.map((i) => i.person.id), ['t2', 't1']);
+});
+
+test('people: pure; the crew is not changed and each item is the caller\'s own object', () => {
+  const crew = crewMk();
+  const before = JSON.parse(JSON.stringify(crew));
+  const r = SnowGroupList.people(crew, { query: 'o', placeOf: placeOf, letterMin: 2 });
+  assert.deepEqual(crew, before);
+  const people = r.items.filter((i) => i.person);
+  assert.ok(people.length > 0);
+  people.forEach((i) => assert.ok(crew.indexOf(i.person) >= 0));
+});

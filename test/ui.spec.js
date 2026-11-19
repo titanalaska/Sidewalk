@@ -7622,6 +7622,7 @@ for (const lang of ['en', 'es']) {
     // Names a person typed (not roll-up items) must stay exactly as typed in both languages, even when a Spanish rule could touch them.
     w.zones.push({ id: 'ZF', site_id: 'S1', type: 'sidewalk', name: 'Front walk', rev: 1 }, { id: 'ZB', site_id: 'S1', type: 'sidewalk', name: 'Back stairs', rev: 1 }, { id: 'ZD', site_id: 'S1', type: 'sidewalk', name: 'Curbs at dock', rev: 1 });
     await openStorm(page, w);
+    await page.locator('[data-showwalks="S1"]').click();   // more than 8 walks here: the site starts folded (11/19/26)
     const last = walkRow(page, 'S1|curbs-5');
     await expect(last).toBeVisible();
     // Matt's ruling 11/12/26: the roll-up item the app named itself is translated (Spanish crew must read what orange asks); every real zone stays as typed.

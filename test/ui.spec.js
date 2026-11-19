@@ -8544,15 +8544,41 @@ test('route lists: in Spanish the labels are Spanish and the site name is not', 
   await expect(n2.locator('.rl-heated')).toHaveText('Con calefacción, solo revisar: Heated walk');
   // One line per site (11/14/26): the columns head the table once.
   const head = n2.locator('.rl-table thead');
-  for (const es of ['Listo', 'Tratado', 'Entrada:', 'Salida:', 'Materiales usados']) await expect(head).toContainText(es);
+  // Route sheet columns (11/19/26): Shoveled, Ice melt (bags), Sand (buckets), Equipment; Treated and Materials used are gone.
+  for (const es of ['Listo', 'Paleado', 'Entrada:', 'Salida:', 'Derretidor de hielo (bolsas)', 'Arena (cubetas)', 'Equipo']) await expect(head).toContainText(es);
+  await expect(head).not.toContainText('Tratado');
+  await expect(head).not.toContainText('Materiales usados');
+  // The Equipment cell: its words in Spanish, the brand names as typed.
+  const equip = n2.locator('td.rl-equip').first();
+  for (const es of ['Cucharón', 'Soplador de nieve', 'Arado', 'Caja', 'Operador:', 'Soplador de empuje', 'Bobcat', 'Snowrator', 'Sweepster']) await expect(equip).toContainText(es);
   await expect(n10).toContainText('Cuadrilla:');
   await expect(n10).toContainText('Todavía no hay recorridos dibujados.');
   // The English is gone from the labels; the data stays as typed.
   const body = await page.locator('#printsheets').innerText();
-  for (const en of ['Date:', 'Lead:', 'Crew:', 'Materials', 'In:', 'Out:', 'No walks drawn yet', 'check only', 'Done', 'Treated']) expect(body).not.toContain(en);
+  for (const en of ['Date:', 'Lead:', 'Crew:', 'Materials', 'In:', 'Out:', 'No walks drawn yet', 'check only', 'Done', 'Treated',
+    'Shoveled', 'Ice melt', 'Equipment', 'buckets', 'Bucket', 'Snowblower', 'Plow', 'Operator', 'Walk-behind']) expect(body).not.toContain(en);
   await expect(n2).toContainText('PAC');
   await expect(n10).toContainText('Lead Yard');
   await expect(n2).toContainText('Heated walk');
+});
+
+// The Spanish words are longer than the English ("Derretidor de hielo (bolsas)", "Soplador de empuje"): in Spanish too a 12-site
+// route takes two landscape pages and never more, and no word to circle breaks across two lines (same paper as the English test).
+test('route lists: in Spanish a 12-site route still prints on two landscape pages and no circle word splits', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await stubPrint(page);
+  await page.setViewportSize({ width: 960, height: 700 });
+  await openStorm(page, bigRouteWorld(), { token: 'tok-matt' });
+  await page.click('#printRouteLists');
+  const lists = page.locator('#printsheets .rl-page');
+  await expect(lists).toHaveCount(2);
+  await expect(lists.nth(0).locator('.rl-table thead')).toContainText('Paleado');
+  const { pages, boxes } = await routeListsPdf(page);
+  expect(pages).toBe(3);
+  for (const b of boxes) expect(b).toEqual([792, 612]);
+  await page.emulateMedia({ media: 'print' });
+  const split = await lists.nth(0).locator('.rl-pick').evaluateAll((ss) => ss.filter((s) => s.getClientRects().length > 1).map((s) => s.textContent));
+  expect(split).toEqual([]);
 });
 
 test('route lists: with Print sheets open the route lists cannot open a second view, and the other way round', async ({ page }) => {

@@ -131,6 +131,7 @@ test('name bar: bold, dark, readable at 320 px, light mode, inside the card, no 
   const rgb = (s) => s.match(/\d+/g).slice(0, 3).map(Number);
   const lum = ([r, g, b]) => (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
   // dark band (luminance under 0.2) with light text (over 0.8), bold, at least 18 px
+  expect(m.bg).toMatch(/^rgb[(]/);                   // a solid fill: a transparent band would read as black below
   expect(lum(rgb(m.bg))).toBeLessThan(0.2);
   expect(lum(rgb(m.color))).toBeGreaterThan(0.8);
   expect(m.weight).toBeGreaterThanOrEqual(700);
@@ -148,6 +149,7 @@ test('name bar: dark mode keeps light text on a solid band that is not the card 
     card: getComputedStyle(el.closest('.shift-site')).backgroundColor }));
   const rgb = (s) => s.match(/\d+/g).slice(0, 3).map(Number);
   const lum = ([r, g, b]) => (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  expect(m.bg).toMatch(/^rgb[(]/);
   expect(m.bg).not.toBe(m.card);
   expect(lum(rgb(m.color))).toBeGreaterThan(0.8);   // white on a saturated blue band
   expect(lum(rgb(m.bg))).toBeLessThan(0.3);

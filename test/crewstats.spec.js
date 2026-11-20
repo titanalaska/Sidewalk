@@ -172,3 +172,13 @@ test('crew stats: twelve nights fit at 320 px', async ({ page }) => {
   await page.locator('#dlgClose').scrollIntoViewIfNeeded();
   await expect(page.locator('#dlgClose')).toBeInViewport();
 });
+
+test("crew stats: the Board's person card has no Stats button (the spec: nothing on the Board's card)", async ({ page }) => {
+  const w = world();
+  await open(page, w);
+  await page.click('nav [data-tab="board"]');
+  await page.click('.chip[data-worker="C01"]');
+  await page.click('[data-act="card"]');
+  await expect(page.locator('#dlgIn')).toContainText('Gear on hand');
+  await expect(page.locator('#w_stats')).toHaveCount(0);
+});

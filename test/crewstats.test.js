@@ -17,7 +17,7 @@
 //     L3  S1 Z3 cleared (curb)                                                          -> nobody
 //     L4  S1 Z4 checked (heated)                                                        -> nobody
 //     L5  S2 Z5 cleared 23:30, L6 its undo                                              -> nobody
-//     L7  S1 Z1 cleared 12-05 02:00 (a second pass)  C1, C2                             -> +500 each
+//     L7  S1 Z1 cleared 12-05 02:00, after a Clean again at S1 (seq 6.5) = pass 2: C1, C2 -> +500 each
 //     L8  S3 Z6 cleared 12-05 01:00     open on R2: C4 (5 h in, no end, under 18 h)     -> C4 +900
 //     L9  S3 Arrived off_route by C2 03:00, L10 again 03:30                             -> 1 help visit (one site, one shift)
 //     L11 S2 Arrived off_route by C1, L12 its undo                                      -> C1 none
@@ -39,7 +39,7 @@ const NOW = '2026-12-06T10:00:00.000-09:00';
 const N4 = 'night-2026-12-04', N8 = 'night-2026-11-08';
 const at = (d, t) => d + 'T' + t + ':00.000-09:00';
 
-function world() {
+let world = function () {
   let k = 0;
   const clk = (o) => Object.assign({ id: 'K-' + (++k), seq: k, route_id: 'R1', storm_id: 'ST-1', time_in: '', time_out: '', undoes: '', by_key: 'C9', by_name: 'Tapper' }, o);
   let l = 0;
@@ -76,6 +76,7 @@ function world() {
       log({ site_id: 'S2', zone_id: 'Z5', state: 'cleared', at: at('2026-12-04', '23:30') }),
       log({ site_id: 'S2', zone_id: 'Z5', state: 'not_done', at: at('2026-12-04', '23:31'), undoes: 'L5' }),
       log({ site_id: 'S1', zone_id: 'Z1', state: 'cleared', at: at('2026-12-05', '02:00') }),
+      // L7b: the Clean again that makes L7 a second pass. Written after L7 in this list but given a lower seq below.
       log({ site_id: 'S3', zone_id: 'Z6', state: 'cleared', at: at('2026-12-05', '01:00'), by_key: 'C4', by_name: 'Dee' }),
       log({ site_id: 'S3', zone_id: '*', state: 'arrived', at: at('2026-12-05', '03:00'), by_key: 'C2', by_name: 'Bea', off_route: true }),
       log({ site_id: 'S3', zone_id: '*', state: 'arrived', at: at('2026-12-05', '03:30'), by_key: 'C2', by_name: 'Bea', off_route: true }),
@@ -94,6 +95,10 @@ function world() {
     ],
   };
 }
+// The Clean again at S1 before L7 (seq between L6 and L7), added to every world.
+const AGAIN = { id: 'A-1', seq: 6.5, storm_id: 'ST-1', shift_id: N4, site_id: 'S1', zone_id: '*', state: 'again', note: '', at: at('2026-12-05', '01:30'), by_key: 'C1', by_name: 'Alex', off_route: false, undoes: null };
+const baseWorld = world;
+world = () => { const w = baseWorld(); w.log.push(AGAIN); return w; };
 const statsFor = (id, w) => S.forPerson(Object.assign(w || world(), { crewId: id }));
 const night = (st, id) => st.nights.filter((n) => n.shift_id === id)[0];
 
@@ -200,6 +205,8 @@ test('crew stats: an open start counts for 18 hours, then not', () => {
   const w = world();
   w.clock.push({ id: 'K-50', seq: 50, shift_id: N4, kind: 'start', crew_id: 'C6', name: 'Fay', route_id: 'R2', at: at('2026-12-05', '14:00'), time_in: '', time_out: '', undoes: '' });
   w.clock.push({ id: 'K-51', seq: 51, shift_id: N4, kind: 'end', crew_id: 'C6', name: 'Fay', route_id: 'R2', at: at('2026-12-05', '16:00'), time_in: '', time_out: '', undoes: '' });
+  // A Clean again at S3 at 14:30 first, so the 15:00 Cleared is a new pass (the same pass as L8 would count once).
+  w.log.push({ id: 'A-2', seq: 19, storm_id: 'ST-1', shift_id: N4, site_id: 'S3', zone_id: '*', state: 'again', note: '', at: at('2026-12-05', '14:30'), by_key: 'C6', off_route: false, undoes: null });
   w.log.push({ id: 'L20', seq: 20, storm_id: 'ST-1', shift_id: N4, site_id: 'S3', zone_id: 'Z6', state: 'cleared', at: at('2026-12-05', '15:00'), by_key: 'C6', off_route: false, undoes: null });
   assert.equal(statsFor('C6', w).totals.sqft, 900);
   const w2 = world();
@@ -246,4 +253,76 @@ test('crew stats: cardLines words for the other cases', () => {
   // Two machines: in the card's fixed order, Blower, Snowrator, Bobcat, Sweepster.
   const two = S.cardLines({ season: '2026-27', totals: { called_out: 0, worked: 0, no_show: 0, minutes: 0, open_nights: 2, sqft: 0, machines: { bobcat: 212, snowrator: 265 }, help_visits: 3 }, nights: [] });
   assert.deepEqual(two.rows.slice(1), [['Hours', '0:00 (2 nights with no End shift)'], ['Sq ft cleared', '0'], ['Machines', 'Snowrator 265 min · Bobcat 212 min'], ['Help visits', '3']]);
+});
+
+test('crew stats: a walk tapped Cleared twice in one pass counts once', () => {
+  // L1 again at 21:05 (a double tap, a second phone or a Retry), and Z2 Cleared -> Problem -> Cleared at 23:01 / 23:02, all pass 1:
+  // each walk still counts once in its pass. Alex stays 1900, Bea 900.
+  const w = world();
+  const row = (id, seq, zone, state, hhmm) => ({ id, seq, storm_id: 'ST-1', shift_id: N4, site_id: 'S1', zone_id: zone, state, note: state === 'problem' ? 'ice' : '', at: at('2026-12-04', hhmm), by_key: 'C2', by_name: 'Bea', off_route: false, undoes: null });
+  // seq in time order, all before the Clean again (seq 6.5): pass 1.
+  w.log.push(row('L30', 1.5, 'Z1', 'cleared', '21:05'), row('L31', 2.1, 'Z2', 'problem', '23:01'), row('L32', 2.2, 'Z2', 'cleared', '23:02'));
+  assert.equal(statsFor('C1', w).totals.sqft, 1900);
+  const w2 = world(); w2.log = w.log;
+  assert.equal(statsFor('C2', w2).totals.sqft, 900);
+});
+
+test('crew stats: without the Clean again, L7 is the same pass as L1 and adds nothing', () => {
+  // baseWorld has no Clean again row: L7 repeats L1 in pass 1 -> Alex 1000 + 100 + 300 = 1400; Bea 100 + 300 = 400.
+  assert.equal(S.forPerson(Object.assign(baseWorld(), { crewId: 'C1' })).totals.sqft, 1400);
+  assert.equal(S.forPerson(Object.assign(baseWorld(), { crewId: 'C2' })).totals.sqft, 400);
+});
+
+test('crew stats: a typed correction keeps the route of the tapped Start', () => {
+  // Bea is moved to N2 after the callout and taps Start on R2 at 22:00; the dispatcher then types her in and out.
+  // Her route is R2 (the tap), not the callout's R1. On R2: L8 at 01:00 open: Dee, Bea -> 450 each. On R1 she shares nothing,
+  // so L2 (23:00) is Alex's alone: 200, and L7 (pass 2, 02:00) Alex's alone: 1000. Alex = 1000 + 200 + 1000 + 300 = 2500.
+  // Bea = 450 + 300 (11-08, the callout) = 750; Dee = 450.
+  const w = world();
+  w.clock.push({ id: 'K-60', seq: 60, shift_id: N4, kind: 'start', crew_id: 'C2', name: 'Bea', route_id: 'R2', at: at('2026-12-04', '22:00'), time_in: '', time_out: '', undoes: '' });
+  w.clock.push({ id: 'K-61', seq: 61, shift_id: N4, kind: 'typed', crew_id: 'C2', name: 'Bea', route_id: '', at: at('2026-12-05', '06:30'), time_in: '2026-12-04T22:00', time_out: '2026-12-05T04:00', undoes: '' });
+  const bea = statsFor('C2', w);
+  assert.equal(night(bea, N4).route_id, 'R2');
+  assert.equal(night(bea, N4).sqft, 450);
+  assert.equal(bea.totals.sqft, 750);
+  const w2 = world(); w2.clock = w.clock;
+  assert.equal(statsFor('C1', w2).totals.sqft, 2500);
+});
+
+test('crew stats: a start tap that was taken back gives no route', () => {
+  // Bea taps Start on R2, undoes it, the dispatcher types her times: no standing tap -> the callout's R1, as before.
+  const w = world();
+  w.clock.push({ id: 'K-60', seq: 60, shift_id: N4, kind: 'start', crew_id: 'C2', name: 'Bea', route_id: 'R2', at: at('2026-12-04', '21:50'), time_in: '', time_out: '', undoes: '' });
+  w.clock.push({ id: 'K-62', seq: 62, shift_id: N4, kind: 'start_undone', crew_id: 'C2', name: 'Bea', route_id: 'R2', at: at('2026-12-04', '21:51'), time_in: '', time_out: '', undoes: 'K-60' });
+  assert.equal(night(statsFor('C2', w), N4).route_id, 'R1');
+});
+
+test('crew stats: a night crew working past the 9 AM cutover keeps the walks they clear', () => {
+  // Alex ends 12-05 10:00 instead of 04:00. Z2 (200) Cleared 12-05 09:30 is filed under day-2026-12-05 (the cutover passed).
+  // Time decides (Matt's 18-hour rule): Alex's night-12-04 window is open at 09:30, Bea's ended 04:00 -> Alex +200, on his
+  // night-12-04 line: 1600 + 200 = 1800; total 2100; no day-12-05 line for him.
+  const w = world();
+  w.clock[1].at = at('2026-12-05', '10:00');
+  w.log.push({ id: 'L40', seq: 40, storm_id: 'ST-1', shift_id: 'day-2026-12-05', site_id: 'S1', zone_id: 'Z2', state: 'cleared', note: '', at: at('2026-12-05', '09:30'), by_key: 'C1', by_name: 'Alex', off_route: false, undoes: null });
+  const st = statsFor('C1', w);
+  assert.equal(night(st, N4).sqft, 1800);
+  assert.equal(st.totals.sqft, 2100);
+  assert.equal(night(st, 'day-2026-12-05'), undefined);
+});
+
+test('crew stats: a Start filed under the day name still counts for the night callout', () => {
+  // Cy taps Start at 19:50 before Night is switched on: his Clock row is day-2026-12-04, his callout night-2026-12-04.
+  // He started: not a no-show. (His card shows the day line worked and the night line called out.)
+  const w = world();
+  w.clock.push({ id: 'K-70', seq: 70, shift_id: 'day-2026-12-04', kind: 'start', crew_id: 'C3', name: 'Cy', route_id: 'R1', at: at('2026-12-04', '19:50'), time_in: '', time_out: '', undoes: '' });
+  const st = statsFor('C3', w);
+  assert.equal(st.totals.no_show, 0);
+  assert.equal(night(st, N4).no_show, false);
+});
+
+test('crew stats: a Clean again that was taken back starts no new pass', () => {
+  // The Clean again at S1 is undone (seq 6.6): L7 is pass 1 again, a repeat of L1 -> Alex 1400, as with no Clean again at all.
+  const w = world();
+  w.log.push({ id: 'A-1u', seq: 6.6, storm_id: 'ST-1', shift_id: N4, site_id: 'S1', zone_id: '*', state: 'again_undone', note: '', at: at('2026-12-05', '01:31'), by_key: 'C1', by_name: 'Alex', off_route: false, undoes: 'A-1' });
+  assert.equal(statsFor('C1', w).totals.sqft, 1400);
 });

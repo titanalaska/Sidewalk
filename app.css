@@ -442,5 +442,24 @@ header #who{flex:1 1 auto;min-width:0;text-align:left}
 .site-bar .site-addr{color:#c9d6e4;font-size:13px;font-weight:500;display:block}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .site-bar{background:#17457a}}
 :root[data-theme="dark"] .site-bar{background:#17457a}
+/* ---- The bar's colour is the site's status (Matt, 11/19/26), from lib/sitestatus.js: red = a Problem, green = every walk marked,
+   amber = the crew came or something is marked, navy (above) = nothing yet. Words under the name say the same, so colour is
+   never the only sign. Amber takes dark text; every pair is 4.5:1 or better (test/statusbar.spec.js), light and dark. ---- */
+.site-bar .site-status{display:block;font-size:14px;font-weight:700;margin-top:3px;color:#fff}
+.site-bar.st-problem{background:#a3231b}
+.site-bar.st-problem .site-addr{color:#f8dedb}
+.site-bar.st-done{background:#1d6a35}
+.site-bar.st-done .site-addr{color:#e2f0e6}
+.site-bar.st-working{background:#f2b01e}
+.site-bar.st-working .site-name,.site-bar.st-working .site-status{color:#1b1400}
+.site-bar.st-working .site-addr{color:#3d2e00}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]) .site-bar.st-problem{background:#b42a22}
+  :root:not([data-theme="light"]) .site-bar.st-done{background:#22783c}
+  :root:not([data-theme="light"]) .site-bar.st-working{background:#e0a010}
+}
+:root[data-theme="dark"] .site-bar.st-problem{background:#b42a22}
+:root[data-theme="dark"] .site-bar.st-done{background:#22783c}
+:root[data-theme="dark"] .site-bar.st-working{background:#e0a010}
 .walks-toggle{margin:2px 0 8px}
 .walks-toggle button{width:100%}

@@ -119,9 +119,11 @@ const backSettled = (page) => page.waitForFunction(() => !((history.state && his
 
 test('name bar: bold, dark, readable at 320 px, light mode, inside the card, no sideways scroll', async ({ page }) => {
   await open(page, world());
-  const bar = page.locator('[data-shiftsite="S1"] .site-bar');
+  // S3: nothing marked, so its bar is the navy one. S1 has two walks done and reads amber since the status bars (Matt, 11/19/26,
+  // test/statusbar.spec.js), so it is not the dark band this test is about.
+  const bar = page.locator('[data-shiftsite="S3"] .site-bar');
   await expect(bar).toBeVisible();
-  await expect(bar).toContainText('Big Clinic');
+  await expect(bar).toContainText('Small Shop');
   const m = await bar.evaluate((el) => {
     const cs = getComputedStyle(el), nm = el.querySelector('.site-name'), ns = getComputedStyle(nm);
     const card = el.closest('.shift-site').getBoundingClientRect(), b = el.getBoundingClientRect();

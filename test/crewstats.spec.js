@@ -98,7 +98,8 @@ test('crew stats: the card opens without asking; Stats asks once and shows the s
   expect(w.asks).toEqual(['C01']);
   const rows = await box.locator('table.stats-tot tr').evaluateAll((trs) => trs.map((tr) => [tr.children[0].innerText, tr.children[1].innerText]));
   expect(rows).toEqual([['Nights worked', '1 (called out 2, no-show 0)'], ['Hours', '8:00'], ['Sq ft cleared', '1,900'], ['Machines', 'Bobcat 120 min'], ['Help visits', '0']]);
-  const nights = await box.locator('table.stats-nights tr').evaluateAll((trs) => trs.map((tr) => Array.from(tr.children).map((c) => c.innerText)));
+  // One night = two lines on a phone: the night and its route, then hours · sq ft · machines. A part with nothing to say is left out.
+  const nights = await box.locator('ul.stats-nights li').evaluateAll((lis) => lis.map((li) => ['.sn-when', '.sn-route', '.sn-hours', '.sn-sqft', '.sn-mach'].map((s) => { const e = li.querySelector(s); return e ? e.innerText : ''; })));
   expect(nights).toEqual([['Night of 12/4', 'N1', '8:00', '1,600 sq ft', 'Bobcat 120'], ['Night of 11/8', 'N1', 'called out', '300 sq ft', '']]);
   await expect(page.locator('#w_stats')).toBeHidden();   // one read per opening: the button goes once the season is drawn
 });
@@ -111,7 +112,7 @@ test('crew stats: a person with no nights says so', async ({ page }) => {
   await page.click('#w_stats');
   await expect(page.locator('#w_statsbox')).toContainText('No nights yet this winter.');
   await expect(page.locator('#w_statsbox table.stats-tot')).toContainText('none');
-  await expect(page.locator('#w_statsbox table.stats-nights')).toHaveCount(0);
+  await expect(page.locator('#w_statsbox .stats-nights')).toHaveCount(0);
 });
 
 test('crew stats: a failed read says so and Retry works', async ({ page }) => {
@@ -161,7 +162,10 @@ test('crew stats: twelve nights fit at 320 px', async ({ page }) => {
   await open(page, w, { width: 320 });
   await card(page, 'C01');
   await page.click('#w_stats');
-  await expect(page.locator('#w_statsbox table.stats-nights tr')).toHaveCount(12);
+  await expect(page.locator('#w_statsbox ul.stats-nights li')).toHaveCount(12);
+  // Each night is at most three lines tall at 320 px (the night line, and hours · sq ft · machines wrapping once).
+  const tall = await page.locator('ul.stats-nights li').evaluateAll((lis) => Math.max(...lis.map((li) => li.getBoundingClientRect().height)));
+  expect(tall).toBeLessThanOrEqual(3 * 22 + 14);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
   const wide = await page.evaluate(() => { const d = document.getElementById('dlgIn'); return d.scrollWidth - d.clientWidth; });
   expect(wide).toBeLessThanOrEqual(0);

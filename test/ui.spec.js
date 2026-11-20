@@ -8409,12 +8409,14 @@ test('route lists: the NO SALT line is on its site page, bold; a heated walk say
 });
 
 // One page per route, proved on paper (Matt, 11/14/26: Print route lists came to 32 pages, "a page per route"). The view is
-// printed to a PDF, Letter with half-inch margins (print media: the app hides everything but the view while it is open), and
-// the PDF's pages are counted. N2 is 12 sites, the size of the biggest live routes (Loussac, Midtown + South has 11), every site
-// with an address, materials and a two-sentence note, one heated walk and one priority walk; site 5 is Tudor Transit-sized (61
-// walks, 12 of them heated, the last 3 striped) and sites 3, 6, 9, 12 carry curbs (crew_curbs on). N10 is one small site.
-// Two routes -> exactly 2 pages, so N2's twelve rows fit on ONE.
-test('route lists: a 12-site route prints on ONE letter page; two routes print two pages', async ({ page }) => {
+// printed to a PDF with the app's OWN page rule (preferCSSPageSize: Letter LANDSCAPE, half-inch margins, since the route sheet
+// columns of 11/19/26), and the PDF's pages are counted. N2 is 12 sites, the size of the biggest live routes (Loussac, Midtown +
+// South has 11), every site with an address, materials and a two-sentence note, one heated walk and one priority walk; site 5 is
+// Tudor Transit-sized (61 walks, 12 of them heated, the last 3 striped) and sites 3, 6, 9, 12 carry curbs (crew_curbs on); every
+// site has a Bobcat and a Snowrator unit number (the Equipment cell's longest line). N10 is one small site.
+// Matt 11/19/26, after the new columns: "Two pages is fine": a landscape page holds about 7 such sites (the 3-line Equipment cell
+// sets the floor of a row), so N2's twelve rows take TWO pages and never more, and N10 starts its own: 2 + 1 = 3 pages.
+const bigRouteWorld = () => {
   const w = rlWorld();
   const sites = [], zones = [];
   for (let i = 1; i <= 12; i++) {
@@ -8430,6 +8432,18 @@ test('route lists: a 12-site route prints on ONE letter page; two routes print t
   w.sites = sites.concat([{ id: 'S2', name: 'Lead Yard', rev: 1 }]);
   w.zones = zones;
   w.routes = [{ id: 'R1', name: 'N10', rev: 1, site_ids: ['S2'] }, { id: 'R2', name: 'N2', rev: 1, site_ids: sites.map((s) => s.id) }];
+  w.sites.forEach((s, i) => { if (i < 12) s.units = { bobcat: 'BT13', snowrator: 'Snowrator 2' }; });
+  return w;
+};
+// The printed PDF: its page count and every page's size in points ([width, height]).
+const routeListsPdf = async (page) => {
+  const pdf = (await page.pdf({ preferCSSPageSize: true })).toString('latin1');
+  const pages = (pdf.match(/\/Type\s*\/Page(?![s\w])/g) || []).length;
+  const boxes = [...pdf.matchAll(/\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\s*\]/g)].map((m) => [Math.round(+m[1]), Math.round(+m[2])]);
+  return { pages, boxes };
+};
+test('route lists: a 12-site route prints on TWO landscape letter pages, never more; the next route starts its own page', async ({ page }) => {
+  const w = bigRouteWorld();
   await stubPrint(page);
   await openStorm(page, w, { token: 'tok-matt' });
   await page.click('#printRouteLists');
@@ -8438,9 +8452,55 @@ test('route lists: a 12-site route prints on ONE letter page; two routes print t
   await expect(lists.nth(0).locator('.rl-site')).toHaveCount(12);
   await expect(lists.nth(0).locator('.rl-curbs')).toHaveCount(4);
   await expect(lists.nth(0).locator('.rl-heated')).toHaveCount(12);
-  const pdf = await page.pdf({ format: 'Letter', margin: { top: '0.5in', right: '0.5in', bottom: '0.5in', left: '0.5in' } });
-  const count = (pdf.toString('latin1').match(/\/Type\s*\/Page(?![s\w])/g) || []).length;
-  expect(count).toBe(2);
+  const { pages, boxes } = await routeListsPdf(page);
+  expect(pages).toBe(3);
+  // Letter landscape in points: 11 in x 72 = 792 wide, 8.5 in x 72 = 612 tall.
+  expect(boxes.length).toBeGreaterThan(0);
+  for (const b of boxes) expect(b).toEqual([792, 612]);
+});
+
+// Room to circle and write (11/19/26): on paper the table is 11 in - 1 in of margins = 10 in = 960 CSS px wide. At that width,
+// in print media, every Equipment cell is at least 2.5 in (240 px) and its first line (Bobcat, the unit and the five attachments)
+// stays on one line: its height is under one and a half lines.
+test('route lists: the Equipment cell is wide enough to circle and write on', async ({ page }) => {
+  await stubPrint(page);
+  await page.setViewportSize({ width: 960, height: 700 });
+  await openStorm(page, bigRouteWorld(), { token: 'tok-matt' });
+  await page.click('#printRouteLists');
+  await expect(page.locator('#printsheets .rl-page').nth(0).locator('.rl-site')).toHaveCount(12);
+  await page.emulateMedia({ media: 'print' });
+  const cells = await page.locator('#printsheets .rl-page').nth(0).locator('td.rl-equip').evaluateAll((tds) => tds.map((td) => {
+    const first = td.querySelector('.rl-eqline'), cs = getComputedStyle(first);
+    const line = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.2;
+    // A word to circle never breaks across two lines (one line box = one client rect for an inline span).
+    const split = [...td.querySelectorAll('.rl-pick')].filter((s) => s.getClientRects().length > 1).map((s) => s.textContent);
+    return { width: td.getBoundingClientRect().width, firstH: first.getBoundingClientRect().height, line, split };
+  }));
+  expect(cells.length).toBe(12);
+  for (const c of cells) {
+    expect(c.width).toBeGreaterThanOrEqual(240);
+    expect(c.firstH).toBeLessThan(c.line * 1.5);
+    expect(c.split).toEqual([]);
+  }
+});
+
+// The landscape rule belongs to the route lists only: the print view swaps #printstyle's text on every open, and the rule must
+// reach the page unscoped (scopeCss leaves an @-rule alone only at the very start of the css).
+test('route lists: landscape stays with route lists (Print sheets after it is not landscape)', async ({ page }) => {
+  const w = liveWorld();
+  w.posts = [postOf()];
+  await stubPrint(page);
+  await openStorm(page, w, { token: 'tok-matt' });
+  await page.click('#printRouteLists');
+  await expect(page.locator('#printview')).toBeVisible();
+  const rl = await page.locator('#printstyle').textContent();
+  expect(rl).toContain('size: letter landscape');
+  expect(rl).not.toContain('#printsheets @page');
+  await page.click('#printBack');
+  await expect(page.locator('#printview')).toBeHidden();
+  await page.click('#printSheets');
+  await expect(page.locator('#printsheets .sheet').first()).toBeVisible();
+  expect(await page.locator('#printstyle').textContent()).not.toContain('landscape');
 });
 
 test('route lists: Back and the phone Back both close the view and take their step with them', async ({ page }) => {
@@ -8484,15 +8544,41 @@ test('route lists: in Spanish the labels are Spanish and the site name is not', 
   await expect(n2.locator('.rl-heated')).toHaveText('Con calefacción, solo revisar: Heated walk');
   // One line per site (11/14/26): the columns head the table once.
   const head = n2.locator('.rl-table thead');
-  for (const es of ['Listo', 'Tratado', 'Entrada:', 'Salida:', 'Materiales usados']) await expect(head).toContainText(es);
+  // Route sheet columns (11/19/26): Shoveled, Ice melt (bags), Sand (buckets), Equipment; Treated and Materials used are gone.
+  for (const es of ['Listo', 'Paleado', 'Entrada:', 'Salida:', 'Derretidor de hielo (bolsas)', 'Arena (cubetas)', 'Equipo']) await expect(head).toContainText(es);
+  await expect(head).not.toContainText('Tratado');
+  await expect(head).not.toContainText('Materiales usados');
+  // The Equipment cell: its words in Spanish, the brand names as typed.
+  const equip = n2.locator('td.rl-equip').first();
+  for (const es of ['Cucharón', 'Soplador de nieve', 'Arado', 'Caja', 'Operador:', 'Soplador de empuje', 'Bobcat', 'Snowrator', 'Sweepster']) await expect(equip).toContainText(es);
   await expect(n10).toContainText('Cuadrilla:');
   await expect(n10).toContainText('Todavía no hay recorridos dibujados.');
   // The English is gone from the labels; the data stays as typed.
   const body = await page.locator('#printsheets').innerText();
-  for (const en of ['Date:', 'Lead:', 'Crew:', 'Materials', 'In:', 'Out:', 'No walks drawn yet', 'check only', 'Done', 'Treated']) expect(body).not.toContain(en);
+  for (const en of ['Date:', 'Lead:', 'Crew:', 'Materials', 'In:', 'Out:', 'No walks drawn yet', 'check only', 'Done', 'Treated',
+    'Shoveled', 'Ice melt', 'Equipment', 'buckets', 'Bucket', 'Snowblower', 'Plow', 'Operator', 'Walk-behind']) expect(body).not.toContain(en);
   await expect(n2).toContainText('PAC');
   await expect(n10).toContainText('Lead Yard');
   await expect(n2).toContainText('Heated walk');
+});
+
+// The Spanish words are longer than the English ("Derretidor de hielo (bolsas)", "Soplador de empuje"): in Spanish too a 12-site
+// route takes two landscape pages and never more, and no word to circle breaks across two lines (same paper as the English test).
+test('route lists: in Spanish a 12-site route still prints on two landscape pages and no circle word splits', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await stubPrint(page);
+  await page.setViewportSize({ width: 960, height: 700 });
+  await openStorm(page, bigRouteWorld(), { token: 'tok-matt' });
+  await page.click('#printRouteLists');
+  const lists = page.locator('#printsheets .rl-page');
+  await expect(lists).toHaveCount(2);
+  await expect(lists.nth(0).locator('.rl-table thead')).toContainText('Paleado');
+  const { pages, boxes } = await routeListsPdf(page);
+  expect(pages).toBe(3);
+  for (const b of boxes) expect(b).toEqual([792, 612]);
+  await page.emulateMedia({ media: 'print' });
+  const split = await lists.nth(0).locator('.rl-pick').evaluateAll((ss) => ss.filter((s) => s.getClientRects().length > 1).map((s) => s.textContent));
+  expect(split).toEqual([]);
 });
 
 test('route lists: with Print sheets open the route lists cannot open a second view, and the other way round', async ({ page }) => {

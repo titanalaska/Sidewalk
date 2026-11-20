@@ -47,7 +47,7 @@ const add = (w, ...rows) => { w.log.push(...rows); return w; };
 
 function fakeSnow(state) {
   return (body) => {
-    const v = { version: 'boardbulk-1', action: body.action };
+    const v = { version: 'crewstats-1', action: body.action };
     if (body.token !== 'tok-matt') return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     const me = { name: 'Matthew', role: 'admin', crew_id: null };
     if (body.action === 'bootstrap') return { ok: true, me, sites: state.sites, routes: state.routes, zones: state.zones, crew: state.crew, post: null, moves: [], callouts: [], gear: [], ...v };

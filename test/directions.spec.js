@@ -80,7 +80,7 @@ async function open(page, w, o = {}) {
   if (o.dark) await page.emulateMedia({ colorScheme: 'dark' });
   if (o.es) await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
   if (o.before) await o.before(page);
-  await page.clock.install({ time: new Date(CLOCK) });
+  await page.clock.install({ time: new Date(o.clock || CLOCK) });
   const fake = fakeSnow(w);
   await page.route(isSnow, async (route) => {
     const body = JSON.parse(route.request().postData() || '{}');
@@ -385,3 +385,21 @@ for (const dark of [false, true]) {
     expect(m.scrollW).toBeLessThanOrEqual(m.clientW);
   });
 }
+
+// ---------- the Next bar on a DAY shift (the gap the 11/22 brief named) ----------
+// 10:00 AM on 10/3 with no night_on row: shift day-2026-10-03 (CrewShiftLog.shiftFor), so the screen draws sites in
+// SnowCallout.rankOrder's DAY order: ranked sites first by day_rank, then the unranked in route order.
+// Route R1 = S1, S2, S3, S4. Ranks: S4 = 1, S3 = 2; S1 and S2 unranked. Day order = S4, S3, S1, S2; route order = S1, S2, S3, S4.
+// S1 arrived + left on the day shift, so S1 shows the bar. First site nobody has started: in DAY order S4 (S1 is the card's own, skipped,
+// and it is working anyway); in raw ROUTE order it would be S2. So the bar must read "Next: Side Yard", never "Mid Lot".
+test('next bar on a day shift: it names the first site in the on-screen (ranked) order, not the route order', async ({ page }) => {
+  const day = 'day-2026-10-03';
+  const w = nw(logRow(1, 'S1', '*', 'arrived', { shift_id: day, at: '2026-10-03T09:30:00.000-08:00' }), logRow(2, 'S1', '*', 'left', { shift_id: day, at: '2026-10-03T09:40:00.000-08:00' }));
+  w.sites[3].day_rank = 1; w.sites[2].day_rank = 2;
+  await open(page, w, { clock: '2026-10-03T10:00:00-08:00' });
+  expect(await page.locator('[data-shiftsite]').evaluateAll((els) => els.map((e) => e.dataset.shiftsite))).toEqual(['S4', 'S3', 'S1', 'S2']);
+  await expect(nextBars(page)).toHaveCount(1);
+  const bar = page.locator('[data-shiftsite="S1"] [data-nextsite="S4"]');
+  await expect(bar).toHaveText('Next: Side Yard · Directions');
+  await expect(bar.locator('a[data-directions]')).toHaveAttribute('href', HREF.S4);
+});

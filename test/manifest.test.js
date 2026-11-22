@@ -46,7 +46,7 @@ test('the shell caches the shift log files', () => {
   assert.ok(loaded.length > 10, 'found the page\'s script tags');
   for (const f of loaded) assert.ok(shell.includes(f), f + ' is loaded by index.html but not in the shell');
   // A new shell means a new cache name, or installed phones keep the old one.
-  assert.match(sw, /var CACHE_VERSION = 'titan-snow-shell-74';/);
+  assert.match(sw, /var CACHE_VERSION = 'titan-snow-shell-75';/);
 });
 
 // Outlines on demand (10/9/26): lib/points.js (the shared centroid and site point) and
@@ -75,6 +75,19 @@ test('the page loads grouplist.js before app.js; the shell carries it', () => {
   const sw = read('sw.js').toString();
   const shell = JSON.parse(sw.match(/var SHELL = (\[[\s\S]*?\]);/)[1].replace(/'/g, '"'));
   assert.ok(shell.includes('lib/grouplist.js'), 'lib/grouplist.js is not in the shell');
+});
+
+// Directions (11/22/26): lib/directions.js (SnowDirections) reads SnowPoints when it loads, so points.js comes first;
+// the shell carries it so a Directions link and the Next site bar still draw with no signal.
+test('the page loads directions.js after points.js; the shell carries it', () => {
+  const html = read('index.html').toString();
+  const loaded = [...html.matchAll(/<script src="([^"]+)"/g)].map((m) => m[1]);
+  assert.ok(loaded.includes('lib/directions.js'), 'lib/directions.js is not loaded by index.html');
+  assert.ok(loaded.indexOf('lib/points.js') < loaded.indexOf('lib/directions.js'), 'lib/points.js must load before lib/directions.js');
+  assert.ok(loaded.indexOf('lib/directions.js') < loaded.indexOf('lib/app.js'), 'lib/directions.js must load before lib/app.js');
+  const sw = read('sw.js').toString();
+  const shell = JSON.parse(sw.match(/var SHELL = (\[[\s\S]*?\]);/)[1].replace(/'/g, '"'));
+  assert.ok(shell.includes('lib/directions.js'), 'lib/directions.js is not in the shell');
 });
 
 test('the offline shell carries the manifest and icons', () => {

@@ -458,3 +458,18 @@ test('crew phone: a posted site that is no longer in the sites is never the next
   await expect(bar).toHaveText('Next: Mid Lot · Directions');
   await expect(bar.locator('a[data-directions]')).toHaveAttribute('href', HREF.S2);
 });
+
+// F5 (final review): the gap after Directions on the Storm card. On paper: the card's row is `.row.tight`, gap 4 px, margin 0 on its buttons, so
+// Map -> Directions is 4 px and Directions -> Site card must be 4 px too. `.route-top a.dirlink + .small{margin-left:4px}` (the map screen's
+// rule) also matched here and added 4 px on top of the gap: 8 px. The two gaps are measured between the boxes on one line (same top, 1 px).
+test('storm card at 320 px: the gap after Directions equals the gap after Map', async ({ page }) => {
+  await open(page, world());
+  const m = await page.locator('[data-shiftsite="S1"] .route-top .row.tight').evaluate((r) => {
+    const q = (sel) => r.querySelector(sel).getBoundingClientRect();
+    const map = q('[data-map]'), dir = q('[data-directions]'), card = q('[data-card]');
+    return { gap1: dir.left - map.right, gap2: card.left - dir.right, sameLine: Math.abs(map.top - dir.top) < 1 && Math.abs(dir.top - card.top) < 1 };
+  });
+  expect(m.sameLine).toBe(true);
+  expect(m.gap1).toBeCloseTo(4, 0);
+  expect(m.gap2).toBeCloseTo(m.gap1, 1);
+});

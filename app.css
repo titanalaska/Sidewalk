@@ -103,8 +103,8 @@ button.small{min-height:36px;padding:4px 10px;font-size:14px;margin-left:auto}
 /* the Directions link is an <a>, so it gets none of the button rules: it looks and measures like button.small beside it
    (the .row.tight, .route-top and .sitelist rules that size .small apply to it too, being class rules); no underline */
 /* on the map screen the link is the first .small after the name: it takes the auto margin, so Print and Edit map stay at the right edge */
-.route-top a.dirlink{margin-left:auto}
-.route-top a.dirlink + .small{margin-left:4px}
+.route-top > a.dirlink{margin-left:auto}
+.route-top > a.dirlink + .small{margin-left:4px}
 /* the Storm card holds up to five buttons and the row is nowrap elsewhere: with Directions it ran 51 px past the card at 320 px, so here it wraps */
 .shift-site .row.tight{flex-wrap:wrap;justify-content:flex-end}
 a.dirlink{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;min-height:36px;padding:4px 10px;font:inherit;font-size:14px;line-height:normal;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);text-decoration:none;cursor:pointer}

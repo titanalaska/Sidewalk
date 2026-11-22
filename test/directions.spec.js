@@ -330,12 +330,14 @@ for (const dark of [false, true]) {
     await expect(bar).toBeVisible();
     const m = await bar.evaluate((el) => {
       const rb = el.getBoundingClientRect(), rc = el.closest('.card').getBoundingClientRect();
-      return { sw: el.scrollWidth, cw: el.clientWidth, right: rb.right, cardRight: rc.right, left: rb.left, cardLeft: rc.left, color: getComputedStyle(el).color, bg: getComputedStyle(el.closest('.card')).backgroundColor, docW: document.documentElement.scrollWidth };
+      return { sw: el.scrollWidth, cw: el.clientWidth, right: rb.right, cardRight: rc.right, left: rb.left, cardLeft: rc.left, color: getComputedStyle(el).color, bg: getComputedStyle(el).backgroundColor, docW: document.documentElement.scrollWidth };
     });
     expect(m.sw).toBeLessThanOrEqual(m.cw);
     expect(m.right).toBeLessThanOrEqual(m.cardRight);
     expect(m.left).toBeGreaterThanOrEqual(m.cardLeft);
     expect(m.docW).toBeLessThanOrEqual(320);
+    // the text colour against the BAR's own background (not the card's); a transparent bar would make this meaningless, so it must have one
+    expect(m.bg).not.toBe('rgba(0, 0, 0, 0)');
     expect(m.color).not.toBe(m.bg);
   });
 }

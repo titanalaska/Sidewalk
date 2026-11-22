@@ -53,11 +53,14 @@ function world() {
 function fakeSnow(state) {
   return (body) => {
     const v = { version: 'boardbulk-1', action: body.action };
-    if (body.token !== 'tok-matt') return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
-    const me = { name: 'Matthew', role: 'admin', crew_id: null };
-    if (body.action === 'bootstrap') return { ok: true, me, sites: state.sites, routes: state.routes, zones: state.zones, points: state.points || {}, crew: state.crew, post: null, moves: [], callouts: [], gear: [], ...v };
+    if (body.token !== 'tok-matt' && body.token !== 'tok-jordan') return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
+    // tok-jordan is a CREW member (C03), on no roster file here: the Post (state.post) is what puts him on a route. Crew never get the
+    // admin's moves / callouts / gear, as the real bootstrap.
+    const crew = body.token === 'tok-jordan';
+    const me = crew ? { name: 'Jordan Demo', role: 'crew', crew_id: 'C03' } : { name: 'Matthew', role: 'admin', crew_id: null };
+    if (body.action === 'bootstrap') return { ok: true, me, sites: state.sites, routes: state.routes, zones: state.zones, points: state.points || {}, crew: state.crew, post: state.post || null, ...(crew ? {} : { moves: [], callouts: [], gear: [] }), ...v };
     if (body.action === 'getZones') return { ok: true, zones: state.zones, ...v };
-    if (body.action === 'getPost') return { ok: true, post: null, ...v };
+    if (body.action === 'getPost') return { ok: true, post: state.post || null, ...v };
     if (body.action === 'getShiftLog') {
       const out = { ok: true, cursor: {}, reset: {}, posts: [], ...v };
       out.cursor.posts = 0; out.reset.posts = false;
@@ -87,9 +90,11 @@ async function open(page, w, o = {}) {
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(fake(body)) });
   });
   await page.route(isInv, (route) => route.fulfill({ contentType: 'application/json', body: '{}' }));
-  await page.addInitScript(() => { localStorage.setItem('titan-snow-token', 'tok-matt'); });
+  const token = o.crew ? 'tok-jordan' : 'tok-matt';
+  await page.addInitScript((t) => { localStorage.setItem('titan-snow-token', t); }, token);
   await page.goto(PAGE);
   await page.click('nav [data-tab="storm"]');
+  if (o.crew) return; // a crew member's Storm tab draws his routes with no live view to open
   await page.locator('[data-openroute="R1"]').click();
   await expect(page.locator('#liveBack')).toBeVisible();
   await expect(page.locator('[data-shiftsite="S1"]')).toBeVisible();
@@ -402,4 +407,54 @@ test('next bar on a day shift: it names the first site in the on-screen (ranked)
   const bar = page.locator('[data-shiftsite="S1"] [data-nextsite="S4"]');
   await expect(bar).toHaveText('Next: Side Yard · Directions');
   await expect(bar.locator('a[data-directions]')).toHaveAttribute('href', HREF.S4);
+});
+
+// ---------- the Next bar on a CREW phone (final review F1, F2) ----------
+// Jordan Demo (C03, role crew) signs in with a fresh Post. The crew's routes come from the Post (routesFor): its sites are THIN
+// { id, name } objects, so the address and the point must come from S.sites / S.points by id. Post shift night-2026-10-02 is the
+// shift the page clock (10/3 7:30 AM) is in, so it is not stale. His standing: on a route of the Post = lead / member (can tap);
+// on none = null = readOnly (the Storm tab says so, and the routes are under "Other routes").
+const crewPost = (routes) => ({ id: 'P1', rev: 1, shift: SHIFT, posted_at: '2026-10-02T21:00:00.000Z', routes, people: {} });
+const route = (id, name, siteIds, members) => ({ id, name, sites: siteIds.map((i) => ({ id: i, name: i === 'S1' ? 'Big Clinic' : i === 'S2' ? 'Mid Lot' : i === 'S3' ? 'Small Shop' : i === 'S4' ? 'Side Yard' : 'Gone Lot' })), lead: 'C01', members });
+const crewWorld = (siteIds, members, ...rows) => { const w = nw(...rows); w.post = crewPost([route('R1', 'N1', siteIds, members)]); return w; };
+
+// F2(a). The Post's route R1 = S2, S1 (thin objects, no address, no point), Jordan a member. S2 arrived + left: S2's latest mark is a
+// Left -> its card shows the bar. First site in the route's on-screen order (night = route order) nobody has started, never S2 itself:
+// S1 (kind none). Its link is built from sites + points by id: points.S1 = [-149.86341261, 61.18195749] -> HREF.S1 (61.181957%2C-149.863413),
+// NOT the address '100 Test Way' that sites carries. Exactly one bar, on S2's card, text "Next: Big Clinic · Directions".
+test('crew phone: after a Left at the first site the bar names the second, its link from sites + points by id', async ({ page }) => {
+  await open(page, crewWorld(['S2', 'S1'], ['C03'], logRow(1, 'S2', '*', 'arrived'), logRow(2, 'S2', '*', 'left')), { crew: true });
+  await expect(page.locator('[data-shiftsite]')).toHaveCount(2);
+  await expect(nextBars(page)).toHaveCount(1);
+  const bar = page.locator('[data-shiftsite="S2"] [data-nextsite="S1"]');
+  await expect(bar).toHaveText('Next: Big Clinic · Directions');
+  await expect(bar.locator('a[data-directions]')).toHaveAttribute('href', HREF.S1);
+  await expect(page.locator('[data-shiftsite="S2"] .route-top a[data-directions]')).toHaveAttribute('href', HREF.S2); // the card's own link (not the bar's): the address, from sites by id
+});
+
+// F2(b). The same rows, but the Post lists Jordan on no route (members []): standing is null, so readOnly. Worked on paper: the Storm tab says
+// "You're not on tonight's posted Board.", the routes sit under "Other routes", the cards draw with no tap buttons and NO Next bar
+// (nobody there can act on it), while the Directions links (a read) are still on both cards. S2 then S1, S2 left as in (a).
+test('crew phone: read-only (not on the posted Board) shows no bar but keeps the Directions links', async ({ page }) => {
+  await open(page, crewWorld(['S2', 'S1'], [], logRow(1, 'S2', '*', 'arrived'), logRow(2, 'S2', '*', 'left')), { crew: true });
+  await expect(page.locator('main')).toContainText("You're not on tonight's posted Board.");
+  await page.click('#otherRoutes');
+  await expect(page.locator('[data-shiftsite]')).toHaveCount(2);
+  await expect(page.locator('[data-shiftsite="S2"] [data-status="working"]')).toHaveCount(1); // the left mark is read: the bar WOULD show
+  await expect(nextBars(page)).toHaveCount(0);
+  await expect(link(page, 'S1')).toHaveAttribute('href', HREF.S1);
+  await expect(link(page, 'S2')).toHaveAttribute('href', HREF.S2);
+});
+
+// F1. The Post's R1 = S1, GONE, S2: GONE was archived after the Post, so the crew's sites do not hold it (only the live ones are sent).
+// It has no Log rows, so its kind would stay none all night. S1 arrived + left -> S1's card shows the bar. In order the first kind none
+// that is not S1 would be GONE (a card with no link, nobody can start it); a site the crew's list does not know is never next, so the
+// bar names S2: "Next: Mid Lot · Directions", href HREF.S2. GONE's own card never shows a bar either.
+test('crew phone: a posted site that is no longer in the sites is never the next site', async ({ page }) => {
+  await open(page, crewWorld(['S1', 'GONE', 'S2'], ['C03'], logRow(1, 'S1', '*', 'arrived'), logRow(2, 'S1', '*', 'left')), { crew: true });
+  await expect(page.locator('[data-shiftsite]')).toHaveCount(3);
+  await expect(nextBars(page)).toHaveCount(1);
+  const bar = page.locator('[data-shiftsite="S1"] [data-nextsite="S2"]');
+  await expect(bar).toHaveText('Next: Mid Lot · Directions');
+  await expect(bar.locator('a[data-directions]')).toHaveAttribute('href', HREF.S2);
 });

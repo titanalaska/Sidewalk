@@ -116,7 +116,7 @@ test('storm card: no point and no address, no Directions', async ({ page }) => {
   await open(page, world());
   await expect(page.locator('[data-shiftsite="S3"]')).toBeVisible();
   await expect(link(page, 'S3')).toHaveCount(0);
-  await expect(page.locator('[data-shiftsite="S3"] [data-map="S3"]')).toBeVisible();
+  await expect(page.locator('[data-shiftsite="S1"] [data-map="S1"]')).toBeVisible();
 });
 
 test('storm card: a saved map view is used when the server sent no point', async ({ page }) => {
@@ -137,10 +137,12 @@ for (const dark of [false, true]) {
       const row = top.querySelector('.row.tight');
       const a = row.querySelector('a[data-directions]'), map = row.querySelector('[data-map]');
       const ra = a.getBoundingClientRect(), rm = map.getBoundingClientRect(), rc = top.closest('.card').getBoundingClientRect();
-      return { scrollW: row.scrollWidth, clientW: row.clientWidth, hA: ra.height, hM: rm.height, right: ra.right, cardRight: rc.right, deco: getComputedStyle(a).textDecorationLine };
+      const maxRight = Math.max.apply(null, Array.prototype.map.call(row.children, (b) => b.getBoundingClientRect().right));
+      return { maxRight, scrollW: row.scrollWidth, clientW: row.clientWidth, hA: ra.height, hM: rm.height, right: ra.right, cardRight: rc.right, deco: getComputedStyle(a).textDecorationLine };
     });
     expect(m.scrollW).toBeLessThanOrEqual(m.clientW);
-    expect(m.hA).toBe(m.hM);
+    expect(m.maxRight).toBeLessThanOrEqual(m.cardRight);   // every button inside the card, none clipped
+    expect(m.hA).toBeCloseTo(m.hM, 1);
     expect(m.right).toBeLessThanOrEqual(m.cardRight);
     expect(m.deco).toBe('none');
   });
@@ -182,4 +184,46 @@ test('nothing asks Google', async ({ page }) => {
   await page.locator('[data-shiftsite="S1"] [data-map="S1"]').click();
   await expect(page.locator('#mapback')).toBeVisible();
   expect(asked).toEqual([]);
+});
+
+// The map screen's top row (Back, name, Directions, Print, Edit map), measured at 320 px as Matt. On paper: Print and Edit map
+// were pushed to the row's right edge by button.small{margin-left:auto}; the link now sits before Print, so
+// `.route-top .small + .small{margin-left:4px}` would pull Print left unless the link takes the auto margin.
+// So: the last button on the link's line ends at the row's right edge (within 1 px; Edit map wraps to a second line at 320 px, as it does with no link at all, measured on a site without one), the link is between the name and Print, the link is
+// as tall as Print, and the row is no wider than the page (320 px).
+for (const [dark, width] of [[false, 320], [true, 320], [false, 390], [false, 430]]) {
+  test('map screen at ' + width + ' px' + (dark ? ' (dark)' : '') + ': Print and Edit map stay at the right edge, the link sits between the name and Print', async ({ page }) => {
+    await open(page, world(), { dark });
+    await page.setViewportSize({ width, height: 700 });
+    await page.locator('[data-shiftsite="S1"] [data-map="S1"]').click();
+    await expect(page.locator('#mapback')).toBeVisible();
+    await expect(page.locator('#mapedit')).toBeVisible();
+    const m = await page.locator('main > .route-top').evaluate((row) => {
+      const r = (el) => el.getBoundingClientRect();
+      const rr = r(row), a = r(row.querySelector('a[data-directions]')), p = r(row.querySelector('#mapprint')), e = r(row.querySelector('#mapedit'));
+      const n = r(row.querySelector('.site-name'));
+      return { rowRight: rr.right, rowLeft: rr.left, editRight: e.right, editTop: e.top, printTop: p.top, printRight: p.right, aTop: a.top, printLeft: p.left, aLeft: a.left, aRight: a.right, nameRight: n.right, hA: a.height, hP: p.height, scrollW: row.scrollWidth, clientW: row.clientWidth, docW: document.documentElement.scrollWidth };
+    });
+    // the last button ON THE LINK'S LINE ends at the row's right edge (at 320 px Edit map wraps to a second line, as it does with no link at all)
+    const lastRight = Math.abs(m.editTop - m.aTop) < 1 ? m.editRight : m.printRight;
+    expect(Math.abs(lastRight - m.rowRight)).toBeLessThanOrEqual(1);
+    expect(Math.abs(m.printTop - m.aTop)).toBeLessThan(1);   // Print stays on the link's line
+    expect(m.aLeft).toBeGreaterThanOrEqual(m.nameRight - 0.5);
+    expect(m.aRight).toBeLessThanOrEqual(m.printLeft + 0.5);
+    expect(m.hA).toBeCloseTo(m.hP, 1);
+    expect(m.scrollW).toBeLessThanOrEqual(m.clientW);
+    expect(m.docW).toBeLessThanOrEqual(width);
+  });
+}
+
+// On paper: a card's button row ends at the card's inner right edge whether or not the link is there (margin-left:auto on the
+// row). S1 has the link, S3 has none: their last button's right edge must be the same distance from their card's edge.
+test('storm card at 320 px: the button row ends at the same right edge with and without the link', async ({ page }) => {
+  await open(page, world());
+  const edge = (site) => page.locator('[data-shiftsite="' + site + '"] .route-top').first().evaluate((top) => {
+    const btns = top.querySelectorAll('.row.tight > *'); const last = btns[btns.length - 1].getBoundingClientRect();
+    return top.getBoundingClientRect().right - last.right;
+  });
+  const [a, b] = [await edge('S1'), await edge('S3')];
+  expect(Math.abs(a - b)).toBeLessThanOrEqual(1);
 });

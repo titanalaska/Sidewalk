@@ -2199,6 +2199,12 @@ test('tonight: each site line has Directions after Map', async ({ page }) => {
   await expect(a).toHaveCount(1);
   await expect(a).toHaveAttribute('href', 'https://www.google.com/maps/dir/?api=1&destination=100%20Test%20Way&travelmode=driving');
   expect(await a.evaluate((el) => el.previousElementSibling.getAttribute('data-map'))).toBe('S1');
+  // 320 px, on paper: the line fits its card and the link is as tall as the Map button beside it
+  await page.setViewportSize({ width: 320, height: 700 });
+  const m = await li.evaluate((el) => { const l = el.querySelector('a[data-directions]').getBoundingClientRect(), b = el.querySelector('[data-map]').getBoundingClientRect(), c = el.closest('.card').getBoundingClientRect(); return { hA: l.height, hM: b.height, right: l.right, cardRight: c.right, scrollW: el.scrollWidth, clientW: el.clientWidth }; });
+  expect(m.hA).toBeCloseTo(m.hM, 1);
+  expect(m.right).toBeLessThanOrEqual(m.cardRight);
+  expect(m.scrollW).toBeLessThanOrEqual(m.clientW);
 });
 
 test('a crew member not on the post is told so and sees the whole board', async ({ page }) => {

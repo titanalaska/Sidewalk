@@ -75,3 +75,40 @@ test('next: never the card\'s own site; none left is null; an empty route is nul
   assert.equal(D.next(R, kinds({ A: 'done', B: 'done', C: 'problem', D: 'working' }), 'A'), null);
   assert.equal(D.next([], kinds({}), 'A'), null);
 });
+
+// siteLink(S, siteId, esc): the one block the three screens call. On paper, with BASE/TAIL as above:
+//   S1 has a server point [-149.9, 61.2] and an address        -> the point: 61.200000%2C-149.900000
+//   S2 has only an address '5 Test Rd'                          -> 5%20Test%20Rd
+//   S3 has neither                                              -> ''
+//   an id not in S.sites                                        -> ''
+//   S.points missing: S4's saved view centre [-149.8, 61.3]     -> 61.300000%2C-149.800000 (no throw); S2 still its address
+//   S.sites missing, or S missing                               -> ''
+// The anchor is SnowDirections.linkHtml's own, with the href escaped by the caller's esc.
+const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+const link = (href) => D.linkHtml(href, esc);
+const SS = {
+  sites: [{ id: 'S1', address: '1 Test Way' }, { id: 'S2', address: '5 Test Rd' }, { id: 'S3', address: '' },
+    { id: 'S4', address: '', map: { center: [-149.8, 61.3] } }],
+  zones: [], points: { S1: [-149.9, 61.2] },
+};
+test('siteLink: a site with a server point links to the point', () => {
+  assert.equal(D.siteLink(SS, 'S1', esc), link(BASE + '61.200000%2C-149.900000' + TAIL));
+});
+test('siteLink: a site with only an address links to the address', () => {
+  assert.equal(D.siteLink(SS, 'S2', esc), link(BASE + '5%20Test%20Rd' + TAIL));
+});
+test('siteLink: a site with neither is no link', () => {
+  assert.equal(D.siteLink(SS, 'S3', esc), '');
+});
+test('siteLink: an id that is not in S.sites is no link', () => {
+  assert.equal(D.siteLink(SS, 'S9', esc), '');
+});
+test('siteLink: S.points missing falls to the saved view or the address, no throw', () => {
+  const S = { sites: SS.sites, zones: [] };
+  assert.equal(D.siteLink(S, 'S4', esc), link(BASE + '61.300000%2C-149.800000' + TAIL));
+  assert.equal(D.siteLink(S, 'S2', esc), link(BASE + '5%20Test%20Rd' + TAIL));
+});
+test('siteLink: S.sites or S missing is no link, no throw', () => {
+  assert.equal(D.siteLink({ points: {} }, 'S1', esc), '');
+  assert.equal(D.siteLink(null, 'S1', esc), '');
+});

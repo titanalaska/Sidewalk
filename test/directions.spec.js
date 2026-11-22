@@ -357,3 +357,31 @@ test('next bar: lib/directions.js did not load, no bar and no page error', async
   await expect(nextBars(page)).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+// ---------- the admin's fullest button row at 320 px ----------
+// Matt's card with a storm open and a callout depth set has SIX controls: Map, Directions, Site card, Copy for BT, Clean again,
+// New snow. On paper: the row is a wrapping flex (.shift-site .row.tight, flex-wrap:wrap) inside the card, so every button's
+// right edge must be inside the card's right edge and its left inside the card's left, and no two buttons' boxes may overlap
+// (0.5 px of rounding allowed). Six exact buttons by their data attributes, in this order.
+for (const dark of [false, true]) {
+  test('storm card at 320 px' + (dark ? ' (dark)' : '') + ': the admin\'s six buttons are all inside the card and none overlaps another', async ({ page }) => {
+    const w = world(); w.sites[0].callout_in = 1;
+    await open(page, w, { dark });
+    const row = page.locator('[data-shiftsite="S1"] .route-top .row.tight').first();
+    await expect(row.locator('[data-map],[data-directions],[data-card],[data-bt],[data-again],[data-depth]')).toHaveCount(6);
+    await expect(row.locator('[data-depth]')).toHaveText('New snow');
+    const m = await row.evaluate((r) => {
+      const card = r.closest('.card').getBoundingClientRect();
+      const boxes = Array.prototype.map.call(r.children, (b) => { const q = b.getBoundingClientRect(); return { l: q.left, r: q.right, t: q.top, b: q.bottom, w: q.width }; });
+      return { card: { l: card.left, r: card.right }, boxes, scrollW: r.scrollWidth, clientW: r.clientWidth };
+    });
+    expect(m.boxes.length).toBe(6);
+    m.boxes.forEach((b) => { expect(b.l).toBeGreaterThanOrEqual(m.card.l - 0.5); expect(b.r).toBeLessThanOrEqual(m.card.r + 0.5); expect(b.w).toBeGreaterThan(20); });
+    for (let i = 0; i < 6; i++) for (let j = i + 1; j < 6; j++) {
+      const a = m.boxes[i], b = m.boxes[j];
+      const overlap = Math.min(a.r, b.r) - Math.max(a.l, b.l) > 0.5 && Math.min(a.b, b.b) - Math.max(a.t, b.t) > 0.5;
+      expect(overlap, 'buttons ' + i + ' and ' + j + ' overlap').toBe(false);
+    }
+    expect(m.scrollW).toBeLessThanOrEqual(m.clientW);
+  });
+}

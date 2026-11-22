@@ -277,3 +277,9 @@ test('walk totals (Matt, 11/23/26): each part of the Sites / Routes line reads w
   assert.equal(Es.translateString('Zebra Hand 300'), 'Zebra Hand 300'); // only a whole part, never the tail of other text
   assert.equal(Es.translateString('Sidewalk'), 'Banqueta');
 });
+
+test("directions: the bare word translates only as a whole text node", () => {
+  assert.equal(Es.translateString("Directions"), "Cómo llegar");
+  for (const keep of ["Directions to the site", "No Directions"])
+    assert.ok(!/Cómo llegar/.test(Es.translateString(keep)), keep);
+});

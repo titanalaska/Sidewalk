@@ -2188,6 +2188,19 @@ test('crew see their own route first, partners and sites', async ({ page }) => {
   await expect(page.locator('#tonight-head')).toContainText('Night of 10/1');
 });
 
+// Worked on paper: this world's S1 is PAC with no zones, so the sign-in sends no point for it; give it the address
+// '100 Test Way' and the link is the address, encoded: space -> %20, so destination=100%20Test%20Way.
+// Jordan is on N1 (R1), so N1 is the first .tonight-route; its list holds S1 only.
+test('tonight: each site line has Directions after Map', async ({ page }) => {
+  const w = world(); w.posts = [POST]; w.sites[0].address = '100 Test Way';
+  await open(page, { token: 'tok-jordan', snow: fakeSnow(w), clockAt: '2026-10-01T18:00:00-08:00' });
+  const li = page.locator('.tonight-route').first().locator('li', { has: page.locator('[data-map="S1"]') });
+  const a = li.locator('a[data-directions]');
+  await expect(a).toHaveCount(1);
+  await expect(a).toHaveAttribute('href', 'https://www.google.com/maps/dir/?api=1&destination=100%20Test%20Way&travelmode=driving');
+  expect(await a.evaluate((el) => el.previousElementSibling.getAttribute('data-map'))).toBe('S1');
+});
+
 test('a crew member not on the post is told so and sees the whole board', async ({ page }) => {
   const w = world(); w.posts = [{ ...POST, routes: POST.routes.map((r) => ({ ...r, members: [] })) }];
   await open(page, { token: 'tok-jordan', snow: fakeSnow(w), clockAt: '2026-10-01T18:00:00-08:00' });

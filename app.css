@@ -349,6 +349,10 @@ header #who{flex:1 1 auto;min-width:0;text-align:left}
 /* site times (11/11/26): the In / Out line, Arrived / Left / Undo / Set times under the site heading */
 .site-times{margin:0 0 8px;font-size:14px;overflow-wrap:anywhere}
 .site-times b{font-variant-numeric:tabular-nums}
+/* the Next site bar: one line under the Arrived / Left row; wraps inside the card (the name breaks anywhere), colours from the theme tokens so light and dark both read */
+.next-site{margin:0 0 10px;padding:6px 10px;border-radius:8px;background:var(--chip);color:var(--ink);font-size:15px;line-height:1.5;overflow-wrap:anywhere}
+.next-site .site-name{font-size:inherit;font-weight:700}
+.next-site a.dirlink{vertical-align:middle;margin-left:2px}
 .site-marks{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 10px}
 .site-marks button{margin-left:0;min-width:0}
 .site-marks .markbtn{flex:1 1 96px;min-height:48px;font-weight:600}

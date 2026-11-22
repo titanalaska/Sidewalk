@@ -283,3 +283,9 @@ test("directions: the bare word translates only as a whole text node", () => {
   for (const keep of ["Directions to the site", "No Directions"])
     assert.ok(!/Cómo llegar/.test(Es.translateString(keep)), keep);
 });
+
+test('next site bar: "Next:" translates only as a whole text node', () => {
+  assert.equal(Es.translateString('Next:'), 'Siguiente:');
+  for (const keep of ['Next: check the ramp', 'Next'])
+    assert.ok(!/Siguiente/.test(Es.translateString(keep)), keep);
+});

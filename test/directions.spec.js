@@ -116,7 +116,7 @@ test('storm card: no point and no address, no Directions', async ({ page }) => {
   await open(page, world());
   await expect(page.locator('[data-shiftsite="S3"]')).toBeVisible();
   await expect(link(page, 'S3')).toHaveCount(0);
-  await expect(page.locator('[data-shiftsite="S1"] [data-map="S1"]')).toBeVisible();
+  await expect(page.locator('[data-shiftsite="S3"] [data-map="S3"]')).toBeVisible();
 });
 
 test('storm card: a saved map view is used when the server sent no point', async ({ page }) => {
@@ -226,4 +226,132 @@ test('storm card at 320 px: the button row ends at the same right edge with and 
   });
   const [a, b] = [await edge('S1'), await edge('S3')];
   expect(Math.abs(a - b)).toBeLessThanOrEqual(1);
+});
+
+// ---------- the Next site bar (Matt, 11/20/26: the crews phoned him all night asking where to go next) ----------
+// World for the bar tests: the Task 2 world with a second walk at S1 (Z2) and S2 (Y2), so S1 has 2 walks (Z1, Z2), S2 2 (Y1, Y2),
+// S3 1 (X1), S4 1 (W1). Route order S1, S2, S3, S4; night shift, so the on-screen order is the route's. A mark row is
+// logRow(n, site, '*', 'arrived' | 'left'); a walk row names its zone. A site's status kind (lib/sitestatus.js): none = no mark and no
+// walk done; working = a mark or a walk done; done = every walk Cleared; problem = a walk at Problem (wins). The bar shows on a card
+// when its kind is done OR its latest mark is a Left, and names the first site in order whose kind is none (never the card's own).
+const SHIFT = 'night-2026-10-02';
+const logRow = (n, site, zoneId, state, extra) => ({ id: 'L-' + n, seq: n, storm_id: 'ST-1', shift_id: SHIFT, site_id: site, zone_id: zoneId, state, note: '',
+  by_key: 'C01', by_name: 'Alex Test', at: '2026-10-03T06:30:00.000-08:00', off_route: false, snowing_warned: false, undoes: null, batch: null, ...(extra || {}) });
+const nw = (...rows) => { const w = world(); w.zones.push(zone('Z2', 'S1'), zone('Y2', 'S2')); w.log.push(...rows); return w; };
+const nextBars = (page) => page.locator('[data-nextsite]');
+const S1_LEFT = [logRow(1, 'S1', '*', 'arrived'), logRow(2, 'S1', '*', 'left')];
+
+// 1. Nothing marked: every kind none, nothing finished, so no card shows the bar. 0 bars.
+test('next bar: nothing marked, no bar anywhere', async ({ page }) => {
+  await open(page, nw());
+  await expect(nextBars(page)).toHaveCount(0);
+});
+
+// 2. S1 arrived + left: S1 working with latest mark Left -> shows. S2 is the first none -> "Next: Mid Lot", then " · ", then S2's address link
+// (HREF.S2). S2, S3, S4 are none with no mark -> no bar. Exactly one bar, on S1.
+test('next bar: after Left it names the first site nobody has started', async ({ page }) => {
+  await open(page, nw(...S1_LEFT));
+  await expect(nextBars(page)).toHaveCount(1);
+  const bar = page.locator('[data-shiftsite="S1"] [data-nextsite="S2"]');
+  await expect(bar).toBeVisible();
+  await expect(bar).toHaveText('Next: Mid Lot · Directions');
+  await expect(bar.locator('a[data-directions]')).toHaveAttribute('href', HREF.S2);
+});
+
+// 3. Z1 + Z2 cleared = both of S1's walks -> S1 done (green), no marks. Done shows the bar; next = S2.
+test('next bar: Site done with no Left shows it too', async ({ page }) => {
+  await open(page, nw(logRow(1, 'S1', 'Z1', 'cleared'), logRow(2, 'S1', 'Z2', 'cleared')));
+  await expect(page.locator('[data-shiftsite="S1"] [data-status="done"]')).toHaveCount(1);
+  await expect(page.locator('[data-shiftsite="S1"] [data-nextsite="S2"]')).toBeVisible();
+  await expect(nextBars(page)).toHaveCount(1);
+});
+
+// 4. S1 arrived + Z1 cleared (Z2 open): working, latest mark Arrived -> showNext false. No other card is anything but none. 0 bars.
+test('next bar: an Arrived with walks still open shows nothing', async ({ page }) => {
+  await open(page, nw(logRow(1, 'S1', '*', 'arrived'), logRow(2, 'S1', 'Z1', 'cleared')));
+  await expect(page.locator('[data-shiftsite="S1"] [data-status="working"]')).toHaveCount(1);
+  await expect(nextBars(page)).toHaveCount(0);
+});
+
+// 5. S1 arr + left, S2 arr: S2 is now working so the first none is S3. S1 (latest mark Left) shows it; S2's latest mark is an Arrived with
+// walks open -> none. S3 has no point and no address: no link and no " · ". Text exactly "Next: Small Shop".
+test('next bar: it moves on when someone arrives at that site', async ({ page }) => {
+  await open(page, nw(...S1_LEFT, logRow(3, 'S2', '*', 'arrived')));
+  await expect(nextBars(page)).toHaveCount(1);
+  const bar = page.locator('[data-shiftsite="S1"] [data-nextsite="S3"]');
+  await expect(bar).toBeVisible();
+  await expect(bar).toHaveText('Next: Small Shop');
+  await expect(bar.locator('a')).toHaveCount(0);
+});
+
+// 6. S1 arr + left; Y1 + Y2 cleared = S2 done. First none = S3. S1 (Left) and S2 (done) both show it. S3, S4 none. 2 bars, both S3.
+test('next bar: every finished card on the route names the same next site', async ({ page }) => {
+  await open(page, nw(...S1_LEFT, logRow(3, 'S2', 'Y1', 'cleared'), logRow(4, 'S2', 'Y2', 'cleared')));
+  await expect(nextBars(page)).toHaveCount(2);
+  await expect(page.locator('[data-shiftsite="S1"] [data-nextsite="S3"]')).toBeVisible();
+  await expect(page.locator('[data-shiftsite="S2"] [data-nextsite="S3"]')).toBeVisible();
+});
+
+// 7. S2 arr + left. In order S1 (none) comes before S3: next = S1, the skipped one. Only S2's card shows (Left). 1 bar.
+test('next bar: a skipped earlier site is next before a later one', async ({ page }) => {
+  await open(page, nw(logRow(1, 'S2', '*', 'arrived'), logRow(2, 'S2', '*', 'left')));
+  await expect(nextBars(page)).toHaveCount(1);
+  await expect(page.locator('[data-shiftsite="S2"] [data-nextsite="S1"]')).toBeVisible();
+});
+
+// 8. An Arrived at every site, then S1 left: no site is none -> there is no next site, so no bar even on S1 (Left).
+test('next bar: every site started, no bar', async ({ page }) => {
+  await open(page, nw(logRow(1, 'S1', '*', 'arrived'), logRow(2, 'S2', '*', 'arrived'), logRow(3, 'S3', '*', 'arrived'), logRow(4, 'S4', '*', 'arrived'), logRow(5, 'S1', '*', 'left')));
+  await expect(page.locator('[data-shiftsite]')).toHaveCount(4);
+  await expect(nextBars(page)).toHaveCount(0);
+});
+
+// 9. Z1 problem + S1 arr + left: S1 kind problem (red); mark Left -> shows. S1 is not none, S2 is: next = S2.
+test('next bar: a Problem walk and a Left still show it', async ({ page }) => {
+  await open(page, nw(logRow(1, 'S1', 'Z1', 'problem', { note: 'car on it' }), logRow(2, 'S1', '*', 'arrived'), logRow(3, 'S1', '*', 'left')));
+  await expect(page.locator('[data-shiftsite="S1"] [data-status="problem"]')).toHaveCount(1);
+  await expect(page.locator('[data-shiftsite="S1"] [data-nextsite="S2"]')).toBeVisible();
+});
+
+// 10. Test 2's rows, then the storm ended: with no open storm no bar is drawn.
+test('next bar: storm ended, no bar', async ({ page }) => {
+  const w = nw(...S1_LEFT); w.storms = [START, END];
+  await open(page, w);
+  await expect(page.locator('[data-shiftsite]')).toHaveCount(4);
+  await expect(nextBars(page)).toHaveCount(0);
+});
+
+// 12. Test 2's rows, S2's name 40 characters long, at 320 px: the bar wraps inside the card (scrollWidth <= clientWidth, right edge within the card's).
+for (const dark of [false, true]) {
+  test('next bar at 320 px' + (dark ? ' (dark)' : '') + ': it stays inside the card', async ({ page }) => {
+    const w = nw(...S1_LEFT); w.sites[1].name = 'Northwest Parking Structure Level Two AB';
+    await open(page, w, { dark });
+    const bar = page.locator('[data-shiftsite="S1"] [data-nextsite="S2"]');
+    await expect(bar).toBeVisible();
+    const m = await bar.evaluate((el) => {
+      const rb = el.getBoundingClientRect(), rc = el.closest('.card').getBoundingClientRect();
+      return { sw: el.scrollWidth, cw: el.clientWidth, right: rb.right, cardRight: rc.right, left: rb.left, cardLeft: rc.left, color: getComputedStyle(el).color, bg: getComputedStyle(el.closest('.card')).backgroundColor, docW: document.documentElement.scrollWidth };
+    });
+    expect(m.sw).toBeLessThanOrEqual(m.cw);
+    expect(m.right).toBeLessThanOrEqual(m.cardRight);
+    expect(m.left).toBeGreaterThanOrEqual(m.cardLeft);
+    expect(m.docW).toBeLessThanOrEqual(320);
+    expect(m.color).not.toBe(m.bg);
+  });
+}
+
+// 13. Test 2's rows in Spanish: "Next:" -> "Siguiente:", the name stays, the link reads "Cómo llegar".
+test('next bar in Spanish', async ({ page }) => {
+  await open(page, nw(...S1_LEFT), { es: true });
+  await expect(page.locator('[data-shiftsite="S1"] [data-nextsite="S2"]')).toHaveText('Siguiente: Mid Lot · Cómo llegar');
+});
+
+// 14. lib/directions.js aborted: the cards still draw, no bar, no page error.
+test('next bar: lib/directions.js did not load, no bar and no page error', async ({ page }) => {
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+  await open(page, nw(...S1_LEFT), { before: (p) => p.route('**/lib/directions.js', (r) => r.abort()) });
+  await expect(page.locator('[data-shiftsite]')).toHaveCount(4);
+  await expect(nextBars(page)).toHaveCount(0);
+  expect(errors).toEqual([]);
 });

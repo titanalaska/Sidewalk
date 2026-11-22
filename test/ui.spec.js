@@ -11813,3 +11813,19 @@ test('crew curbs: ticking the box on the Sites tab brings the curbs back to the 
   await page.click('nav [data-tab="storm"]');
   await expect(page.locator('[data-livesite="S1"] .live-status')).toHaveText('Touched');
 });
+
+// Directions, the Next site bar (Matt, 11/20/26): the one-site drill-in from the handoff card draws no bar. On paper: LEFT-RANK-1 (S4, 1 walk,
+// address given) has a day-shift Arrived at 9:20 and a Left at 9:25, so its card is working with the latest mark a Left, which is when the
+// bar WOULD show on a route (S5 on the same card list is a different route; the drill-in passes no next site). The drill-in: the site's own
+// bar is "working" (so the card is otherwise eligible), no [data-nextsite], and the Directions link on the card is there once.
+test('next bar: the one-site drill-in has no bar, but keeps its Directions link', async ({ page }) => {
+  const w = handoffWorld();
+  w.sites[3].address = '400 Test Way';
+  w.log.push(dayTap(6, 'S4', '*', 'arrived', 'Alex Test', 'C01', '09:20'), dayTap(7, 'S4', '*', 'left', 'Alex Test', 'C01', '09:25'));
+  await openStorm(page, w, { clockAt: HO_DAY });
+  await page.click('[data-leftover="S4"]');
+  await expect(page.locator('#siteBack')).toBeVisible();
+  await expect(page.locator('[data-shiftsite="S4"] .site-bar')).toHaveAttribute('data-status', 'working');
+  await expect(page.locator('[data-nextsite]')).toHaveCount(0);
+  await expect(page.locator('a[data-directions]')).toHaveCount(1);
+});

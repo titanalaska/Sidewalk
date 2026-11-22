@@ -353,6 +353,8 @@ header #who{flex:1 1 auto;min-width:0;text-align:left}
 .next-site{margin:0 0 10px;padding:6px 10px;border-radius:8px;background:var(--chip);color:var(--ink);font-size:15px;line-height:1.5;overflow-wrap:anywhere}
 .next-site .site-name{font-size:inherit;font-weight:700}
 .next-site a.dirlink{vertical-align:middle;margin-left:2px}
+/* the separator and the link are one unit: a long name wraps before them, never between them */
+.next-site .next-link{white-space:nowrap}
 .site-marks{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 10px}
 .site-marks button{margin-left:0;min-width:0}
 .site-marks .markbtn{flex:1 1 96px;min-height:48px;font-weight:600}

@@ -473,3 +473,25 @@ test('storm card at 320 px: the gap after Directions equals the gap after Map', 
   expect(m.gap1).toBeCloseTo(4, 0);
   expect(m.gap2).toBeCloseTo(m.gap1, 1);
 });
+
+// F6 (final review): the bar's " · " must travel with the Directions button. On paper: S2's name is 40 characters ('Northwest Parking Structure Level Two AB'),
+// so at 320 px the bar wraps. The separator and the link are ONE unit that does not break inside, so they sit on the same line:
+// the vertical centre of the " · " glyph is within 8 px of the link's centre (a different line is one text line, about 22 px, away).
+// The bar's text stays exactly "Next: <name> · Directions".
+for (const dark of [false, true]) {
+  test('next bar at 320 px' + (dark ? ' (dark)' : '') + ': the separator is on the same line as the link, not left hanging after the name', async ({ page }) => {
+    const w = nw(...S1_LEFT); w.sites[1].name = 'Northwest Parking Structure Level Two AB';
+    await open(page, w, { dark });
+    const bar = page.locator('[data-shiftsite="S1"] [data-nextsite="S2"]');
+    await expect(bar).toHaveText('Next: Northwest Parking Structure Level Two AB · Directions');
+    const m = await bar.evaluate((el) => {
+      const a = el.querySelector('a[data-directions]'), ar = a.getBoundingClientRect();
+      const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+      let node, dot = null;
+      while ((node = walker.nextNode())) { const i = node.nodeValue.indexOf('·'); if (i !== -1) { const r = document.createRange(); r.setStart(node, i); r.setEnd(node, i + 1); dot = r.getBoundingClientRect(); } }
+      return { dotMid: dot ? (dot.top + dot.bottom) / 2 : null, linkMid: (ar.top + ar.bottom) / 2 };
+    });
+    expect(m.dotMid).not.toBeNull();
+    expect(Math.abs(m.dotMid - m.linkMid)).toBeLessThanOrEqual(8);
+  });
+}

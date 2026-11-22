@@ -2207,6 +2207,23 @@ test('tonight: each site line has Directions after Map', async ({ page }) => {
   expect(m.scrollW).toBeLessThanOrEqual(m.clientW);
 });
 
+// F7 (final review): the same Tonight line in Spanish at 320 px. On paper: the link reads "Cómo llegar" (wider than "Directions"); the site's line
+// still fits its card and the link is still as tall as Map. The address link is the same as the English test (destination=100%20Test%20Way).
+test('tonight in Spanish at 320 px: the line with Cómo llegar fits its card', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  const w = world(); w.posts = [POST]; w.sites[0].address = '100 Test Way';
+  await open(page, { token: 'tok-jordan', snow: fakeSnow(w), clockAt: '2026-10-01T18:00:00-08:00' });
+  await page.setViewportSize({ width: 320, height: 700 });
+  const li = page.locator('.tonight-route').first().locator('li', { has: page.locator('[data-map="S1"]') });
+  const a = li.locator('a[data-directions]');
+  await expect(a).toHaveText('Cómo llegar');
+  const m = await li.evaluate((el) => { const l = el.querySelector('a[data-directions]').getBoundingClientRect(), b = el.querySelector('[data-map]').getBoundingClientRect(), c = el.closest('.card').getBoundingClientRect(); return { hA: l.height, hM: b.height, right: l.right, cardRight: c.right, scrollW: el.scrollWidth, clientW: el.clientWidth, docW: document.documentElement.scrollWidth }; });
+  expect(m.hA).toBeCloseTo(m.hM, 1);
+  expect(m.right).toBeLessThanOrEqual(m.cardRight);
+  expect(m.scrollW).toBeLessThanOrEqual(m.clientW);
+  expect(m.docW).toBeLessThanOrEqual(320);
+});
+
 test('a crew member not on the post is told so and sees the whole board', async ({ page }) => {
   const w = world(); w.posts = [{ ...POST, routes: POST.routes.map((r) => ({ ...r, members: [] })) }];
   await open(page, { token: 'tok-jordan', snow: fakeSnow(w), clockAt: '2026-10-01T18:00:00-08:00' });

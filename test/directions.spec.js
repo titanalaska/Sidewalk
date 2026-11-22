@@ -495,3 +495,47 @@ for (const dark of [false, true]) {
     expect(Math.abs(m.dotMid - m.linkMid)).toBeLessThanOrEqual(8);
   });
 }
+
+// F7 (final review): "Cómo llegar" is wider than "Directions". In Spanish at 320 px, on paper: (1) the admin's Storm-card row (Map, Cómo llegar,
+// Site card, Copy for BT, Clean again, New snow: six controls, as the English test) has every box inside the card and no two overlapping;
+// (2) the Next bar and the card hold no horizontal overflow (page width <= 320); (3) the map screen's top row does not overflow its container.
+// (The Tonight line is the one in ui.spec's Tonight test, a crew sign-in the admin fake here has not; it is checked in Spanish below.)
+test('Spanish at 320 px: the six buttons fit inside the card, nothing overlaps, nothing runs past the page', async ({ page }) => {
+  const w = nw(...S1_LEFT); w.sites[0].callout_in = 1;
+  await open(page, w, { es: true });
+  const row = page.locator('[data-shiftsite="S1"] .route-top .row.tight').first();
+  await expect(row.locator('[data-directions]')).toHaveText('Cómo llegar');
+  await expect(row.locator('[data-map],[data-directions],[data-card],[data-bt],[data-again],[data-depth]')).toHaveCount(6);
+  const m = await row.evaluate((r) => {
+    const card = r.closest('.card').getBoundingClientRect();
+    const boxes = Array.prototype.map.call(r.children, (b) => { const q = b.getBoundingClientRect(); return { l: q.left, r: q.right, t: q.top, b: q.bottom, w: q.width }; });
+    return { card: { l: card.left, r: card.right }, boxes, scrollW: r.scrollWidth, clientW: r.clientWidth, docW: document.documentElement.scrollWidth };
+  });
+  expect(m.boxes.length).toBe(6);
+  m.boxes.forEach((b) => { expect(b.l).toBeGreaterThanOrEqual(m.card.l - 0.5); expect(b.r).toBeLessThanOrEqual(m.card.r + 0.5); expect(b.w).toBeGreaterThan(20); });
+  for (let i = 0; i < 6; i++) for (let j = i + 1; j < 6; j++) {
+    const a = m.boxes[i], b = m.boxes[j];
+    const overlap = Math.min(a.r, b.r) - Math.max(a.l, b.l) > 0.5 && Math.min(a.b, b.b) - Math.max(a.t, b.t) > 0.5;
+    expect(overlap, 'buttons ' + i + ' and ' + j + ' overlap').toBe(false);
+  }
+  expect(m.scrollW).toBeLessThanOrEqual(m.clientW);
+  expect(m.docW).toBeLessThanOrEqual(320);
+  const bar = page.locator('[data-shiftsite="S1"] [data-nextsite="S2"]');
+  await expect(bar).toHaveText('Siguiente: Mid Lot · Cómo llegar');
+  const b = await bar.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth, right: el.getBoundingClientRect().right, cardRight: el.closest('.card').getBoundingClientRect().right }));
+  expect(b.sw).toBeLessThanOrEqual(b.cw);
+  expect(b.right).toBeLessThanOrEqual(b.cardRight);
+});
+
+test('Spanish at 320 px: the map screen top row does not overflow', async ({ page }) => {
+  await open(page, world(), { es: true });
+  await page.locator('[data-shiftsite="S1"] [data-map="S1"]').click();
+  await expect(page.locator('#mapback')).toBeVisible();
+  const top = page.locator('.route-top', { has: page.locator('#mapback') }).first();
+  await expect(top.locator('[data-directions]')).toHaveText('Cómo llegar');
+  const m = await top.evaluate((el) => ({ sw: el.scrollWidth, cw: el.clientWidth, docW: document.documentElement.scrollWidth,
+    right: Math.max.apply(null, Array.prototype.map.call(el.children, (c) => c.getBoundingClientRect().right)), elRight: el.getBoundingClientRect().right }));
+  expect(m.sw).toBeLessThanOrEqual(m.cw);
+  expect(m.docW).toBeLessThanOrEqual(320);
+  expect(m.right).toBeLessThanOrEqual(m.elRight + 0.5);
+});

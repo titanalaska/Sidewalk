@@ -112,3 +112,19 @@ test('siteLink: S.sites or S missing is no link, no throw', () => {
   assert.equal(D.siteLink({ points: {} }, 'S1', esc), '');
   assert.equal(D.siteLink(null, 'S1', esc), '');
 });
+
+// F4 (final review): lib/points.js did not load, so the page's SnowPoints is undefined and directions.js is built with P undefined.
+// The file runs in a bare vm context with NO SnowPoints global (as a page whose script tag failed). On paper: point() with no server point
+// and no P is no point (null), never a throw; a site with only an address then links the address ('5 Test Rd' -> 5%20Test%20Rd); a site
+// that has a server point still uses it.
+test('no SnowPoints on the page: point() is null and siteLink falls to the address, no throw', () => {
+  const vm = require('node:vm'), fs = require('node:fs'), path = require('node:path');
+  const ctx = vm.createContext({});
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'lib', 'directions.js'), 'utf8'), ctx);
+  const X = ctx.SnowDirections;
+  assert.equal(typeof X.point, 'function');
+  assert.equal(X.point({ id: 'S1' }, undefined, []), null);
+  const S = { sites: [{ id: 'S2', address: '5 Test Rd' }, { id: 'S5', address: '' }], zones: [], points: { S5: [-149.9, 61.2] } };
+  assert.equal(X.siteLink(S, 'S2', esc), link(BASE + '5%20Test%20Rd' + TAIL));
+  assert.equal(X.siteLink(S, 'S5', esc), link(BASE + '61.200000%2C-149.900000' + TAIL));
+});

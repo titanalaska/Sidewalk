@@ -7734,10 +7734,17 @@ test('walk totals: at 320 px the line wraps between parts, never mid-number, and
   await page.click('nav [data-tab="sites"]');
   const line = page.locator('[data-site="S1"] .walkline');
   await expect(line).toHaveText('Sidewalk 1,236,617 sq ft · Heated 640 · Hand 300');
-  // Each part is kept whole: one box per part, so no number is ever split across two lines.
+  // Each part is kept whole: one box per part, so no number is ever split across two lines. One width can happen to
+  // wrap between parts anyway (it did: the first cut of this test passed with the parts free to break), so every phone
+  // width from 320 to 480 px is tried, 4 px apart; somewhere in there a free part would land on the edge.
   const parts = line.locator('.walkpart');
   await expect(parts).toHaveCount(3);
-  for (const n of await parts.evaluateAll((els) => els.map((e) => e.getClientRects().length))) expect(n).toBe(1);
+  for (let wd = 320; wd <= 480; wd += 4) {
+    await page.setViewportSize({ width: wd, height: 700 });
+    const rects = await parts.evaluateAll((els) => els.map((e) => e.getClientRects().length));
+    expect(rects, 'at ' + wd + ' px').toEqual([1, 1, 1]);
+  }
+  await page.setViewportSize({ width: 320, height: 700 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
 });
 

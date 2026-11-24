@@ -91,3 +91,29 @@ test('ownCard: a dispatcher is on their own card and on no other; Matt (no crew 
   assert.equal(R.ownCard(dee, null), false);
   assert.equal(R.ownCard(dee, undefined), false);
 });
+
+// Crew pictures (Matt, 11/24/26: "the whole point was to put a face to the name"). A picture is a data:image URL, the rule avatar()
+// has always drawn by; anything else is no picture. The bar is for crew and leads whose own live card has none.
+const PIC = 'data:image/jpeg;base64,AAAA';
+test('hasPicture: only a data:image URL is a picture', () => {
+  assert.equal(R.hasPicture({ photo_thumb: PIC }), true);
+  assert.equal(R.hasPicture({ photo_thumb: 'data:image/png;base64,iVBO' }), true);
+  for (const v of [null, undefined, '', 'http://x/a.jpg', 'data:text/plain;base64,AAAA', 42]) assert.equal(R.hasPicture({ photo_thumb: v }), false, String(v));
+  assert.equal(R.hasPicture(null), false);
+  assert.equal(R.hasPicture(undefined), false);
+});
+
+test('needsPicture: crew and leads on the crew with no picture, and nobody else', () => {
+  const crew = { name: 'Abel', role: 'crew', crew_id: 'C1' }, lead = { name: 'Ana', role: 'lead', crew_id: 'C2' };
+  const disp = { name: 'Ben', role: 'admin', crew_id: 'C3' }, matt = { name: 'Matthew', role: 'admin', crew_id: null };
+  const none = { id: 'C1', name: 'Abel', pending: false, photo_thumb: null };
+  assert.equal(R.needsPicture(crew, none), true);
+  assert.equal(R.needsPicture(lead, Object.assign({}, none, { id: 'C2' })), true);
+  assert.equal(R.needsPicture(crew, Object.assign({}, none, { photo_thumb: PIC })), false);
+  assert.equal(R.needsPicture(crew, Object.assign({}, none, { photo_thumb: 'http://x/a.jpg' })), true);   // old data: not a picture
+  assert.equal(R.needsPicture(disp, Object.assign({}, none, { id: 'C3' })), false);   // a dispatcher sees the Roster markers instead
+  assert.equal(R.needsPicture(matt, null), false);
+  assert.equal(R.needsPicture(null, none), false);                                    // signed out
+  assert.equal(R.needsPicture(crew, null), false);                                    // no card came with the sign-in
+  assert.equal(R.needsPicture(crew, Object.assign({}, none, { pending: true })), false); // still waiting: the waiting screen says it
+});

@@ -97,6 +97,13 @@ header button{flex:none}
 
 /* ---- snow app (Foundation) ---- */
 .banner{background:var(--warn-bg);color:var(--warn);padding:8px 16px;font-size:14px;border-bottom:1px solid var(--warn)}
+/* crew pictures (11/24/26): the bar asks, it never blocks; the words wrap and the button stays a full glove-size target */
+.banner-pic{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font-size:15px}
+.banner-pic span{flex:1 1 14em;min-width:0}
+.banner-pic button{flex:none;margin-left:auto}
+.pic-need{color:var(--warn);font-weight:600}
+.tile .nopic{color:var(--warn);font-size:13px}
+.grp-nopic{color:var(--warn);font-size:14px;margin-left:8px}
 #tabs button[aria-current="page"]{color:var(--accent);font-weight:600}
 button.small{min-height:36px;padding:4px 10px;font-size:14px;margin-left:auto}
 .route-top .small + .small{margin-left:4px}

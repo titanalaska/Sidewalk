@@ -274,5 +274,6 @@ test('walk totals (Matt, 11/23/26): each part of the Sites / Routes line reads w
   // Only the whole part: other English that starts with these words is left to its own rows.
   assert.equal(Es.translateString('Hand 300 bags'), 'Hand 300 bags');
   assert.equal(Es.translateString('Heated 640 ft'), 'Heated 640 ft');
+  assert.equal(Es.translateString('Zebra Hand 300'), 'Zebra Hand 300'); // only a whole part, never the tail of other text
   assert.equal(Es.translateString('Sidewalk'), 'Banqueta');
 });

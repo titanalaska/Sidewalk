@@ -262,3 +262,17 @@ test('site done: no bare word was added that could bite longer English', () => {
   assert.equal(Es.translateString('Curbs: clear 4 ft back'), 'Bordillos: despejar 4 pies (1.2 m)');
   assert.equal(Es.translateString('Problems (2)'), 'Problemas (2)');
 });
+
+test('walk totals (Matt, 11/23/26): each part of the Sites / Routes line reads whole in Spanish, the number untouched', () => {
+  // lib/totals.js walkParts(): 'Sidewalk <n> sq ft', 'Heated <n>', 'Hand <n>'; "sq ft" on the first part only, whichever it is.
+  // The dictionary turns the bare word Sidewalk into Banqueta first; the rule reads the half-translated part.
+  assert.equal(Es.translateString('Sidewalk 2,050 sq ft'), 'Banqueta 2,050 pies²');
+  assert.equal(Es.translateString('Heated 640'), 'Con calefacción 640');
+  assert.equal(Es.translateString('Hand 300'), 'A mano 300');
+  assert.equal(Es.translateString('Heated 640 sq ft'), 'Con calefacción 640 pies²');
+  assert.equal(Es.translateString('Hand 1,234,567 sq ft'), 'A mano 1,234,567 pies²');
+  // Only the whole part: other English that starts with these words is left to its own rows.
+  assert.equal(Es.translateString('Hand 300 bags'), 'Hand 300 bags');
+  assert.equal(Es.translateString('Heated 640 ft'), 'Heated 640 ft');
+  assert.equal(Es.translateString('Sidewalk'), 'Banqueta');
+});

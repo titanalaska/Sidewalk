@@ -3,7 +3,7 @@
 // Worked on paper. Two made-up sites, each with one sidewalk and one curb line:
 //   Birch Clinic (S1): no `crew_curbs`  -> a No site.  Z1 sidewalk "Front walk", Z3 curb line "Curb - lot" (1,200 sq ft / 4 = 300 ft).
 //   Spruce Office (S2): crew_curbs true -> a Yes site. Z2 sidewalk "Front walk", Z4 curb line "Curb - lot" (1,200 sq ft = 300 ft).
-//   The Sites tab line at Birch: "Curbs: 300 ft in 1 item" + " · the crew doesn't see them"; at Spruce: "Curbs: 300 ft in 1 item" alone.
+//   The Sites tab shows no curb feet at either site (Matt, 11/23/26: walk totals instead; test/ui.spec.js "walk totals").
 //   The map at Birch draws [Z1]; with Edit map on, [Z1, Z3]; after Done, [Z1] again. At Spruce it draws [Z2, Z4] always.
 const { test, expect } = require('./no-real-weather.js');
 const path = require('path');
@@ -67,16 +67,11 @@ async function openMap(page, id) {
 const drawn = (page) => page.evaluate(() => window.SnowMapView.getSource('zones')._data.features.map((f) => f.properties.id).sort());
 const saves = (calls) => calls.filter((c) => c.body.action === 'saveSite');
 
-test('the Sites tab line says the crew does not see the curbs, at the No site only', async ({ page }) => {
+test('the Sites tab carries no curb line at the No site or the Yes site (Matt, 11/23/26: walk totals instead)', async ({ page }) => {
   await start(page, world());
-  await expect(page.locator('[data-site="S1"] .curbline')).toHaveText("Curbs: 300 ft in 1 item · the crew doesn't see them");
-  await expect(page.locator('[data-site="S2"] .curbline')).toHaveText('Curbs: 300 ft in 1 item');
-});
-
-test('a No site with no curbs has no curb line at all', async ({ page }) => {
-  const w = world(); w.zones = w.zones.filter((z) => z.id !== 'Z3');
-  await start(page, w);
-  await expect(page.locator('[data-site="S1"] .curbline')).toHaveCount(0);
+  await expect(page.locator('[data-site="S2"]')).toBeVisible();
+  await expect(page.locator('.curbline')).toHaveCount(0);
+  await expect(page.locator('#main')).not.toContainText("the crew doesn't see them");
 });
 
 test("the No site's map draws no curb line; the Yes site's draws it", async ({ page }) => {
@@ -118,20 +113,20 @@ test('the editor box: ticked only at a Yes site, with its hint; Save sends true 
   await page.click('#s_save');
   await expect.poll(() => saves(calls).length).toBe(1);
   expect(saves(calls)[0].body.record.crew_curbs).toBe(false);
-  // Tick it: true; the Sites line loses its suffix; reopening shows it ticked.
+  // Tick it: true; reopening shows it ticked.
   await page.click('[data-edit="site:S1"]');
   await page.check('#s_crew_curbs');
   await page.click('#s_save');
   await expect.poll(() => saves(calls).length).toBe(2);
   expect(saves(calls)[1].body.record.crew_curbs).toBe(true);
-  await expect(page.locator('[data-site="S1"] .curbline')).toHaveText('Curbs: 300 ft in 1 item');
+  await expect(page.locator('#dlg')).toBeHidden();
   await page.click('[data-edit="site:S1"]');
   await expect(page.locator('#s_crew_curbs')).toBeChecked();
   await page.uncheck('#s_crew_curbs');
   await page.click('#s_save');
   await expect.poll(() => saves(calls).length).toBe(3);
   expect(saves(calls)[2].body.record.crew_curbs).toBe(false);
-  await expect(page.locator('[data-site="S1"] .curbline')).toHaveText("Curbs: 300 ft in 1 item · the crew doesn't see them");
+  await expect(page.locator('#dlg')).toBeHidden();
   // The Yes site opens ticked.
   await page.click('[data-edit="site:S2"]');
   await expect(page.locator('#s_crew_curbs')).toBeChecked();

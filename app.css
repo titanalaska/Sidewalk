@@ -245,8 +245,8 @@ body.has-ref.ref-min #mapbox{height:62vh}
 .live-status.done{color:var(--ok);font-weight:600}
 .live-status.bad{color:var(--warn);font-weight:600}
 .live-status.touched{color:var(--amber);font-weight:600}
-.curbline{font-size:14px;margin-top:4px}
-.curbline.warn{color:var(--amber);font-weight:600}
+.walkline{font-size:14px;margin-top:4px}
+.walkpart{white-space:nowrap}
 /* Archived lists (Matt, 10/10/26): sites and routes under the live list, zones in the map editor; closed until opened */
 .archived{margin:16px 0 8px}
 .archived summary{cursor:pointer;color:var(--muted);padding:10px 0}

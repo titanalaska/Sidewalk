@@ -313,3 +313,61 @@ test('results do not share objects: changing one result leaves the others alone'
   e1.hand[0] = 5;
   assert.deepEqual(e2, zero());
 });
+
+// ---- walkLine: the Sites tab and Routes tab line (Matt, 11/23/26) ----
+// Matt: "How about we just show sidewalk totals?" He picked Sidewalk, Heated and Hand, each its own number;
+// the curb feet go off the Sites tab; everyone sees it; each route card gets one line for its sites.
+// Curbs, storage and no-touch are never on this line. Nothing to list = '' (no line drawn), as the curb line did.
+
+test('walkLine: Sidewalk, Heated, Hand in that order, sq ft once after the first number', () => {
+  const t = zero(); t.sidewalk = [19103, 3]; t.heated = [11626, 2]; t.hand = [2410, 4]; t.zones = 9;
+  assert.equal(T.walkLine(t), 'Sidewalk 19,103 sq ft · Heated 11,626 · Hand 2,410');
+});
+
+test('walkLine: curbs, storage and no-touch are never on it', () => {
+  const t = zero(); t.sidewalk = [500, 1]; t.curb = [3412, 2]; t.storage = [800, 1]; t.no_touch = [90, 1]; t.zones = 5;
+  assert.equal(T.walkLine(t), 'Sidewalk 500 sq ft');
+});
+
+test('walkLine: a missing kind is left out, and the first one there carries the sq ft', () => {
+  const h = zero(); h.heated = [640, 1]; h.zones = 1;
+  assert.equal(T.walkLine(h), 'Heated 640 sq ft');
+  const sh = zero(); sh.sidewalk = [1200, 1]; sh.hand = [300, 1]; sh.zones = 2;
+  assert.equal(T.walkLine(sh), 'Sidewalk 1,200 sq ft · Hand 300');
+  const hh = zero(); hh.heated = [640, 1]; hh.hand = [1234567, 1]; hh.zones = 2;
+  assert.equal(T.walkLine(hh), 'Heated 640 sq ft · Hand 1,234,567');
+});
+
+test('walkLine: no walk area at all is an empty string (curbs, piles or nothing)', () => {
+  assert.equal(T.walkLine(zero()), '');
+  const c = zero(); c.curb = [300, 1]; c.storage = [500, 1]; c.zones = 2;
+  assert.equal(T.walkLine(c), '');
+  assert.equal(T.walkLine(undefined), '');
+});
+
+test('walkLine: a real site through siteTotals: a Curb line stays out of Hand', () => {
+  const zones = [
+    z('S1', 'sidewalk', 'Front walk', 1200), z('S1', 'sidewalk', 'Side walk', 850),
+    z('S1', 'heated', 'Entry', 640), z('S1', 'hand', 'Steps', 300),
+    z('S1', 'hand', 'Curb - lot', 1200), z('S1', 'hand', 'Curb - island', 800),
+    z('S1', 'storage', 'Pile', 900), z('S1', 'no_touch', 'Planter', 50),
+    z('S1', 'sidewalk', 'Old walk', 4000, { archived: true }),
+    z('S2', 'sidewalk', 'Other site', 777),
+  ];
+  // sidewalk 1200 + 850 = 2,050 (the archived 4,000 and S2's 777 count nothing); heated 640;
+  // hand = Steps 300 only (the two Curb lines are curbs, 2000 / 4 = 500 ft, never shown here).
+  assert.equal(T.walkLine(T.siteTotals('S1', zones)), 'Sidewalk 2,050 sq ft · Heated 640 · Hand 300');
+});
+
+test('walkLine over a route: all() of the route\'s sites, each site once, archived sites out, rounded once', () => {
+  const routeSites = [{ id: 'S1', name: 'PAC' }, { id: 'S2', name: 'TUDOR' }, { id: 'S3', name: 'Gone', archived: true }];
+  const zones = [
+    z('S1', 'sidewalk', 'A', 100.4), z('S1', 'heated', 'B', 50.4),
+    z('S2', 'sidewalk', 'C', 100.4), z('S2', 'hand', 'D', 10.3), z('S2', 'hand', 'E', 10.3),
+    z('S3', 'sidewalk', 'F', 9999),
+    z('S9', 'sidewalk', 'not on the route', 5000),
+  ];
+  // sidewalk 100.4 + 100.4 = 200.8 -> 201 (the rounded rows would say 100 + 100 = 200); heated 50.4 -> 50;
+  // hand 10.3 + 10.3 = 20.6 -> 21 (rows: 10 + 10 = 20). S3 is archived, S9 is not on the route.
+  assert.equal(T.walkLine(T.all(routeSites, zones)), 'Sidewalk 201 sq ft · Heated 50 · Hand 21');
+});

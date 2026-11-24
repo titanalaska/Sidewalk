@@ -7655,22 +7655,90 @@ test('Touched: sidewalks done and curbs left reads Touched in its own colour; th
   await expect(page.locator('[data-liveroute="R1"] .live-count')).toHaveText('1 of 2 sites done');
 });
 
-test("Matt's Sites cards show each site's curbs and flag one over size; the crew's never do", async ({ page }) => {
-  // PAC: 500 ft, one item. TUDOR-TRANSIT: 3,000 + 2,500 + 3,200 + 5,000 = 13,700 ft in 4 zones: ceil(13700 / 2400) = 6,
-  // the cap is 5, and never more items than zones makes it 4; 4 x 2,400 = 9,600 < 13,700, so over size.
-  const w = crewCurbsOn(world(), 'S1', 'S2'); // both ticked: no suffix on either line (the No site's line is in test/crewcurbs.spec.js)
-  w.zones = [...CURBS, ...[[3000, 14], [2500, 15], [3200, 16], [5000, 17]].map(([ft, bp], i) =>
-    ({ id: 'T' + bp, site_id: 'S2', type: 'hand', name: 'Curb - part ' + i, area_sqft: ft * 4, from: 'bootprint:J2:' + bp, rev: 1 }))];
+// ---------- walk totals (Matt, 11/23/26: "How about we just show sidewalk totals?") ----------
+// Every site card on the Sites tab ends with that site's Sidewalk · Heated · Hand square feet, for everyone;
+// the curb feet line ("Curbs: 500 ft in 1 item") is gone. Each route card on the Routes tab ends with one line
+// adding up its sites. The numbers are lib/totals.js (live zones by the server's area_sqft, a "Curb ..." hand
+// line is a curb and never Hand, each level rounded once); storage, no-touch and curbs are never on the line.
+//   PAC (S1): sidewalk 1,200 + 850 = 2,050; heated 640; hand = Steps 300 (CURBS Z6 + Z7 are curbs, not Hand);
+//             the pile (900) and the planter (50) are not walks; the archived 4,000 walk counts nothing.
+//             -> "Sidewalk 2,050 sq ft · Heated 640 · Hand 300"
+//   TUDOR-TRANSIT (S2): sidewalk 12,500 -> "Sidewalk 12,500 sq ft"
+//   LOT ONLY (S3): a pile and a curb line only -> no line at all
+//   N1 = PAC -> PAC's line. N2 = PAC + TUDOR-TRANSIT: sidewalk 2,050 + 12,500 = 14,550, heated 640, hand 300
+//             -> "Sidewalk 14,550 sq ft · Heated 640 · Hand 300". N3 = LOT ONLY -> no line.
+const walkWorld = () => {
+  const w = crewCurbsOn(world(), 'S1'); // the crew see PAC's curbs: they still never reach this line
+  w.sites.push({ id: 'S3', name: 'LOT ONLY', rev: 1 });
+  w.routes = [{ id: 'R1', name: 'N1', rev: 1, site_ids: ['S1'] }, { id: 'R2', name: 'N2', rev: 1, site_ids: ['S1', 'S2'] },
+    { id: 'R3', name: 'N3', rev: 1, site_ids: ['S3'] }];
+  w.zones = [...CURBS,
+    { id: 'W1', site_id: 'S1', type: 'sidewalk', name: 'Front walk', area_sqft: 1200, rev: 1 },
+    { id: 'W2', site_id: 'S1', type: 'sidewalk', name: 'Side walk', area_sqft: 850, rev: 1 },
+    { id: 'W3', site_id: 'S1', type: 'heated', name: 'Entry', area_sqft: 640, rev: 1 },
+    { id: 'W4', site_id: 'S1', type: 'hand', name: 'Steps', area_sqft: 300, rev: 1 },
+    { id: 'W5', site_id: 'S1', type: 'storage', name: 'Pile', area_sqft: 900, rev: 1 },
+    { id: 'W6', site_id: 'S1', type: 'no_touch', name: 'Planter', area_sqft: 50, rev: 1 },
+    { id: 'W7', site_id: 'S1', type: 'sidewalk', name: 'Old walk', area_sqft: 4000, rev: 2, archived: true },
+    { id: 'W8', site_id: 'S2', type: 'sidewalk', name: 'Bus walk', area_sqft: 12500, rev: 1 },
+    { id: 'W9', site_id: 'S3', type: 'storage', name: 'Pile', area_sqft: 500, rev: 1 },
+    { id: 'W10', site_id: 'S3', type: 'hand', name: 'Curb - lot', area_sqft: 400, rev: 1 }];
+  return w;
+};
+const PAC_WALKS = 'Sidewalk 2,050 sq ft · Heated 640 · Hand 300';
+
+for (const [who, token] of [['Matt', 'tok-matt'], ['the crew', 'tok-jordan']]) {
+  test(`walk totals: ${who}'s Sites cards end with each site's Sidewalk · Heated · Hand, and no curb feet`, async ({ page }) => {
+    await open(page, { token, snow: fakeSnow(walkWorld()) });
+    await page.click('nav [data-tab="sites"]');
+    await expect(page.locator('[data-site="S1"] .walkline')).toHaveText(PAC_WALKS);
+    await expect(page.locator('[data-site="S2"] .walkline')).toHaveText('Sidewalk 12,500 sq ft');
+    await expect(page.locator('[data-site="S3"]')).toBeVisible();
+    await expect(page.locator('[data-site="S3"] .walkline')).toHaveCount(0);
+    // The line is the card's last line, and the curb feet are gone from every card.
+    expect(await page.locator('[data-site="S1"]').evaluate((e) => e.lastElementChild.className)).toMatch(/\bwalkline\b/);
+    await expect(page.locator('.curbline')).toHaveCount(0);
+    await expect(page.locator('#main')).not.toContainText(' ft in ');
+  });
+
+  test(`walk totals: ${who}'s Routes cards end with their sites' walk totals added up`, async ({ page }) => {
+    await open(page, { token, snow: fakeSnow(walkWorld()) });
+    await page.click('nav [data-tab="routes"]');
+    await expect(page.locator('[data-route="R1"] .walkline')).toHaveText(PAC_WALKS);
+    await expect(page.locator('[data-route="R2"] .walkline')).toHaveText('Sidewalk 14,550 sq ft · Heated 640 · Hand 300');
+    await expect(page.locator('[data-route="R3"]')).toBeVisible();
+    await expect(page.locator('[data-route="R3"] .walkline')).toHaveCount(0);
+    expect(await page.locator('[data-route="R2"]').evaluate((e) => e.lastElementChild.className)).toMatch(/\bwalkline\b/);
+  });
+}
+
+test('walk totals: on a Spanish phone the line reads in Spanish, the numbers untouched', async ({ page }) => {
+  // The dictionary turns the bare word Sidewalk into Banqueta first; the rule then reads each part whole.
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await open(page, { token: 'tok-jordan', snow: fakeSnow(walkWorld()) });
+  await page.click('nav [data-tab="sites"]');
+  const line = page.locator('[data-site="S1"] .walkline');
+  await expect(line).toHaveText('Banqueta 2,050 pies² · Con calefacción 640 · A mano 300');
+  await expect(line).not.toContainText('sq ft');
+  await expect(page.locator('[data-site="S2"] .walkline')).toHaveText('Banqueta 12,500 pies²');
+  await page.click('nav [data-tab="routes"]');
+  await expect(page.locator('[data-route="R2"] .walkline')).toHaveText('Banqueta 14,550 pies² · Con calefacción 640 · A mano 300');
+});
+
+test('walk totals: at 320 px the line wraps between parts, never mid-number, and nothing scrolls sideways', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 700 });
+  const w = walkWorld();
+  w.zones.push({ id: 'W11', site_id: 'S1', type: 'sidewalk', name: 'Huge walk', area_sqft: 1234567, rev: 1 });
+  // PAC: sidewalk 2,050 + 1,234,567 = 1,236,617.
   await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
   await page.click('nav [data-tab="sites"]');
-  await expect(page.locator('[data-site="S1"] .curbline')).toHaveText('Curbs: 500 ft in 1 item');
-  await expect(page.locator('[data-site="S2"] .curbline')).toHaveText('Curbs: 13,700 ft in 4 items · over 2,400 ft per item');
-  await expect(page.locator('[data-site="S2"] .curbline')).toHaveClass(/\bwarn\b/);
-  const crew = await page.context().newPage();
-  await open(crew, { token: 'tok-jordan', snow: fakeSnow(w) });
-  await crew.click('nav [data-tab="sites"]');
-  await expect(crew.locator('[data-site="S1"]')).toBeVisible();
-  await expect(crew.locator('.curbline')).toHaveCount(0);
+  const line = page.locator('[data-site="S1"] .walkline');
+  await expect(line).toHaveText('Sidewalk 1,236,617 sq ft · Heated 640 · Hand 300');
+  // Each part is kept whole: one box per part, so no number is ever split across two lines.
+  const parts = line.locator('.walkpart');
+  await expect(parts).toHaveCount(3);
+  for (const n of await parts.evaluateAll((els) => els.map((e) => e.getClientRects().length))) expect(n).toBe(1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
 });
 
 // ---------- Spanish (Matt, 10/9/26: crew screens, switched on the phone) ----------
@@ -11715,7 +11783,7 @@ test('crew curbs: ticking the box on the Sites tab brings the curbs back to the 
   await page.click('[data-edit="site:S1"]');
   await page.check('#s_crew_curbs');
   await page.click('#s_save');
-  await expect(page.locator('[data-site="S1"] .curbline')).toHaveText('Curbs: 500 ft in 1 item');
+  await expect(page.locator('#dlg')).toBeHidden();
   await page.click('nav [data-tab="storm"]');
   await expect(page.locator('[data-livesite="S1"] .live-status')).toHaveText('Touched');
 });

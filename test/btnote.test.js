@@ -63,7 +63,42 @@ test('depth, materials and machine minutes come from each person\'s newest site 
   const lines = N.btNote(o, 'night-2026-12-04').text.split('\n');
   assert.ok(lines.includes('Depth: 1-1.5"'), lines.join(' | '));
   assert.ok(lines.includes('Materials: salt; 2 bags IceMelt'), lines.join(' | '));
-  assert.ok(lines.includes('Equipment: Blower 30 min, Bobcat BCT7 45 min'), lines.join(' | '));
+  // Old-shape minutes keep the site's unit; the blower is the Walk-behind blower and comes last (Task 7).
+  assert.ok(lines.includes('Equipment: Bobcat BCT7 45 min, Walk-behind blower 30 min'), lines.join(' | '));
+});
+
+// Machine lines (Matt, 11/24/26): one phrase per counted line, "<Machine> <unit> <Attachment> <minutes> min", no names.
+// By hand: C01's card has Bobcat BC5 Snowblower 106, Bobcat BT13 Bucket 106 and Snowrator 1 (no attachment) 106; C03's card has
+// the walk-behind blower 20 (old shape). Counted lines print Bobcats then Snowrators (visitTotals), then old-shape sums by type
+// (none here: nobody typed old-shape bobcat/snowrator/sweepster minutes), then the blower. Operator names never print.
+test('BT: machine lines with units and attachments, no names', () => {
+  const o = base();
+  const m = (type, unit, attachment, minutes) => ({ type, unit, attachment, operator_key: 'C01', operator_name: 'Zed Operator', minutes, since: 1 });
+  o.visits = [card(1, 'C01', { machines: [m('bobcat', 'BC5', 'snowblower', 106), m('bobcat', 'BT13', 'bucket', 106), m('snowrator', '1', '', 106)] }),
+    card(2, 'C03', { equipment: { blower: 20, snowrator: '', bobcat: '', sweepster: '' } })];
+  const n = N.btNote(o, 'night-2026-12-04');
+  assert.ok(n.text.split('\n').includes('Equipment: Bobcat BC5 Snowblower 106 min, Bobcat BT13 Bucket 106 min, Snowrator 1 106 min, Walk-behind blower 20 min'), n.text);
+  assert.ok(!/Zed/.test(n.text), 'no operator names');
+});
+
+// By hand: C01 has a counted line (Bobcat BC5 Snowblower 100) AND old-shape bobcat 45; C03 has old-shape bobcat 15. The old-shape
+// sum is 45 + 15 = 60, from the cards' own equipment.bobcat (NOT visitTotals().minutes, which would say 160), printed with the
+// site's unit text as typed ("BCT7"). Counted line first, then the old-shape one.
+test('BT: old-shape minutes keep the site unit', () => {
+  const o = base();
+  o.visits = [card(1, 'C01', { equipment: { blower: '', snowrator: '', bobcat: 45, sweepster: '' },
+      machines: [{ type: 'bobcat', unit: 'BC5', attachment: 'snowblower', operator_key: 'C01', operator_name: 'Zed', minutes: 100, since: 1 }] }),
+    card(2, 'C03', { equipment: { blower: '', snowrator: '', bobcat: 15, sweepster: '' } })];
+  const lines = N.btNote(o, 'night-2026-12-04').text.split('\n');
+  assert.ok(lines.includes('Equipment: Bobcat BC5 Snowblower 100 min, Bobcat BCT7 60 min'), lines.join(' | '));
+});
+
+// By hand: one old-shape card with blower 20 -> "Walk-behind blower 20 min", never a bare "Blower".
+test('BT: Walk-behind blower', () => {
+  const o = base();
+  o.visits = [card(1, 'C01', { equipment: { blower: 20, snowrator: '', bobcat: '', sweepster: '' } })];
+  const lines = N.btNote(o, 'night-2026-12-04').text.split('\n');
+  assert.ok(lines.includes('Equipment: Walk-behind blower 20 min'), lines.join(' | '));
 });
 
 test('blank cards add no depth, materials or equipment lines', () => {

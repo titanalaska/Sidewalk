@@ -5998,6 +5998,26 @@ test('site units are typed in the site box and sent, blank by default', async ({
   expect(saves()[3].body.record.units).toEqual({ bobcat: '', snowrator: '' });
 });
 
+// Machines spec 11/24/26: a site may carry several units ("BC5, BT13, ..."), so the box takes 60 characters, not 20.
+// By hand: the list below is 11 units (BC5, BT13, BC7, BC9, then BT21..BT26 and B27); the test asserts it is exactly 60 characters,
+// the old box's maxlength of 20 would have cut it, the new one is 60, and the save carries all 60 untouched.
+test('Sites editor: a 60-character unit list fits and is sent whole', async ({ page }) => {
+  const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
+  const list = 'BC5, BT13, BC7, BC9, BT21, BT22, BT23, BT24, BT25, BT26, B27'; // 60 characters
+  expect(list.length).toBe(60);
+  await page.click('nav [data-tab="sites"]');
+  await page.click('[data-edit="site:S1"]');
+  await expect(page.locator('#s_bobcat')).toHaveAttribute('maxlength', '60');
+  await expect(page.locator('#s_snowrator')).toHaveAttribute('maxlength', '60');
+  await expect(page.locator('label:has(+ #s_bobcat)')).toContainText('more than one: BC5, BT13');
+  await page.fill('#s_bobcat', list);
+  await page.fill('#s_snowrator', 'SR-1, SR-2');
+  await page.click('#s_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  const save = calls.filter((c) => c.body.action === 'saveSite').pop();
+  expect(save.body.record.units).toEqual({ bobcat: list, snowrator: 'SR-1, SR-2' });
+});
+
 test('Print sheets shows one page per route and shift, with not-done sites', async ({ page }) => {
   // liveWorld: N1 = PAC + EXTRA, N10 = NEWSITE, N2 = TUDOR-TRANSIT. One tap this shift: Alex cleared Main entry (PAC).
   // The post puts Alex and Jordan on N1 and Alex on N2; it does not list N10.

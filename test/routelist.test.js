@@ -247,7 +247,7 @@ test('page: Ice melt and Sand cells are empty at every site', () => {
 });
 
 // The Equipment cell (Matt, 11/19/26): words to CIRCLE, not a blank. Three lines:
-//   Bobcat <unit>: Bucket · Snowblower · Sweepster · Plow · Box      (no V blade: "Leave it off")
+//   Bobcat <unit>: Snowblower · Bucket      (machines spec 11/24/26: only these two; no V blade, Sweepster, Plow or Box)
 //   Operator: ____
 //   Snowrator <unit>  Operator: ____    Walk-behind blower
 // A unit comes from the site's units (the Sites editor's Bobcat unit # / Snowrator unit #), trimmed; a blank one prints #___.
@@ -261,7 +261,7 @@ test('page: the Equipment cell, units from the site, V blade never', () => {
   const cellOf = (row) => row.slice(row.indexOf('class="rl-equip"'), row.indexOf('</td>', row.indexOf('class="rl-equip"')));
   const [zeta, alpha] = h.split('class="rl-site"').slice(1).map(cellOf);
   for (const c of [zeta, alpha]) {
-    const at = ['>Bobcat<', '>Bucket<', '>Snowblower<', '>Sweepster<', '>Plow<', '>Box<', '>Snowrator<', '>Walk-behind blower<'].map((w) => c.indexOf(w));
+    const at = ['>Bobcat<', '>Snowblower<', '>Bucket<', '>Snowrator<', '>Walk-behind blower<'].map((w) => c.indexOf(w));
     assert.ok(at.every((x) => x > 0), 'every word is there: ' + at);
     assert.deepEqual(at, at.slice().sort((a, b) => a - b), 'in order');
     assert.equal(count(c, '>Operator:<'), 2);
@@ -269,7 +269,7 @@ test('page: the Equipment cell, units from the site, V blade never', () => {
   }
   assert.equal(count(alpha, '>BC5<'), 1);
   assert.equal(count(alpha, '#___'), 1);
-  assert.ok(alpha.indexOf('>BC5<') < alpha.indexOf('>Bucket<'), 'the Bobcat unit beside the Bobcat');
+  assert.ok(alpha.indexOf('>BC5<') < alpha.indexOf('>Snowblower<'), 'the Bobcat unit beside the Bobcat');
   assert.equal(count(zeta, '#___'), 2);
   assert.ok(!h.includes('V blade') && !h.includes('V-blade'));
   assert.equal(count(h, 'class="rl-box"'), 5, 'the circle words are not boxes');
@@ -317,9 +317,9 @@ test('every label goes through the translator and no data does', () => {
   const up = (s) => String(s).toUpperCase();
   const h = html(0, up);
   for (const label of ['DATE:', 'LEAD', 'CREW:', 'MATERIALS:', 'NOTES:', 'IN:', 'OUT:', 'DONE', 'SHOVELED', 'CURBS DONE', 'PRIORITY:', 'HEATED, CHECK ONLY:',
-    'ICE MELT (BAGS)', 'SAND (BUCKETS)', 'EQUIPMENT', 'BUCKET', 'SNOWBLOWER', 'PLOW', 'BOX', 'OPERATOR:', 'WALK-BEHIND BLOWER']) assert.ok(h.includes(label), label);
+    'ICE MELT (BAGS)', 'SAND (BUCKETS)', 'EQUIPMENT', 'BUCKET', 'SNOWBLOWER', 'OPERATOR:', 'WALK-BEHIND BLOWER']) assert.ok(h.includes(label), label);
   // Bobcat, Snowrator and Sweepster are brand names: printed as typed, never through the translator.
-  for (const brand of ['>Bobcat<', '>Snowrator<', '>Sweepster<']) assert.ok(h.includes(brand), brand);
+  for (const brand of ['>Bobcat<', '>Snowrator<']) assert.ok(h.includes(brand), brand);
   assert.ok(html(1, up).includes('NO WALKS DRAWN YET.'));
   // data untouched
   for (const d of ['Alpha Court', 'Zeta Lot', '1 Main St', 'NO SALT: fresh concrete. Sand only.', 'Alex Lead', 'Bea Member, Cy Member', 'Entry pad', 'Front walk', 'Curbs: clear 4 ft back (about 500 ft)', 'Back &amp; forth']) assert.ok(h.includes(d), d);
@@ -327,6 +327,26 @@ test('every label goes through the translator and no data does', () => {
   // and no English label is left outside the data: take the data out, nothing English remains
   const plain = html(1, up).replace(/<[^>]*>/g, ' ').replace('Beta Yard', ' ').replace(/N10/, ' ').replace(/Bobcat|Snowrator|Sweepster/g, ' ');
   assert.ok(!/Date|Lead|Crew|Materials|Notes|In:|Out:|walks|heated|Done|Treated|Curbs|Priority|Sand|Shoveled|Ice|Equipment|bags|buckets|Bucket|Snowblower|Plow|Box|Operator|Walk/.test(plain), plain);
+});
+
+// Machines spec 11/24/26: the Bobcat's words are Snowblower · Bucket and nothing else (Sweepster, Plow and Box are gone), in that order.
+test('route list: Bobcat words are Snowblower · Bucket only', () => {
+  const h = html(0);
+  assert.ok(h.includes('<span class="rl-pick">Snowblower</span> · <span class="rl-pick">Bucket</span>'));
+  for (const w of ['Sweepster', 'Plow', '>Box<']) assert.equal(count(h, w), 0, w);
+});
+
+// By hand: a site whose Bobcat unit text is " BC5, BT13 , bc5, BC7 " splits to BC5, BT13, BC7 (the repeat bc5 dropped), so three
+// rl-pick words joined by " · " after Bobcat, then ": Snowblower · Bucket". Its Snowrator text "1" is ONE unit and prints as today
+// (a plain span, not a pick word); the Bobcat's unit is never "#___".
+test('route list: a site with three Bobcat units prints three words to circle', () => {
+  const o = mk();
+  o.sites[0].units = { bobcat: ' BC5, BT13 , bc5, BC7 ', snowrator: '1' };
+  const p = RouteList.pages(o).find((x) => x.name === 'N2');
+  const alpha = RouteList.pageHtml(p, (s) => s).split('class="rl-site"')[2];
+  assert.ok(alpha.includes('<span class="rl-pick" data-no-es>Bobcat</span> <span class="rl-pick" data-no-es>BC5</span> · <span class="rl-pick" data-no-es>BT13</span> · <span class="rl-pick" data-no-es>BC7</span>: '), alpha);
+  assert.ok(alpha.includes('<span data-no-es>1</span>'), 'one unit prints as today');
+  assert.equal(count(alpha, '#___'), 0);
 });
 
 // Everything from data is escaped, wherever it lands: route, site, address, materials, walk and crew names.

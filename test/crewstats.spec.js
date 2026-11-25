@@ -163,9 +163,11 @@ test('crew stats: twelve nights fit at 320 px', async ({ page }) => {
   await card(page, 'C01');
   await page.click('#w_stats');
   await expect(page.locator('#w_statsbox ul.stats-nights li')).toHaveCount(12);
-  // Each night is at most three lines tall at 320 px (the night line, and hours · sq ft · machines wrapping once).
+  // Each night is at most four lines tall at 320 px: the night line, and hours · sq ft · machines wrapping. It was three until the
+  // machines spec (11/24/26) relabelled "Blower" as the longer "Walk-behind blower": a night with every machine type now wraps one
+  // more line (87 px measured against the old 3-line 80). Still no sideways scroll, below.
   const tall = await page.locator('ul.stats-nights li').evaluateAll((lis) => Math.max(...lis.map((li) => li.getBoundingClientRect().height)));
-  expect(tall).toBeLessThanOrEqual(3 * 22 + 14);
+  expect(tall).toBeLessThanOrEqual(4 * 22 + 14);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
   const wide = await page.evaluate(() => { const d = document.getElementById('dlgIn'); return d.scrollWidth - d.clientWidth; });
   expect(wide).toBeLessThanOrEqual(0);

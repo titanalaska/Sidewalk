@@ -449,22 +449,25 @@ function fakeSnow(state, opts = {}) {
       if (body.action === 'saveVisit') {
         const n = state.visits.length + 1, eq = { blower: '', snowrator: '', bobcat: '', sweepster: '', ...(body.equipment || {}) };
         // Machine lines (snow-app-script saveVisit_, machines-1): absent = none; a non-list or a non-object line is refused; each
-        // operator_key is 'admin' (Matt's name) or a live, added roster card (else refused); CrewShiftLog.machineProblem judges the
-        // lines; each is saved as exactly the keys below, stamped against the saver's own previous newest card at this site and shift.
+        // operator_key (trimmed) is 'admin' (Matt's name) or a live, added roster card; a key no longer live is HELD and accepted only
+        // as the same line (CrewShiftLog.sameLine) as one on the saver's previous card, keeping its stamped name, else refused;
+        // CrewShiftLog.machineProblem judges the lines; each is saved as exactly the keys below, stamped against the saver's own
+        // previous newest card at this site and shift in THIS storm.
         const sentLines = body.machines == null ? [] : body.machines;
         if (!Array.isArray(sentLines)) return refuse('invalid', 'Machines must be a list');
-        const roster = state.crew || [], lines = [];
+        const roster = state.crew || [], lines = [], held = [];
         for (const sl of sentLines) {
           if (!sl || typeof sl !== 'object' || Array.isArray(sl)) return refuse('invalid', 'Unknown machine');
           const line = { type: sl.type, unit: sl.unit == null ? '' : (typeof sl.unit === 'string' ? sl.unit.trim() : sl.unit),
-            attachment: sl.attachment || '', operator_key: sl.operator_key, operator_name: '', minutes: sl.minutes };
+            attachment: sl.attachment || '', operator_key: typeof sl.operator_key === 'string' ? sl.operator_key.trim() : sl.operator_key,
+            operator_name: '', minutes: sl.minutes };
           const op = line.operator_key;
           if (op !== undefined && op !== null && String(op).trim() !== '') {
             if (op === 'admin') line.operator_name = 'Matthew';
             else {
               const card = roster.find((r) => r.id === op && r.archived !== true && r.pending !== true);
-              if (!card) return refuse('invalid', "That person isn't on the roster");
-              line.operator_name = card.name;
+              if (card) line.operator_name = card.name;
+              else { const gone = roster.find((r) => r.id === op); line.operator_name = gone ? String(gone.name || '') : ''; held.push(line); }
             }
           }
           lines.push(line);
@@ -473,7 +476,13 @@ function fakeSnow(state, opts = {}) {
         if (problem) return refuse('invalid', problem);
         lines.forEach((l) => { l.minutes = Number(l.minutes); });
         const mine = me.crew_id || 'admin';
-        const prev = SL.visitTotals(state.visits, body.site_id, 'night-2026-10-02').cards.find((c) => c.by_key === mine) || null;
+        const prev = SL.visitTotals(state.visits.filter((r) => r.storm_id === storm.storm_id), body.site_id, 'night-2026-10-02').cards.find((c) => c.by_key === mine) || null;
+        const prevLines = (prev && prev.machines) || [], usedPrev = prevLines.map(() => false);
+        for (const hl of held) {
+          const at = prevLines.findIndex((p, i) => !usedPrev[i] && SL.sameLine(p, hl));
+          if (at < 0) return refuse('invalid', "That person isn't on the roster");
+          usedPrev[at] = true; hl.operator_name = prevLines[at].operator_name || hl.operator_name;
+        }
         // by_key is the crew id, or 'admin' for Matt (who is not on the roster): the server's rule.
         const row = { id: 'V-' + n, seq: n, storm_id: storm.storm_id, shift_id: 'night-2026-10-02', site_id: body.site_id, by_key: mine, by_name: me.name, at: stamp,
           depth_in: body.depth_in === undefined ? '' : body.depth_in, materials_used: body.materials_used || '', equipment: eq,
@@ -6089,8 +6098,9 @@ test('print sheets: the walks are folded, a problem keeps its line, the walk rec
 
 test('print sheets: machine minutes and materials are on the short page', async ({ page }) => {
   // BILLING PAGE (sheetBody). PAC's Site cards: Alex (C01) ran the Bobcat 45 min and used "2 bags"; Jordan (C03)
-  // ran the Blower 30 min. Worked by hand: the page keeps "Bobcat" with "Alex Test 45 min", "Blower" with
-  // "Jordan Demo 30 min", and "Used:" with "Alex Test 2 bags" (these are billing facts, not walk lines).
+  // ran the walk-behind blower 30 min. Worked by hand: the page keeps "Bobcat" with "Alex Test 45 min", "Walk-behind blower"
+  // (the machines spec's label for the old "Blower", 11/24/26) with "Jordan Demo 30 min", and "Used:" with "Alex Test 2 bags"
+  // (these are billing facts, not walk lines).
   const w = stormWorld();
   w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: at('06:30') })];
   w.visits = [visitRow(1, 'S1', 'C01', 'Alex Test', { materials_used: '2 bags', equipment: { blower: '', snowrator: '', bobcat: 45, sweepster: '' } }),
@@ -6100,7 +6110,7 @@ test('print sheets: machine minutes and materials are on the short page', async 
   await page.click('#printSheets');
   const site = page.locator('#printsheets .sheet').first().locator('.site').filter({ hasText: 'PAC' });
   await expect(site).toContainText('Bobcat: Alex Test 45 min');
-  await expect(site).toContainText('Blower: Jordan Demo 30 min');
+  await expect(site).toContainText('Walk-behind blower: Jordan Demo 30 min');
   await expect(site).toContainText('Used: Alex Test 2 bags');
 });
 
@@ -8734,9 +8744,11 @@ test('route lists: in Spanish the labels are Spanish and the site name is not', 
   for (const es of ['Listo', 'Paleado', 'Entrada:', 'Salida:', 'Derretidor de hielo (bolsas)', 'Arena (cubetas)', 'Equipo']) await expect(head).toContainText(es);
   await expect(head).not.toContainText('Tratado');
   await expect(head).not.toContainText('Materiales usados');
-  // The Equipment cell: its words in Spanish, the brand names as typed.
+  // The Equipment cell: its words in Spanish, the brand names as typed. The machines spec (11/24/26) circles only Snowblower and
+  // Bucket on a Bobcat: Plow (Arado), Box (Caja) and Sweepster are off the paper.
   const equip = n2.locator('td.rl-equip').first();
-  for (const es of ['Cucharón', 'Soplador de nieve', 'Arado', 'Caja', 'Operador:', 'Soplador de empuje', 'Bobcat', 'Snowrator', 'Sweepster']) await expect(equip).toContainText(es);
+  for (const es of ['Cucharón', 'Soplador de nieve', 'Operador:', 'Soplador de empuje', 'Bobcat', 'Snowrator']) await expect(equip).toContainText(es);
+  for (const gone of ['Arado', 'Caja', 'Sweepster']) await expect(equip).not.toContainText(gone);
   await expect(n10).toContainText('Cuadrilla:');
   await expect(n10).toContainText('Todavía no hay recorridos dibujados.');
   // The English is gone from the labels; the data stays as typed.

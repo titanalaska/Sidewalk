@@ -11890,4 +11890,129 @@ test.describe('check night:', () => {
     await expect(page.locator('#livesum')).toContainText('2 of 3 sites checked');
     await expect(page.locator('#livesum')).not.toContainText('sites done');
   });
+
+  // ---- Task 7: the Storm tab's controls, the header, the confirms (Matt 11/24/26) ----
+  const kinds = (page) => page.locator('[data-storm]').evaluateAll((els) => els.map((e) => e.dataset.storm));
+  const checkWorld = () => { const w = stormWorld(); w.storms = [{ ...START_ROW, check: true }]; return w; };
+
+  test('the two Start buttons, and Start check night asks first and sends check:true', async ({ page }) => {
+    // On paper: no storm yet, so no Reopen. The set is exactly Start storm + Start check night, in that order, both visible.
+    // Cancel sends nothing; Yes sends { kind:'start', check:true }; the server (fake) writes a start row with check:true,
+    // so the header reads "Check night open" with no weather words.
+    const w = stormWorld(); w.storms = [];
+    const calls = await openStorm(page, w, { token: 'tok-matt' });
+    await expect(page.locator('#stormhead')).toHaveText('No storm open');
+    expect(await kinds(page)).toEqual(['start', 'startcheck']);
+    await expect(ctl(page, 'start')).toBeVisible();
+    await expect(ctl(page, 'start')).toHaveText('Start storm');
+    await expect(ctl(page, 'startcheck')).toBeVisible();
+    await expect(ctl(page, 'startcheck')).toHaveText('Start check night');
+    await ctl(page, 'startcheck').click();
+    await expect(page.locator('#dlg')).toBeVisible();
+    await expect(page.locator('#dlgIn h2')).toHaveText('Start a check night?');
+    await expect(page.locator('#dlgIn')).toContainText('Are you sure?');
+    await expect(page.locator('#dlgIn')).toContainText('Crews mark Arrived and Left at each site. Nothing already logged is deleted.');
+    await expect(page.locator('#sc_yes')).toHaveText('Yes, start check night');
+    expect(stormCalls(calls)).toHaveLength(0);
+    await page.click('#dlgClose');
+    await expect(page.locator('#dlg')).toBeHidden();
+    expect(stormCalls(calls)).toHaveLength(0);
+    await ctl(page, 'startcheck').click();
+    await page.click('#sc_yes');
+    await expect(page.locator('#stormhead')).toHaveText('Check night open');
+    expect(stormCalls(calls)).toHaveLength(1);
+    expect(stormCalls(calls)[0].body).toMatchObject({ action: 'stormAction', kind: 'start', check: true });
+    expect(w.storms.map((r) => [r.kind, r.check === true])).toEqual([['start', true]]);
+  });
+
+  test('plain Start storm still sends no check', async ({ page }) => {
+    // On paper: Start storm's body is { kind:'start' } with no check key at all (the server reads a missing check as a storm).
+    const w = stormWorld(); w.storms = [];
+    const calls = await openStorm(page, w, { token: 'tok-matt' });
+    await ctl(page, 'start').click();
+    await expect(page.locator('#dlgIn h2')).toHaveText('Start a new storm?');
+    await page.click('#sc_yes');
+    await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
+    expect(stormCalls(calls)[0].body.kind).toBe('start');
+    expect(stormCalls(calls)[0].body).not.toHaveProperty('check');
+  });
+
+  test('an open check night shows Close check night, Make it a storm, Night shift on, and no Snowing switch', async ({ page }) => {
+    // On paper: an open check night offers exactly end, tostorm, night_on (no start, startcheck, reopen, snowing, stopped);
+    // the header is "Check night open" and carries no "Snowing" / "Snow stopped".
+    await openStorm(page, checkWorld(), { token: 'tok-matt' });
+    await expect(page.locator('#stormhead')).toHaveText('Check night open');
+    expect(await kinds(page)).toEqual(['end', 'tostorm', 'night_on']);
+    await expect(ctl(page, 'end')).toBeVisible();
+    await expect(ctl(page, 'end')).toHaveText('Close check night');
+    await expect(ctl(page, 'tostorm')).toBeVisible();
+    await expect(ctl(page, 'tostorm')).toHaveText('Make it a storm');
+    await expect(ctl(page, 'night_on')).toBeVisible();
+    await expect(ctl(page, 'snowing')).not.toBeVisible();
+    await expect(ctl(page, 'stopped')).not.toBeVisible();
+    await expect(page.locator('#stormctl')).not.toContainText('Snowing');
+    await expect(page.locator('#stormhead')).not.toContainText('Snow');
+    // Close check night asks first, in its own words, with today's close words.
+    await ctl(page, 'end').click();
+    await expect(page.locator('#dlgIn h2')).toHaveText('Close the check night?');
+    await expect(page.locator('#dlgIn')).toContainText('The crew can no longer mark walks until it is reopened.');
+    await expect(page.locator('#sc_yes')).toBeVisible();
+  });
+
+  test('Make it a storm asks first, then the header reads Storm open and the Snowing switch is back', async ({ page }) => {
+    // On paper: Cancel sends nothing. Yes sends exactly { kind:'to_storm' } (no check key). After it the storm is a storm:
+    // header "Storm open · Snow stopped" (no snowing row), set = end, snowing, stopped, night_on; no tostorm any more.
+    const w = checkWorld();
+    const calls = await openStorm(page, w, { token: 'tok-matt' });
+    await ctl(page, 'tostorm').click();
+    await expect(page.locator('#dlg')).toBeVisible();
+    await expect(page.locator('#dlgIn h2')).toHaveText('Make this check night a storm?');
+    await expect(page.locator('#dlgIn')).toContainText('Are you sure?');
+    await expect(page.locator('#dlgIn')).toContainText("Every walk goes back to not done for the storm. It can't go back to a check night.");
+    await expect(page.locator('#sc_yes')).toHaveText('Yes, make it a storm');
+    await page.click('#dlgClose');
+    expect(stormCalls(calls)).toHaveLength(0);
+    await ctl(page, 'tostorm').click();
+    await page.click('#sc_yes');
+    await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
+    expect(stormCalls(calls)).toHaveLength(1);
+    expect(stormCalls(calls)[0].body.kind).toBe('to_storm');
+    expect(stormCalls(calls)[0].body).not.toHaveProperty('check');
+    expect(await kinds(page)).toEqual(['end', 'snowing', 'stopped', 'night_on']);
+    await expect(ctl(page, 'snowing')).toBeVisible();
+    await expect(ctl(page, 'stopped')).toBeVisible();
+    await expect(ctl(page, 'tostorm')).toHaveCount(0);
+    await expect(ctl(page, 'end')).toHaveText('Close storm (cleanup done)');
+  });
+
+  test('the crew header says Check night open, and in Spanish Noche de revisión abierta, with no controls', async ({ page }) => {
+    // On paper: a crew phone at 320 px reads the header whole and sees no storm control at all (none in the page, not a hidden one).
+    await page.setViewportSize({ width: 320, height: 700 });
+    await openStorm(page, checkWorld());
+    await expect(page.locator('#stormhead')).toBeVisible();
+    await expect(page.locator('#stormhead')).toHaveText('Check night open');
+    await expect(page.locator('[data-storm]')).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+    await page.evaluate(() => localStorage.setItem('snow-lang', 'es'));
+    await page.reload();
+    await page.click('nav [data-tab="storm"]');
+    await expect(page.locator('#stormhead')).toHaveText('Noche de revisión abierta');
+    await expect(page.locator('#stormhead')).toBeVisible();
+  });
+
+  test('Arrived and Left work on a check night', async ({ page }) => {
+    // On paper: a crew member on S1's route taps Arrived (one siteMark, kind arrived) then Left (kind left); two rows reach the
+    // fake's log, states arrived then left, and the header stays "Check night open" (Arrived / Left are not walk taps).
+    const w = checkWorld();
+    const calls = await openStorm(page, w);
+    await expect(page.locator('[data-arrived="S1"]')).toBeVisible();
+    await page.locator('[data-arrived="S1"]').click();
+    await expect(page.locator('[data-left="S1"]')).toBeVisible();
+    await page.locator('[data-left="S1"]').click();
+    await expect(page.locator('[data-left="S1"]')).not.toBeVisible();
+    const marks = calls.filter((c) => c.body.action === 'siteMark').map((c) => [c.body.kind, c.body.site_id]);
+    expect(marks).toEqual([['arrived', 'S1'], ['left', 'S1']]);
+    expect(w.log.map((r) => [r.site_id, r.state])).toEqual([['S1', 'arrived'], ['S1', 'left']]);
+    await expect(page.locator('#stormhead')).toHaveText('Check night open');
+  });
 });

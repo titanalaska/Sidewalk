@@ -322,3 +322,8 @@ test('crew cards: the bare Crew row and the number rules take whole text nodes o
   assert.equal(Es.translateString('Crew:'), 'Cuadrilla:');
   assert.equal(Es.translateString('Seasons'), 'Temporadas');
 });
+
+test('check night (11/24/26): the header reads Noche de revisión abierta, whole, and Storm open is untouched', () => {
+  assert.equal(Es.translateString('Check night open'), 'Noche de revisión abierta');
+  assert.equal(Es.translateString('Storm open'), 'Tormenta abierta');
+});

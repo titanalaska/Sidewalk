@@ -396,6 +396,54 @@ test('machine lines: the old-minutes row and the replaced note, split around the
   for (const [en, es] of Object.entries(cases)) assert.equal(Es.translateString(en), es, JSON.stringify(en));
 });
 
+// Final fix wave (11/25/26): the card's bare words are exact text nodes (rules), not rows. As rows they were matched inside
+// other screens' English: "Pick a worker" read "Elegir a worker", "Remove the photo" read "Quitar the photo".
+test('machine lines: Pick, Remove, Not sure, Unit:, Minutes: translate only as a whole text node', () => {
+  const whole = { 'Pick': 'Elegir', 'Remove': 'Quitar', 'Not sure': 'No sé', 'Unit:': 'Unidad:', 'Minutes:': 'Minutos:', ' Remove ': ' Quitar ' };
+  for (const [en, es] of Object.entries(whole)) assert.equal(Es.translateString(en), es, JSON.stringify(en));
+  for (const k of ['Pick', 'Remove', 'Not sure', 'Unit:', 'Minutes:']) assert.equal(Es.ES[k], undefined, k + ' is a rule, not a row');
+  // Inside longer English that has no row of its own, the word is left alone (the sentence stays English, never half Spanish).
+  for (const en of ['Pick a worker', 'Pick a shift', 'Remove the photo', 'Not sure yet', 'Unit: BC5', 'Minutes: 5']) {
+    assert.equal(Es.translateString(en), en, en);
+  }
+  // mapedit's type refusal: its other words have rows (Banqueta, Depósito de nieve, No tocar), but "Pick" is no longer one.
+  const type = Es.translateString('Pick a type: Sidewalk, Hand, Heated, Snow storage or Do not touch.');
+  assert.ok(type.startsWith('Pick a type: '), type);
+  assert.ok(!/Elegir/.test(type), type);
+  // The longer rows that begin with these words still win.
+  assert.equal(Es.translateString('Pick a route'), 'Elige una ruta');
+  assert.equal(Es.translateString('Remove it if you add this'), 'Quítalo si agregas este');
+  assert.equal(Es.translateString('Pick the unit for Bobcat 2, or remove it'), 'Elige la unidad de Bobcat 2, o quítala');
+});
+
+test('machine lines: the Unit pick marks this site\'s units "(este sitio)", the unit kept', () => {
+  // The option's text is one text node: "<unit> (this site)" (lib/machinepick.js). Worked on paper: the unit before the marker
+  // is copied as it is, the marker becomes "(este sitio)".
+  const cases = { 'BC5 (this site)': 'BC5 (este sitio)', 'Snowrator 1 (this site)': 'Snowrator 1 (este sitio)',
+    'BC5-ABCDEFGHIJKLMNOP (this site)': 'BC5-ABCDEFGHIJKLMNOP (este sitio)' };
+  for (const [en, es] of Object.entries(cases)) assert.equal(Es.translateString(en), es, en);
+  assert.equal(Es.translateString('BC7'), 'BC7');   // another site's unit: no marker, nothing to translate
+});
+
+test('machine lines: the Save guard notice, Save anyway, and the self-replaced note', () => {
+  // The notice's text nodes, split around the saver's name, the machine (brand + unit) and the operator, all data-no-es:
+  //   "Saving replaces " [Ben Bravo] "'s " [Bobcat BC5] " Snowblower line for " [Loki Haskins] " (40 min). Add it here too if they ran it."
+  // Spanish, same order: "Al guardar se reemplaza la línea de Ben Bravo: Bobcat BC5 Soplador de nieve para Loki Haskins (40 min).
+  // Agrégala aquí también si la operó." A Snowrator has no attachment: " line for " -> " para ".
+  const cases = {
+    'Saving replaces ': 'Al guardar se reemplaza la línea de ',
+    "'s ": ': ',
+    ' Snowblower line for ': ' Soplador de nieve para ',
+    ' Bucket line for ': ' Cucharón para ',
+    ' line for ': ' para ',
+    ' (40 min). Add it here too if they ran it.': ' (40 min). Agrégala aquí también si la operó.',
+    'Save anyway': 'Guardar de todos modos',
+    ' logged this line again later; that line counts.': ' registró esta línea de nuevo después; esa línea cuenta.',
+  };
+  for (const [en, es] of Object.entries(cases)) assert.equal(Es.translateString(en), es, JSON.stringify(en));
+  assert.equal(Es.translateString('Save'), 'Guardar');   // the plain button is unchanged
+});
+
 test('machine lines: the new bare words never bite longer English or the old card words', () => {
   assert.equal(Es.translateString('Pick a route'), 'Elige una ruta');
   assert.equal(Es.translateString('Minutes must be a whole number, zero or more'), 'Los minutos deben ser un número entero, cero o más');

@@ -85,3 +85,11 @@ test('operatorChoices: no admin name, no Matt row', () => {
   assert.deepEqual(P.operatorChoices(CREW, ['c6']).map((o) => o.key), ['c6', 'c2', 'c3', 'c1']);
   assert.deepEqual(P.operatorChoices([], [], ''), []);
 });
+
+test('operatorChoices: a card with no name does not throw; a card with no id is left out', () => {
+  // Worked on paper: c7 has no name -> listed with name "" (sorted first, "" before "amy"); a card with no id is never a pick.
+  // c8's name is a number: read as the text "42", which sorts before letters. No route, no admin name.
+  const crew = [{ id: 'c2', name: 'amy' }, { id: 'c7' }, { name: 'No Id' }, { id: '', name: 'Blank Id' }, { id: 'c8', name: 42 }, { id: 'c6', name: 'Cy' }];
+  assert.deepEqual(P.operatorChoices(crew, ['c7'], ''), [{ key: 'c7', name: '' }, { key: 'c8', name: '42' }, { key: 'c2', name: 'amy' }, { key: 'c6', name: 'Cy' }]);
+  assert.deepEqual(P.operatorChoices(crew, [], '').map((o) => o.key), ['c7', 'c8', 'c2', 'c6']);
+});

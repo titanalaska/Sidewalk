@@ -434,7 +434,8 @@ test('the card in Spanish fits at 320 px, brand names and people kept', async ({
   await expect(l.locator('.vc-mhead b')).toHaveText('Bobcat 1');
   await expect(page.locator('#vc_add_bobcat')).toHaveText('+ Agregar un Bobcat');
   await expect(page.locator('#vc_add_snowrator')).toHaveText('+ Agregar un Snowrator');
-  await expect(line(page, 'bobcat', 1).locator('[data-munit] option[value="BC5-ABCDEFGHIJKLMNOP"]')).toHaveText('BC5-ABCDEFGHIJKLMNOP');
+  await expect(line(page, 'bobcat', 1).locator('[data-munit] option[value="BC5-ABCDEFGHIJKLMNOP"]')).toHaveText('BC5-ABCDEFGHIJKLMNOP (this site)');
+  // (worked on paper: SnowMachinePick labels this site's own unit "<unit> (this site)"; that marker is built in the pick and is not translated yet)
   await page.click('#vc_save');
   await expect(err(page)).toHaveText('Elige la unidad de Bobcat 2, o quítala');
   const m = await page.evaluate(() => {

@@ -492,3 +492,21 @@ header #who{flex:1 1 auto;min-width:0;text-align:left}
 }
 .walks-toggle{margin:2px 0 8px}
 .walks-toggle button{width:100%}
+/* Crew cards (Matt, 11/24/26): the Crew tab. Colours come from the theme variables, so light and dark both read. */
+.cc-head{margin-bottom:10px}
+.cc-head h2{margin:0 0 6px;font-size:20px}
+.cc-head .row{align-items:center;justify-content:space-between;gap:8px}
+.ccard{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px;cursor:pointer;box-shadow:0 1px 2px rgba(0,0,0,.05)}
+.ccard.mine{border-color:var(--accent)}
+.ccard .cc-top{display:flex;align-items:center;gap:12px}
+.ccard .av{width:56px;height:56px;border-radius:50%;object-fit:cover;flex:none;background:var(--pill);color:var(--muted);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:18px}
+.ccard .cc-who{display:flex;flex-direction:column;min-width:0;flex:1}
+.ccard .cc-name{font-size:17px;overflow-wrap:anywhere}
+.ccard .cc-seasons{color:var(--muted);font-size:14px}
+.ccard .cc-line{margin:10px 0 0;font-style:italic;overflow-wrap:anywhere;word-break:break-word}
+.ccard .cc-nums{width:100%;margin-top:10px;border-top:1px solid var(--line);border-collapse:collapse}
+.ccard .cc-nums th{text-align:left;font-weight:400;color:var(--muted);padding:6px 0 0}
+.ccard .cc-nums td{text-align:right;font-weight:600;padding:6px 0 0}
+.ccard .cc-fields{margin:2px 0 0;text-align:right;color:var(--muted);font-size:14px}
+.ccard .cc-front>button{margin-top:10px}
+.ccard .cc-back .cc-tel{font-size:18px;font-weight:600}

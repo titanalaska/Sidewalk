@@ -7451,17 +7451,17 @@ test('snow map: crew get no map card', async ({ page }) => {
 // On Matt's phone, with its larger text, the six admin tabs overflowed the bottom bar and Roster sat
 // off the right edge; the top bar squeezed his name to "M…" while "Snow Crew" kept its full width.
 // 320 px is the narrowest phone in use; every tab must sit inside it, and the name must outrank the title.
-test('bars: all six admin tabs sit inside a 320 px screen, and the name badge keeps room over the title', async ({ page }) => {
+test('bars: all seven admin tabs sit inside a 320 px screen, and the name badge keeps room over the title', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 640 });
   await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
-  await expect(page.locator('#tabs button')).toHaveCount(6);
+  await expect(page.locator('#tabs button')).toHaveCount(7);   // Crew joined the six on 11/24/26
   const tabs = await page.locator('#tabs button').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return { t: e.textContent, l: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width) }; }));
   for (const t of tabs) { expect(t.l, t.t).toBeGreaterThanOrEqual(0); expect(t.r, t.t).toBeLessThanOrEqual(320); expect(t.w, t.t).toBeGreaterThan(30); }
   // Pending Pat (PROFILES) is waiting: the Roster tab counts 1 (10/19/26). Read once the sign-in check lands.
   await expect(page.locator('#tabs [data-tab="roster"]')).toHaveText('Roster 1');
   const all = await page.locator('#tabs button').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return { t: e.textContent, l: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width) }; }));
   for (const t of all) { expect(t.l, t.t).toBeGreaterThanOrEqual(0); expect(t.r, t.t).toBeLessThanOrEqual(320); expect(t.w, t.t).toBeGreaterThan(30); }
-  expect(all.map((t) => t.t)).toEqual(['Storm', 'Routes', 'Sites', 'Board', 'Log', 'Roster 1']);
+  expect(all.map((t) => t.t)).toEqual(['Storm', 'Routes', 'Sites', 'Board', 'Log', 'Roster 1', 'Crew']);
   await page.click('#tabs [data-tab="roster"]');
   await expect(page.locator('#addWorker')).toBeVisible();
   // The top bar: the name badge is at least as wide as the words it holds minus the title's share; concretely, wider than a lone initial.

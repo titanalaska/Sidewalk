@@ -327,3 +327,10 @@ test('check night (11/24/26): the header reads Noche de revisión abierta, whole
   assert.equal(Es.translateString('Check night open'), 'Noche de revisión abierta');
   assert.equal(Es.translateString('Storm open'), 'Tormenta abierta');
 });
+
+test('check night (final review I3): the pass line "Storm · became a storm" reads in Spanish, the name and time kept', () => {
+  // Dictionary first: Storm -> Tormenta; then the rule on the half-translated line. The time and the name are kept.
+  assert.equal(Es.translateString('Storm · became a storm 1:00 AM by Matt Walsh'), 'Tormenta · se volvió tormenta 1:00 AM por Matt Walsh');
+  // No name on the row: the time ends the line.
+  assert.equal(Es.translateString('Storm · became a storm 1:00 AM'), 'Tormenta · se volvió tormenta 1:00 AM');
+});

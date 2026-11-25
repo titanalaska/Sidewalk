@@ -12015,4 +12015,46 @@ test.describe('check night:', () => {
     expect(w.log.map((r) => [r.site_id, r.state])).toEqual([['S1', 'arrived'], ['S1', 'left']]);
     await expect(page.locator('#stormhead')).toHaveText('Check night open');
   });
+
+  test('after Make it a storm a site nobody touched says "Storm · became a storm", with no Undo; a later Clean again is pass 3 (final review I3)', async ({ page }) => {
+    // On paper: the night became a storm at 6:30 AM (the 'stormed' Log row, site '*', by Matthew); S1 (Jordan's route) was not touched.
+    // passInfo at S1: one standing break (the stormed row) -> n = 2, again = that row. A stormed row is no Clean again: the line reads
+    // like the PDF heading, "Storm · became a storm 6:30 AM by Matthew", and carries no Undo (it cannot be undone).
+    const w = checkWorld();
+    w.storms = [{ ...START_ROW, check: true }, { id: 'ST-2', seq: 2, kind: 'to_storm', storm_id: 'ST-1', at: '2026-10-03T06:30:00.000-08:00', by_name: 'Matthew', log_seq: 1, visit_seq: 0 }];
+    w.log = [logRow(1, '*', '*', 'stormed', 'Matthew')];
+    await openStorm(page, w);
+    const line = page.locator('[data-passline="S1"]');
+    await expect(line).toBeVisible();
+    await expect(line).toContainText('Storm · became a storm 6:30 AM by Matthew');
+    await expect(line).not.toContainText('Clean again');
+    await expect(line).not.toContainText('Pass 2');
+    await expect(line.locator('[data-undo]')).toHaveCount(0);
+    // A real Clean again at 6:40 AM after the switch is the site's third pass: pass 1 the check part, 2 the storm, 3 the again.
+    w.log.push(logRow(2, 'S1', '*', 'again', 'Alex Test', { at: '2026-10-03T06:40:00.000-08:00' }));
+    await pollNow(page);
+    await expect(line).toContainText('Pass 3 · Clean again 6:40 AM by Alex Test');
+    // In Spanish the stormed line reads whole (draft words, crew read owed), name and time kept.
+    w.log.pop();
+    await page.evaluate(() => localStorage.setItem('snow-lang', 'es'));
+    await page.reload();
+    await page.click('nav [data-tab="storm"]');
+    await expect(page.locator('[data-passline="S1"]')).toContainText('Tormenta · se volvió tormenta 6:30 AM por Matthew');
+  });
+
+  test('Make it a storm reads the Log at once: the walk states reset without waiting for the 20 s poll (final review M4)', async ({ page }) => {
+    // On paper: check night, S1 Main entry cleared and Heated walk checked (two real taps, seq 1-2). Matt taps Make it a storm; the
+    // server writes the 'stormed' row (seq 3) and the Storms row. The reply carries only the Storms row, so the Log row must be
+    // fetched by the phone's own poll right after: within 3 s (the regular poll is 20 s) the phone holds the stormed row.
+    const w = checkWorld();
+    w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test'), logRow(2, 'S1', 'Z2', 'checked', 'Alex Test')];
+    const calls = await openStorm(page, w, { token: 'tok-matt' });
+    expect((await phoneState(page)).log.some((r) => r.state === 'stormed')).toBe(false);
+    await ctl(page, 'tostorm').click();
+    await page.click('#sc_yes');
+    await expect(page.locator('#stormhead')).toHaveText('Storm open · Snow stopped');
+    await expect.poll(async () => (await phoneState(page)).log.some((r) => r.state === 'stormed'), { timeout: 3000 }).toBe(true);
+    // Two getShiftLog reads: the tab's first, and the one right after the switch.
+    expect(shiftCalls(calls).length).toBeGreaterThanOrEqual(2);
+  });
 });

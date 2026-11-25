@@ -297,3 +297,29 @@ test('Titan colours: a phone that turns dark while the app is open follows it', 
   await page.emulateMedia({ colorScheme: 'dark' });
   expect(await read()).toEqual({ bar: 'rgb(0, 0, 0)', card: 'rgb(38, 36, 32)' });         // night: --black #000, --card #262420
 });
+
+// ---- Titan colours, final review (11/24/26): three blues the browser draws by itself survived the re-colour, because
+// app.css never coloured them: the ☎ call link (an <a>, so link blue), the live view's <progress> bars and ticked
+// checkboxes (accent-color: auto). The markup below is the app's own (lib/boardui.js:86 and :829, lib/shiftlogui.js:1667,
+// the Site card's equipment ticks at lib/shiftlogui.js:2130), put into the real page so app.css styles it.
+//   checkbox and progress: accent-color is --ink: #141414 by day, #f5f3ee at night (never gold: a gold fill on the Storm tab
+//   would read as "started"; never blue)
+//   the ☎ link: --ok, the green of the crew's round call button (.callbtn): #1e7a3c by day, #7ed69a at night
+const INK = { false: 'rgb(20, 20, 20)', true: 'rgb(245, 243, 238)' };
+const OK = { false: 'rgb(30, 122, 60)', true: 'rgb(126, 214, 154)' };
+for (const dark of [false, true]) {
+  test('Titan colours: no browser-default blue on a call link, a progress bar or a ticked box (' + (dark ? 'dark' : 'light') + ')', async ({ page }) => {
+    await open(page, world(), { dark });
+    const m = await page.evaluate(() => {
+      const box = document.createElement('div');
+      box.innerHTML = '<a class="call" href="tel:9075550100" aria-label="Call Test Person">☎</a>' +
+        '<progress value="1" max="3"></progress><label class="inline"><input type="checkbox" checked> Test box</label>';
+      document.querySelector('main').prepend(box);
+      const cs = (sel) => getComputedStyle(box.querySelector(sel));
+      return { call: cs('a.call').color, progress: cs('progress').accentColor, box: cs('input[type=checkbox]').accentColor };
+    });
+    expect(m.call).toBe(OK[dark]);
+    expect(m.progress).toBe(INK[dark]);
+    expect(m.box).toBe(INK[dark]);
+  });
+}

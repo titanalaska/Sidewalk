@@ -1,4 +1,6 @@
-:root{color-scheme:light dark}
+:root{color-scheme:light dark;accent-color:var(--ink)}
+/* accent-color (Titan colours, final review 11/24/26): ticked boxes and progress bars take the text colour, never the browser's
+   blue, and never gold (a gold fill on the Storm tab would read as "started"). */
 /* Titan gold and black (Matt, 11/24/26). Day colours in :root, night colours in the dark media block under each, once each.
    Gold (--gold #f5b800) is only ever lettering or an edge on --black, never a fill: amber already means "started" on the Storm tab.
    --gold-ink is gold as text or an edge on the page's own surfaces (dark gold by day, where #f5b800 on white is only 1.8:1).
@@ -35,7 +37,7 @@ button{font:inherit;min-height:44px;padding:8px 14px;border-radius:8px;border:1p
 .chip img,.chip .ph{width:36px;height:36px;border-radius:50%;object-fit:cover;background:var(--line);flex:none}
 .lead{font-size:11px;color:var(--gold-ink);font-weight:700}
 .q{color:var(--muted);font-size:12px}
-.call{text-decoration:none;font-size:18px;padding:4px}
+.call{text-decoration:none;font-size:18px;padding:4px;color:var(--ok)}
 .warns{margin:8px 0 0;padding:0;list-style:none}
 .warns li{color:var(--warn);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin-top:4px;font-size:14px}
 .bar{position:fixed;left:0;right:0;bottom:57px;z-index:6;background:var(--card);border-top:2px solid var(--gold-ink);padding:8px 16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}

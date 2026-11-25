@@ -63,6 +63,27 @@ test('the night-only rules: the card shadow and the three status colours stay; t
   assert.equal(nightRule(css, '.site-bar'), undefined, 'the night .site-bar rule is gone: --black is #000 at night');
 });
 
+// The day status-bar rules, copied by hand from app.css at 528e4eb (shell 77): the re-colour must leave them alone (the spec's
+// anti-goal "a colour that means something changes"; its test list: "a status bar colour changed" must be caught).
+test('the day status-bar colours are shell 77\'s', () => {
+  const want = {
+    '.site-bar .site-status': 'display:block;font-size:14px;font-weight:700;margin-top:3px;color:#fff',
+    '.site-bar.st-problem': 'background:#a3231b',
+    '.site-bar.st-problem .site-addr': 'color:#f8dedb',
+    '.site-bar.st-done': 'background:#1d6a35',
+    '.site-bar.st-done .site-addr': 'color:#e2f0e6',
+    '.site-bar.st-working': 'background:#f2b01e',
+    '.site-bar.st-working .site-name,.site-bar.st-working .site-status': 'color:#1b1400',
+    '.site-bar.st-working .site-addr': 'color:#3d2e00',
+  };
+  const day = rules(readCss()).filter((r) => r.media === null);
+  for (const [sel, body] of Object.entries(want)) {
+    const found = day.filter((r) => r.selector === sel);
+    assert.equal(found.length, 1, sel + ': ' + found.length + ' day rules');
+    assert.equal(found[0].body.trim(), body, sel);
+  }
+});
+
 test('no blue is left', () => {
   const css = readCss().toLowerCase();
   // Shell 77's blues and blue-greys: the accent pair, the navy bars and their address colour, and the blue-tinted surfaces.
@@ -83,6 +104,7 @@ test('no blue is left', () => {
 //   night text       #f5f3ee .89686  #b9b3a5 .45270
 //   header, bar      #2a2824 .02137  #e8e2d4 .76299  #bdb7a8 .47501  #d8d2c3 .64629
 //   warnings         #b3261e .11063  #ff8a80 .40996
+//   call link (--ok) #1e7a3c .14521  #7ed69a .54866   (final review: the ☎ is --ok on a chip, a lead's chip, a card)
 // e.g. --gold-ink on --chip by day: (.83950 + .05) / (.11283 + .05) = .88950 / .16283 = 5.46.
 // Each row: [text, background, at least, the ratio on paper]. A row passes when the code's ratio is at least the floor AND
 // within 0.03 of the paper: two readings that must agree. If they disagree, redo the paper by hand before touching either.
@@ -93,6 +115,7 @@ const DAY_PAIRS = [
   ['--gold-ink', '--pill', 4.5, 5.61], ['--gold-ink', '--lead-bg', 4.5, 5.52], ['--gold', '--black', 4.5, 10.55],
   ['--head-ink', '--head-chip', 4.5, 11.39], ['--head-muted', '--black', 4.5, 9.44], ['--bar-addr', '--black', 4.5, 12.52],
   ['#fff', '--black', 4.5, 18.88], ['--bg', '--warn', 4.5, 5.84],
+  ['--ok', '--card', 4.5, 5.38], ['--ok', '--chip', 4.5, 4.56], ['--ok', '--lead-bg', 4.5, 4.61],
 ];
 const NIGHT_PAIRS = [
   ['--ink', '--bg', 4.5, 18.94], ['--ink', '--card', 4.5, 13.97], ['--muted', '--card', 4.5, 7.42], ['--muted', '--bg', 4.5, 10.05],
@@ -101,6 +124,7 @@ const NIGHT_PAIRS = [
   ['--gold-ink', '--lead-bg', 4.5, 8.20], ['--gold', '--black', 4.5, 11.74], ['--head-ink', '--head-chip', 4.5, 11.39],
   ['--head-muted', '--black', 4.5, 10.50], ['--bar-addr', '--black', 4.5, 10.05], ['#fff', '--black', 4.5, 21.00],
   ['--bg', '--warn', 4.5, 9.20],
+  ['--ok', '--card', 4.5, 8.83], ['--ok', '--chip', 4.5, 7.50], ['--ok', '--lead-bg', 4.5, 8.36],
 ];
 
 for (const [mode, pairs] of [['day', DAY_PAIRS], ['night', NIGHT_PAIRS]]) {

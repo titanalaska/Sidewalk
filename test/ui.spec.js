@@ -4276,7 +4276,9 @@ test('reopening the card shows your own last save, not someone else\'s', async (
   await page.fill('#vc_depth', '4');
   await page.click('#vc_save');
   await expect(page.locator('#dlg')).toBeHidden();
-  expect(visitCalls(calls)[0].body).toMatchObject({ depth_in: 4, materials_used: 'salt', equipment: { blower: 20, sweepster: 0 }, machines: [] });
+  expect(visitCalls(calls)[0].body).toMatchObject({ depth_in: 4, materials_used: 'salt', machines: [] });
+  // Exactly Jordan's own two keys: an old key from Alex's card (his bobcat 45) must never leak into the re-save.
+  expect(visitCalls(calls)[0].body.equipment).toEqual({ blower: 20, sweepster: 0 });
   expect(w.visits).toHaveLength(6);
   expect(w.visits[5]).toMatchObject({ by_key: 'C03', depth_in: 4 });
   await openCard(page, 'S1');

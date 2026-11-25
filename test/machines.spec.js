@@ -47,7 +47,7 @@ function fakeSnow(state) {
     if (body.token !== 'tok-matt') return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     const me = { name: 'Matthew', role: 'admin', crew_id: null };
     const refuse = (code, reason) => ({ ok: false, code, reason, ...v });
-    if (body.action === 'bootstrap') return { ok: true, me, admin_name: 'Matthew', sites: state.sites, routes: state.routes, zones: state.zones, crew: state.crew, post: state.post, moves: [], callouts: [], gear: [], ...v };
+    if (body.action === 'bootstrap') return { ok: true, me, admin_name: 'Matthew', sites: state.sites, routes: state.routes, zones: state.zones, crew: state.crew, post: state.post, moves: state.moves || [], callouts: [], gear: [], ...v };
     if (body.action === 'getZones') return { ok: true, zones: state.zones, ...v };
     if (body.action === 'getPost') return { ok: true, post: state.post, ...v };
     if (body.action === 'getShiftLog') {
@@ -354,14 +354,50 @@ test('the Storm tab totals line reads Bobcat / Snowrator / Walk-behind blower', 
   await expect(page.locator('[data-livesite="S1"] .live-totals > div').first()).toHaveText('Bobcat 212 min · Snowrator 106 min · Walk-behind blower 20 min · Sweepster 15 min');
 });
 
+test('line numbers count within a kind, and a Snowrator is named by its own place', async ({ page }) => {
+  const calls = await open(page, world());
+  await openCard(page);
+  // Bobcat, Snowrator, Bobcat: the second Bobcat is "Bobcat 2" (the Snowrator between them does not count), the Snowrator "Snowrator 1".
+  await page.click('#vc_add_bobcat');
+  await page.click('#vc_add_snowrator');
+  await page.click('#vc_add_bobcat');
+  await fill(page, 'bobcat', 1, { unit: 'BC5', att: 'snowblower', op: 'C22', min: 10 });
+  await fill(page, 'bobcat', 2, { unit: 'BT13', att: 'bucket', min: 20 });
+  await page.click('#vc_save');
+  await expect(err(page)).toHaveText('Pick who ran Bobcat 2, or remove it');
+  await fill(page, 'bobcat', 2, { op: 'C23' });
+  await page.click('#vc_save');
+  await expect(err(page)).toHaveText('Pick the unit for Snowrator 1, or remove it');
+  await fill(page, 'snowrator', 1, { unit: 'Snowrator 1' });
+  await page.click('#vc_save');
+  await expect(err(page)).toHaveText('Pick who ran Snowrator 1, or remove it');
+  await fill(page, 'snowrator', 1, { op: 'C01' });
+  await page.click('#vc_save');
+  await expect(err(page)).toHaveText('Add minutes for Snowrator 1, or remove it');
+  expect(saves(calls)).toHaveLength(0);
+});
+
+test("with no current post, Matt's Operator pick lists the Board's people for this site's route first", async ({ page }) => {
+  const w = world();
+  w.post = null;
+  // The Board, replayed from moves: Zed Zander leads R1 (the route holding S1), Loki Haskins is a member; nobody else is placed.
+  w.moves = [{ id: 'M1', worker: 'C07', to_route: 'R1', role: 'lead', at: '2026-10-03T05:00:00.000-08:00' },
+    { id: 'M2', worker: 'C22', to_route: 'R1', role: 'member', at: '2026-10-03T05:01:00.000-08:00' }];
+  await open(page, w);
+  await openCard(page);
+  await page.click('#vc_add_bobcat');
+  // Lead then members, then everyone else A to Z (Matt included).
+  expect(await optionTexts(line(page, 'bobcat', 1).locator('[data-mop]'))).toEqual(['Pick', 'Zed Zander', 'Loki Haskins', 'Aaron Able', 'Alex Test', 'Ben Bravo', 'Jake Moss', 'Jordan Demo', 'Matthew', 'Pat Quit']);
+});
+
 test('the card fits at 320 px with two Bobcats, a Snowrator and long names', async ({ page }) => {
   const w = world();
   w.crew.push({ id: 'C30', name: 'Bartholomew Montgomery-Featherstonehaugh', rev: 1 });
-  w.sites[0].units.bobcat = 'BC5-ABCDEFGHIJKLMNO, BT13';   // one 20-character unit
+  w.sites[0].units.bobcat = 'BC5-ABCDEFGHIJKLMNOP, BT13';   // one 20-character unit (the longest a unit can be)
   await open(page, w);
   await openCard(page);
   await page.click('#vc_add_bobcat'); await page.click('#vc_add_bobcat'); await page.click('#vc_add_snowrator');
-  await fill(page, 'bobcat', 1, { unit: 'BC5-ABCDEFGHIJKLMNO', att: 'snowblower', op: 'C30', min: 106 });
+  await fill(page, 'bobcat', 1, { unit: 'BC5-ABCDEFGHIJKLMNOP', att: 'snowblower', op: 'C30', min: 106 });
   await fill(page, 'bobcat', 2, { unit: 'BT13', att: 'bucket', op: 'C30', min: 10 });
   await fill(page, 'snowrator', 1, { unit: 'Snowrator 1', op: 'C30', min: 5 });
   const m = await page.evaluate(() => {
@@ -384,12 +420,12 @@ test('the card fits at 320 px with two Bobcats, a Snowrator and long names', asy
 test('the card in Spanish fits at 320 px, brand names and people kept', async ({ page }) => {
   const w = world();
   w.crew.push({ id: 'C30', name: 'Bartholomew Montgomery-Featherstonehaugh', rev: 1 });
-  w.sites[0].units.bobcat = 'BC5-ABCDEFGHIJKLMNO, BT13';
+  w.sites[0].units.bobcat = 'BC5-ABCDEFGHIJKLMNOP, BT13';
   await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
   await open(page, w);
   await openCard(page);
   await page.click('#vc_add_bobcat'); await page.click('#vc_add_bobcat'); await page.click('#vc_add_snowrator');
-  await fill(page, 'bobcat', 1, { unit: 'BC5-ABCDEFGHIJKLMNO', att: 'snowblower', op: 'C30', min: 106 });
+  await fill(page, 'bobcat', 1, { unit: 'BC5-ABCDEFGHIJKLMNOP', att: 'snowblower', op: 'C30', min: 106 });
   const l = line(page, 'bobcat', 1);
   await expect(l.locator('label').first()).toHaveText('Unidad:');
   await expect(l.locator('[data-matt="snowblower"]')).toHaveText('Soplador de nieve');
@@ -398,7 +434,7 @@ test('the card in Spanish fits at 320 px, brand names and people kept', async ({
   await expect(l.locator('.vc-mhead b')).toHaveText('Bobcat 1');
   await expect(page.locator('#vc_add_bobcat')).toHaveText('+ Agregar un Bobcat');
   await expect(page.locator('#vc_add_snowrator')).toHaveText('+ Agregar un Snowrator');
-  await expect(line(page, 'bobcat', 1).locator('[data-munit] option[value="BC5-ABCDEFGHIJKLMNO"]')).toHaveText('BC5-ABCDEFGHIJKLMNO');
+  await expect(line(page, 'bobcat', 1).locator('[data-munit] option[value="BC5-ABCDEFGHIJKLMNOP"]')).toHaveText('BC5-ABCDEFGHIJKLMNOP');
   await page.click('#vc_save');
   await expect(err(page)).toHaveText('Elige la unidad de Bobcat 2, o quítala');
   const m = await page.evaluate(() => {

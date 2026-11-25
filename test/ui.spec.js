@@ -12003,7 +12003,7 @@ test.describe('check night:', () => {
   test('Arrived and Left work on a check night', async ({ page }) => {
     // On paper: a crew member on S1's route taps Arrived (one siteMark, kind arrived) then Left (kind left); two rows reach the
     // fake's log, states arrived then left, and the header stays "Check night open" (Arrived / Left are not walk taps).
-    const w = checkWorld();
+    const w = timesWorld(); w.storms = [{ ...START_ROW, check: true }]; w.clock = tAt('03:02:11');
     const calls = await openStorm(page, w);
     await expect(page.locator('[data-arrived="S1"]')).toBeVisible();
     await page.locator('[data-arrived="S1"]').click();

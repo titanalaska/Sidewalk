@@ -93,6 +93,18 @@ test('BT: old-shape minutes keep the site unit', () => {
   assert.ok(lines.includes('Equipment: Bobcat BC5 Snowblower 100 min, Bobcat BCT7 60 min'), lines.join(' | '));
 });
 
+// By hand (CrewShiftLog.machineName): the site's Snowrator unit is typed "Snowrator 1". C01's counted line is a Snowrator with unit
+// "Snowrator 1", 50 min; C03's old-shape card has snowrator 30. Both print "Snowrator 1", never "Snowrator Snowrator 1":
+// "Equipment: Snowrator 1 50 min, Snowrator 1 30 min" (counted line first, then the old-shape sum).
+test('BT: a unit that already says Snowrator prints once', () => {
+  const o = base();
+  o.site = { id: 'S1', name: 'PAC', units: { bobcat: '', snowrator: 'Snowrator 1' } };
+  o.visits = [card(1, 'C01', { machines: [{ type: 'snowrator', unit: 'Snowrator 1', attachment: '', operator_key: 'C01', operator_name: 'Zed', minutes: 50, since: 1 }] }),
+    card(2, 'C03', { equipment: { blower: '', snowrator: 30, bobcat: '', sweepster: '' } })];
+  const lines = N.btNote(o, 'night-2026-12-04').text.split('\n');
+  assert.ok(lines.includes('Equipment: Snowrator 1 50 min, Snowrator 1 30 min'), lines.join(' | '));
+});
+
 // By hand: one old-shape card with blower 20 -> "Walk-behind blower 20 min", never a bare "Blower".
 test('BT: Walk-behind blower', () => {
   const o = base();

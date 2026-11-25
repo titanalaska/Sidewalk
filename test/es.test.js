@@ -289,3 +289,36 @@ test('next site bar: "Next:" translates only as a whole text node', () => {
   for (const keep of ['Next: check the ramp', 'Next'])
     assert.ok(!/Siguiente/.test(Es.translateString(keep)), keep);
 });
+
+test('crew cards (Matt, 11/24/26): every word of the Crew tab reads in Spanish; names and lines are not rows', () => {
+  const rows = {
+    'Crew': 'Cuadrilla',
+    'Nights worked': 'Noches trabajadas',
+    'Team sq ft': 'Pies² del equipo',
+    'Rookie': 'Novato',
+    '2 seasons': '2 temporadas',
+    '12 seasons': '12 temporadas',
+    'about 21 football fields': 'unos 21 campos de fútbol americano',
+    'about 1 football field': 'un campo de fútbol americano',
+    'Winter 2026–27 · counted at 6:14 AM': 'Invierno 2026–27 · contado a las 6:14 AM',
+    'Winter 2026–27': 'Invierno 2026–27',
+    'Share my card': 'Compartir mi tarjeta',
+    'Edit your card': 'Editar tu tarjeta',
+    'Refresh': 'Actualizar',
+    "No signal. Your crew's cards come back when you do.": 'Sin señal. Las tarjetas de tu cuadrilla vuelven cuando tú vuelvas.',
+    'No signal. Showing the last copy.': 'Sin señal. Se muestra la última copia.',
+    'Could not share the card. Try again.': 'No se pudo compartir la tarjeta. Inténtalo de nuevo.',
+    'No phone on file.': 'No hay teléfono registrado.',
+    'A line for your card': 'Una frase para tu tarjeta',
+    'Their line': 'Su frase',
+    'Your line is 40 characters at most': 'Tu frase puede tener 40 caracteres como máximo',
+  };
+  for (const [en, es] of Object.entries(rows)) assert.equal(Es.translateString(en), es, en);
+});
+
+test('crew cards: the bare Crew row and the number rules take whole text nodes only; names and lines pass through', () => {
+  for (const keep of ['Crew bar', 'My Crew', 'about 21 football fields away', '1 seasons here', 'Abel Stone'])
+    assert.equal(Es.translateString(keep), keep, keep);
+  assert.equal(Es.translateString('Crew:'), 'Cuadrilla:');
+  assert.equal(Es.translateString('Seasons'), 'Temporadas');
+});

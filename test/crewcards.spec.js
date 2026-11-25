@@ -472,3 +472,40 @@ test('share my card: the button on the back of your own card shares too; the bac
   await expect(page.locator('.ccard[data-card="C02"] .cc-back')).toBeVisible();
   await expect(page.locator('.ccard[data-card="C02"] [data-ccshare], .ccard[data-card="C02"] [data-ccshare2]')).toHaveCount(0);
 });
+
+// Spanish (Task 9, crew read owed): a Spanish phone reads the Crew tab in Spanish; names and the person's own line are untouched (data-no-es).
+test('crew cards: a Spanish phone reads the Crew tab in Spanish, names and lines untouched', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await open(page, world(), 'tok-abel');
+  await expect(page.locator('nav [data-tab="crew"]')).toHaveText('Cuadrilla');
+  await expect(page.locator('main h2')).toHaveText('Cuadrilla');
+  await expect(page.locator('#cc_when')).toHaveText(/^Invierno 2026–27 · contado a las 6:14/);
+  await expect(page.locator('#cc_refresh')).toHaveText('Actualizar');
+  const a = front(page, 'C01');
+  await expect(a.locator('th').first()).toHaveText('Noches trabajadas');
+  await expect(a.locator('th').nth(1)).toHaveText('Pies² del equipo');
+  await expect(a.locator('.cc-seasons')).toHaveText('2 temporadas');
+  await expect(a.locator('.cc-fields')).toHaveText('unos 21 campos de fútbol americano');
+  await expect(a.locator('[data-ccshare]')).toHaveText('Compartir mi tarjeta');
+  await expect(front(page, 'C05').locator('.cc-seasons')).toHaveText('Novato');
+  expect(await names(page)).toEqual(['Abel Stone', 'Ana Brook', 'Cy Dock', 'Zed Young']);
+  await expect(a.locator('.cc-line')).toHaveText('Plow before sunrise');
+});
+
+test('crew cards: a Spanish phone with no signal and no copy reads the offline sentence in Spanish', async ({ page }) => {
+  const w = world(); w.offline = true;
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await open(page, w, 'tok-abel');
+  await expect(page.locator('#cc_none')).toHaveText('Sin señal. Las tarjetas de tu cuadrilla vuelven cuando tú vuelvas.');
+});
+
+test('share my card: a Spanish phone draws the labels in Spanish, the name and the line as typed', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await openShare(page, 'ok');
+  await page.click('[data-ccshare]');
+  await expect.poll(() => page.evaluate(() => window.__shared.length)).toBe(1);
+  const fills = await page.evaluate(() => window.__fills);
+  for (const want of ['Abel Stone', '2 temporadas', 'Plow before sunrise', 'Noches trabajadas', 'Pies² del equipo', 'Shovel Command · Invierno 2026–27'])
+    expect(fills, want).toContain(want);
+  expect(fills.join(' | ')).not.toContain('Nights worked');
+});

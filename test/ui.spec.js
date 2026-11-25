@@ -6849,7 +6849,7 @@ test('a day handoff sheet whose page cannot be read is left out and said, not pr
 // A person fills out their own card from their phone; Matt approves the Inventory request and
 // taps Add to crew on the Roster tab; crew edit their own card from Tonight. The server keeps
 // everything Matt owns: what leaves the phone is the self fields and nothing else.
-const SELF_FIELDS = ['phone', 'photo_thumb', 'can_drive', 'valid_id', 'on_call', 'cold_rated', 'can_operate', 'seasons', 'gear', 'emergency_name', 'emergency_phone', 'home_area'];
+const SELF_FIELDS = ['phone', 'photo_thumb', 'can_drive', 'valid_id', 'on_call', 'cold_rated', 'can_operate', 'seasons', 'gear', 'emergency_name', 'emergency_phone', 'home_area', 'card_line'];
 const pngOf = (page) => page.evaluate(() => { const c = document.createElement('canvas'); c.width = 600; c.height = 400;
   const g = c.getContext('2d'); g.fillStyle = '#a73'; g.fillRect(0, 0, 600, 400); return c.toDataURL('image/png').split(',')[1]; });
 // Inventory with a live request list: Approve and Reject change it, as the real one does.

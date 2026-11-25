@@ -39,7 +39,7 @@ function world() {
   };
 }
 const WHO = { 'tok-matt': { name: 'Matthew', role: 'admin', crew_id: null }, 'tok-abel': { name: 'Abel Stone', role: 'crew', crew_id: 'C01' } };
-const SELF = ['phone', 'photo_thumb', 'can_drive', 'valid_id', 'on_call', 'cold_rated', 'can_operate', 'seasons', 'gear', 'emergency_name', 'emergency_phone', 'home_area'];
+const SELF = ['phone', 'photo_thumb', 'can_drive', 'valid_id', 'on_call', 'cold_rated', 'can_operate', 'seasons', 'gear', 'emergency_name', 'emergency_phone', 'home_area', 'card_line'];
 const selfView = (c) => ({ id: c.id, name: c.name, pending: c.pending === true, ...Object.fromEntries(SELF.map((k) => [k, c[k] === undefined ? null : c[k]])) });
 
 function fakeSnow(state) {
@@ -62,6 +62,31 @@ function fakeSnow(state) {
       if (state.hold) await state.hold;
       if (state.offline) return 'abort';
       return { ok: true, ...state.reply, ...v };
+    }
+    // card_line, as the server's cleanLine / lineProblems: a string, trimmed, blank is null, 40 at most by .length after the trim; a save that
+    // leaves the field out keeps what is stored. The reply's card reads the stored line on each call.
+    const setLine = (rec, raw) => {
+      if (raw === undefined) return null;
+      const t = raw === null ? '' : String(raw).trim();
+      if (t.length > 40) return 'Your line is 40 characters at most';
+      rec.card_line = t === '' ? null : t;
+      const hit = state.reply.cards.find((k) => k.id === rec.id); if (hit) hit.card_line = rec.card_line;
+      return null;
+    };
+    if (body.action === 'saveMyCard') {
+      state.saves = (state.saves || []).concat([body.card]);
+      if (!own) return { ok: false, code: 'error', reason: 'Not on the crew', ...v };
+      const bad = setLine(own, body.card.card_line);
+      if (bad) return { ok: false, code: 'invalid', reason: bad, ...v };
+      return { ok: true, card: selfView(own), ...v };
+    }
+    if (body.action === 'saveCrew' && admin) {
+      state.crewSaves = (state.crewSaves || []).concat([body.record]);
+      const rec = state.crew.find((c) => c.id === body.record.id);
+      const bad = setLine(rec, body.record.card_line);
+      if (bad) return { ok: false, code: 'invalid', reason: bad, ...v };
+      rec.rev++;
+      return { ok: true, record: rec, ...v };
     }
     return { ok: false, code: 'error', reason: 'not in the fake: ' + body.action, ...v };
   };
@@ -277,4 +302,92 @@ test('crew cards: a 40-character unbroken line and a line with <b> fit and show 
     cards: [...document.querySelectorAll('.ccard')].every((e) => e.getBoundingClientRect().right <= 320 && e.scrollWidth <= e.clientWidth),
   }));
   expect(fit).toEqual({ page: true, lines: true, cards: true });
+});
+
+// ---------- A line for your card (Task 7) ----------
+// The self form (Abel's Edit your card) and Matt's worker editor both carry the line: 40 characters at most after the trim, blank is none.
+// A refusal shows INSIDE the open dialog (a toast is drawn under showModal()).
+const LINE_ERR = 'Your line is 40 characters at most';
+async function openOwnForm(page) {
+  const top = page.locator('.ccard[data-card="C01"] .cc-top');
+  if (await top.isVisible()) await top.click();   // a card still turned over after a save is already on its back
+  await page.locator('[data-ccedit]').click();
+  await expect(page.locator('#s_save')).toBeVisible();
+}
+
+test('crew cards: the self form carries the line; saved, the Crew tab shows it after the dialog closes', async ({ page }) => {
+  const w = world();
+  await open(page, w, 'tok-abel');
+  await openOwnForm(page);
+  await expect(page.locator('#s_card_line')).toHaveValue('');   // the bootstrap card has none yet
+  await expect(page.locator('#s_card_line')).toHaveAttribute('maxlength', '40');
+  await expect(page.locator('label:has-text("A line for your card")')).toHaveCount(1);
+  await page.fill('#s_card_line', '  Last one on the plow  ');
+  await page.click('#s_save');
+  await expect(page.locator('#dlg')).toHaveJSProperty('open', false);
+  expect(w.saves.at(-1).card_line).toBe('Last one on the plow');   // trimmed on the phone
+  await expect(front(page, 'C01').locator('.cc-line')).toHaveText('Last one on the plow');   // the tab asked again after the save
+  // and the form opens on it next time
+  await openOwnForm(page);
+  await expect(page.locator('#s_card_line')).toHaveValue('Last one on the plow');
+  await page.fill('#s_card_line', '   ');   // spaces only = blank = none
+  await page.click('#s_save');
+  await expect(page.locator('#dlg')).toHaveJSProperty('open', false);
+  expect(w.saves.at(-1).card_line).toBe(null);
+  await expect(front(page, 'C01').locator('.cc-line')).toHaveCount(0);
+});
+
+test('crew cards: a line of 41 characters is refused by the server and the words show inside the open form', async ({ page }) => {
+  const w = world();
+  await open(page, w, 'tok-abel');
+  await openOwnForm(page);
+  await page.evaluate(() => document.getElementById('s_card_line').removeAttribute('maxlength'));   // a phone that ignores maxlength
+  await page.fill('#s_card_line', 'W'.repeat(41));
+  await page.click('#s_save');
+  await expect(page.locator('#dlg #s_err')).toHaveText(LINE_ERR);
+  await expect(page.locator('#dlg')).toHaveJSProperty('open', true);
+  await expect(page.locator('#s_save')).toBeEnabled();
+  // 40 after the trim is fine (the rule is on the trimmed text)
+  await page.fill('#s_card_line', ' ' + 'W'.repeat(40) + ' ');
+  await page.click('#s_save');
+  await expect(page.locator('#dlg')).toHaveJSProperty('open', false);
+  await expect(front(page, 'C01').locator('.cc-line')).toHaveText('W'.repeat(40));
+});
+
+test("crew cards: Matt's worker editor has Their line; blanking it takes the line off their card", async ({ page }) => {
+  const w = world();
+  w.crew[0].card_line = 'Plow before sunrise';
+  await open(page, w, 'tok-matt', { tab: false });
+  await page.click('nav [data-tab="roster"]');
+  await page.locator('[data-open="C01"]').click();
+  await page.click('#w_edit');
+  await expect(page.locator('label:has-text("Their line")')).toHaveCount(1);
+  await expect(page.locator('#f_card_line')).toHaveValue('Plow before sunrise');
+  await expect(page.locator('#f_card_line')).toHaveAttribute('maxlength', '40');
+  await page.fill('#f_card_line', '   ');
+  await page.click('#f_save');
+  await expect(page.locator('#dlg')).toHaveJSProperty('open', false);
+  expect(w.crewSaves.at(-1).card_line).toBe(null);
+  await page.click('nav [data-tab="crew"]');
+  await expect(page.locator('.ccard')).toHaveCount(4);
+  await expect(front(page, 'C01').locator('.cc-line')).toHaveCount(0);
+});
+
+test("crew cards: Matt's save of a 41-character line shows the refusal inside the editor and keeps the old line", async ({ page }) => {
+  const w = world();
+  w.crew[0].card_line = 'Plow before sunrise';
+  await open(page, w, 'tok-matt', { tab: false });
+  await page.click('nav [data-tab="roster"]');
+  await page.locator('[data-open="C01"]').click();
+  await page.click('#w_edit');
+  await page.evaluate(() => document.getElementById('f_card_line').removeAttribute('maxlength'));
+  await page.fill('#f_card_line', 'W'.repeat(41));
+  await page.click('#f_save');
+  await expect(page.locator('#dlg #f_err')).toHaveText(LINE_ERR);
+  await expect(page.locator('#dlg')).toHaveJSProperty('open', true);
+  expect(w.crew[0].card_line).toBe('Plow before sunrise');
+  await page.fill('#f_card_line', ' New line ');
+  await page.click('#f_save');
+  await expect(page.locator('#dlg')).toHaveJSProperty('open', false);
+  expect(w.crew[0].card_line).toBe('New line');
 });

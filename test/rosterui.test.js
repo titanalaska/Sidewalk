@@ -9,7 +9,8 @@ const R = require('../lib/rosterui.js');
 test('the self-field list is the backend\'s, word for word', () => {
   // snow-app-script sits beside this repo (no remote). Its SNOW_ROSTER.SELF_FIELDS is the law;
   // this file carries a copy so the phone never sends a field the server would ignore.
-  const backend = path.join(__dirname, '..', '..', 'snow-app-script', 'roster.js');
+  // SNOW_SERVER_REPO (as test/log-fields.js reads it) points at a server worktree that is ahead of the main checkout.
+  const backend = path.join(process.env.SNOW_SERVER_REPO || path.join(__dirname, '..', '..', 'snow-app-script'), 'roster.js');
   if (!fs.existsSync(backend)) { assert.ok(true, 'backend repo not beside this one: list unchecked'); return; }
   const B = require(backend);
   assert.deepEqual(R.SELF_FIELDS, B.SELF_FIELDS);
@@ -29,10 +30,10 @@ test('cardFromForm: trims the phone and the emergency contact, reads yes/no/not 
   const card = R.cardFromForm({ phone: ' 555-0199 ', can_drive: 'yes', valid_id: 'no', on_call: '', cold_rated: 'yes', can_operate: ['blower', 'shovel'], seasons: ' 2 ', gear: 'own',
     emergency_name: ' Pat Nursery ', emergency_phone: ' 555-0911 ', home_area: 'valley' });
   assert.deepEqual(card, { phone: '555-0199', can_drive: true, valid_id: false, on_call: null, cold_rated: true, can_operate: ['blower', 'shovel'], seasons: 2, gear: 'own',
-    emergency_name: 'Pat Nursery', emergency_phone: '555-0911', home_area: 'valley' });
+    emergency_name: 'Pat Nursery', emergency_phone: '555-0911', home_area: 'valley', card_line: null });
   assert.equal('photo_thumb' in card, false);   // not touched: the one on file stays
   const blank = R.cardFromForm({ phone: '', can_drive: '', valid_id: '', on_call: '', cold_rated: '', can_operate: [], seasons: '', gear: '', emergency_name: '', emergency_phone: '', home_area: '' });
-  assert.deepEqual(blank, { phone: '', can_drive: null, valid_id: null, on_call: null, cold_rated: null, can_operate: [], seasons: null, gear: null, emergency_name: '', emergency_phone: '', home_area: null });
+  assert.deepEqual(blank, { phone: '', can_drive: null, valid_id: null, on_call: null, cold_rated: null, can_operate: [], seasons: null, gear: null, emergency_name: '', emergency_phone: '', home_area: null, card_line: null });
   // Smokes is Matt's: a value from an old form is dropped, never sent.
   assert.equal('smokes' in R.cardFromForm({ smokes: 'yes' }), false);
 });
@@ -43,6 +44,23 @@ test('cardFromForm: where one lives is valley, anchorage or blank (null); anythi
   assert.equal(R.cardFromForm({ home_area: 'valley' }).home_area, 'valley');
   assert.equal(R.cardFromForm({ home_area: 'anchorage' }).home_area, 'anchorage');
   for (const v of ['', undefined, null, 'wasilla', 'Valley', 'ANCHORAGE', 7]) assert.equal(R.cardFromForm({ home_area: v }).home_area, null, String(v));
+});
+
+// card_line (crew cards, 11/24/26): the one line on one's card. Trimmed; blank (or only spaces) is null, never ''; never cut
+// here (the form's maxlength is 40, the server refuses longer in its own words).
+test('cardFromForm: the card line is trimmed; blank is null; 40 characters go as typed; one over goes as typed for the server to refuse', () => {
+  assert.equal(R.cardFromForm({ card_line: '  Plow before sunrise  ' }).card_line, 'Plow before sunrise');
+  for (const v of ['', '   ', undefined, null]) assert.equal(R.cardFromForm({ card_line: v }).card_line, null, JSON.stringify(v));
+  assert.equal(R.cardFromForm({ card_line: 'W'.repeat(40) }).card_line, 'W'.repeat(40));
+  assert.equal(R.cardFromForm({ card_line: ' ' + 'W'.repeat(41) + ' ' }).card_line, 'W'.repeat(41));
+});
+
+test('formHtml: A line for your card sits right after the photo buttons, maxlength 40, value escaped', () => {
+  const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const html = R.formHtml({ esc, avatar: () => '' }, { name: 'Abel Stone', card_line: '<b>x</b> "q"' });
+  const i = html.indexOf('s_photo_file'), j = html.indexOf('<label>A line for your card</label>'), k = html.indexOf('<label>Phone</label>');
+  assert.ok(i > 0 && j > i && k > j, 'order: photo row, line, phone');
+  assert.ok(html.includes('<input id="s_card_line" maxlength="40" value="&lt;b&gt;x&lt;/b&gt; &quot;q&quot;">'));
 });
 
 test('cardFromForm: a seasons that is not a whole number goes as typed, so the server refuses it in its own words; 0 is 0', () => {

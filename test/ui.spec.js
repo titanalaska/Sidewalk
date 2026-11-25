@@ -7023,7 +7023,8 @@ test('self-service: Reject takes a second tap, then calls Inventory; one tap alo
 // filled out and not added yet, the same rows as the two waiting lists. Read at sign-in, every 5 minutes while
 // the app is on screen, and whenever it comes back on screen. Only Matt's phone asks; crew phones never do.
 const rosterTab = (page) => page.locator('#tabs [data-tab="roster"]');
-const NINA_CARD = { id: 'C04', name: 'Nina Nursery', profile_id: '4', pending: true, rev: 1, phone: '555-0199' };
+// It carries a picture: Add to crew needs one (crew pictures, 11/24/26; the gate itself is test/pictures.spec.js).
+const NINA_CARD = { id: 'C04', name: 'Nina Nursery', profile_id: '4', pending: true, rev: 1, phone: '555-0199', photo_thumb: 'data:image/jpeg;base64,QUJD' };
 
 test('roster count: the Roster tab counts who is waiting on Matt, and each decision takes one off', async ({ page }) => {
   // Worked by hand: Pending Pat's request (PROFILES, pending) + Nina's card (pending, not added) = 2.
@@ -7108,7 +7109,7 @@ test('bars: with 12 waiting, all six admin tabs still sit inside a 320 px screen
 
 test('self-service: a pending card waits to be added, off the grid and off the Board; Add to crew saves it whole with pending false', async ({ page }) => {
   const w = world();
-  w.crew.push({ id: 'C04', name: 'Nina Nursery', profile_id: '4', pending: true, rev: 1, phone: '555-0199', can_drive: true });
+  w.crew.push({ id: 'C04', name: 'Nina Nursery', profile_id: '4', pending: true, rev: 1, phone: '555-0199', can_drive: true, photo_thumb: 'data:image/jpeg;base64,QUJD' }); // a picture: Add to crew needs one (11/24/26)
   const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
   await page.click('nav [data-tab="board"]');
   await expect(page.locator('.chip[data-worker="C01"]')).toHaveCount(1);

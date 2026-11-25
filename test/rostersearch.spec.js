@@ -36,7 +36,7 @@ function world() {
     person('C10', 'Karl Moss'), person('C11', 'Lena Park'), person('C12', 'Mateo Ridge'), person('C13', 'Ñico Soto'),
     person('C15', 'Zed Vale'),
     person('C16', 'Old Hand', { archived: true }),
-    person('C17', 'New Card', { pending: true }),
+    person('C17', 'New Card', { pending: true, photo_thumb: PNG }),   // a picture: Add to crew needs one (crew pictures, 11/24/26)
   ];
   const mv = (n, worker, route, role) => ({ id: 'M' + n, at: '2026-10-01T17:0' + n + ':00.000-08:00', worker, to_route: route, role });
   return {

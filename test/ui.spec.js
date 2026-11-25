@@ -26,7 +26,7 @@ function fakeSnow(state, opts = {}) {
   return (body) => {
     // Every POST reply carries `action`, the action it answers (outlines-1 on): the phone refuses a reply from its own version that
     // does not (lib/api.js, the not-saved guard). A curbs-1 server (opts.oldBackend) has never sent one.
-    const v = { version: opts.version || (opts.oldBackend ? 'curbs-1' : 'cards-1'), ...(opts.oldBackend ? {} : { action: body.action }) };
+    const v = { version: opts.version || (opts.oldBackend ? 'curbs-1' : 'checknight-1'), ...(opts.oldBackend ? {} : { action: body.action }) };
     // Outlines on demand (10/9/26, snow-app-script Code.js): `slim: true`, exactly true, and nothing else.
     const slim = body.slim === true && !opts.oldBackend;
     if (opts.expired && opts.expired.on) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
@@ -385,13 +385,39 @@ function fakeSnow(state, opts = {}) {
       if (body.action === 'stormAction') {
         if (role === 'crew') return refuse('forbidden', 'Only Matt can do that.');
         const kind = body.kind;
-        if (!['start', 'end', 'reopen', 'snowing', 'stopped', 'night_on'].includes(kind)) return refuse('invalid', 'Unknown storm control');
+        if (!['start', 'end', 'reopen', 'snowing', 'stopped', 'night_on', 'to_storm'].includes(kind)) return refuse('invalid', 'Unknown storm control');
+        // Check night (11/24/26), the server's stormAction_ in its order: a start's check is true or left out; Make it a storm
+        // (to_storm) needs an open storm whose start row says check:true, writes the 'stormed' Log row (unless the storm has one),
+        // then the Storms row pointing at it (unless it has one: a retry repairs only what is missing); Snowing / Snow stopped
+        // are refused while the check night is open.
+        if (kind === 'start' && body.check !== undefined && body.check !== null && body.check !== true) return refuse('invalid', 'Check must be true or left out');
+        if (kind === 'to_storm') {
+          if (!storm.open || !SL.isCheckNight(state.storms, storm.storm_id)) return refuse('invalid', 'No check night is open');
+          const top = (rows) => (rows || []).reduce((m, r) => Math.max(m, Number(r.seq) || 0), 0);
+          let cut = SL.checkCut(state.log, storm.storm_id);
+          if (!cut) {
+            const ln = state.log.length + 1;
+            cut = { id: 'L-' + ln, seq: ln, storm_id: storm.storm_id, shift_id: 'night-2026-10-02', site_id: '*', zone_id: '*', state: 'stormed', note: '',
+              by_key: me.crew_id || 'admin', by_name: me.name, at: stamp, off_route: false, snowing_warned: false, undoes: null };
+            state.log.push(cut);
+          }
+          let have = state.storms.find((r) => r.kind === 'to_storm' && r.storm_id === storm.storm_id);
+          if (!have) {
+            const sn = state.storms.length + 1;
+            have = { id: 'ST-' + sn, seq: sn, kind: 'to_storm', storm_id: storm.storm_id, at: stamp, by_name: me.name, by_profile: role === 'admin' ? 'P1' : 'P2',
+              log_seq: cut.seq, visit_seq: top(state.visits) };
+            state.storms.push(have);
+          }
+          return { ok: true, record: stormView(have), ...v };
+        }
+        if ((kind === 'snowing' || kind === 'stopped') && storm.open && storm.check) return refuse('invalid', 'Make it a storm first');
         if (kind === 'start' && storm.open) return refuse('invalid', 'End the storm first');
         if (kind === 'reopen' && storm.open) return refuse('invalid', 'The storm is already open');
         if (kind === 'reopen' && !storm.storm_id) return refuse('invalid', 'There is no storm to reopen');
         if (!['start', 'reopen'].includes(kind) && !storm.open) return refuse('invalid', 'No storm is open');
         const n = state.storms.length + 1, id = 'ST-' + n;
         const row = { id, seq: n, kind, storm_id: kind === 'start' ? id : storm.storm_id, at: stamp, by_name: me.name };
+        if (kind === 'start' && body.check === true) row.check = true;
         state.storms.push(row);
         return { ok: true, record: stormView(row), ...v };
       }
@@ -1069,7 +1095,7 @@ test('after a conflict the app reloads the latest, so the retry can save', async
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'cards-1', action: b.action };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'checknight-1', action: b.action };
     }
     return base(b);
   } });
@@ -4754,7 +4780,7 @@ test('every bootstrap asks for the slim reply: at sign-in, and the reload after 
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'cards-1', action: b.action };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'checknight-1', action: b.action };
     }
     return base(b);
   } });
@@ -4768,7 +4794,7 @@ test('every bootstrap asks for the slim reply: at sign-in, and the reload after 
   const sent = base.replies.filter((r) => r.body.action === 'bootstrap').map((r) => r.reply);
   expect(sent).toHaveLength(2);
   for (const r of sent) { expect(r.points).toEqual({}); expect(JSON.stringify(r)).not.toContain('"ring"'); } // world() has no zones: no points
-  await expect(page.locator('#verwarn')).toBeHidden(); // cards-1 is the version the app expects
+  await expect(page.locator('#verwarn')).toBeHidden(); // checknight-1 is the version the app expects
 });
 
 test('the forecast point is the server\'s point: the slim sign-in carries no outline, and the hint still comes from where Main entry is', async ({ page }) => {

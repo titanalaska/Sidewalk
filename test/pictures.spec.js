@@ -39,7 +39,7 @@ const WHO = { 'tok-matt': { name: 'Matthew', role: 'admin', crew_id: null }, 'to
 function fakeSnow(state, calls) {
   return (body) => {
     calls.push(body);
-    const v = { version: 'cards-1', action: body.action };
+    const v = { version: 'checknight-1', action: body.action };
     const me = WHO[body.token];
     if (!me) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     const own = state.crew.find((c) => c.id === me.crew_id);

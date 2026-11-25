@@ -230,6 +230,23 @@ body.has-ref.ref-min #mapbox{height:62vh}
 .vc-eq input[data-eqmin]{width:96px}
 .vc-matrow .muted{margin-top:4px;font-size:14px}
 .vc-times{margin-top:12px}
+.vc-mgroup{margin-top:10px}
+.vc-mtitle{font-weight:700}
+.vc-mline{border-top:1px solid var(--line);padding:8px 0;margin-top:6px}
+.vc-mhead{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.vc-mrow{display:flex;align-items:center;gap:8px;margin-top:6px}
+.vc-mrow label{margin:0;flex:0 0 76px}
+.vc-mrow select{flex:1;min-width:0;min-height:44px}
+.vc-mrow input[data-mmin]{flex:0 0 96px;width:96px;min-height:44px}
+.vc-matts{display:flex;gap:8px;margin-top:6px}
+.vc-matt{flex:1;min-height:44px;font-weight:600}
+.vc-matt[aria-pressed="true"]{background:var(--black);color:var(--gold);border-color:var(--btn-edge)}
+.vc-madd{width:100%;min-height:44px;margin-top:6px}
+.vc-mremove{min-height:44px;flex:0 0 auto}
+.vc-oldeq{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;border-top:1px solid var(--line);padding-top:8px}
+.vc-replaced{margin-top:6px;font-size:14px}
+.vc-logged{margin-top:12px;font-size:14px}
+.vc-logged ul{margin:4px 0 0;padding-left:18px}
 /* Live view and storm controls (Matt and the leads, 10/3/26). */
 :root{--yellow-bg:#fff3bf;--yellow-ink:#5c4400;--yellow-line:#e0b400}
 @media (prefers-color-scheme: dark){:root{--yellow-bg:#3d3300;--yellow-ink:#ffe27a;--yellow-line:#a88700}}

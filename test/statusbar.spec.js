@@ -301,7 +301,7 @@ test('Titan colours: a phone that turns dark while the app is open follows it', 
 // ---- Titan colours, final review (11/24/26): three blues the browser draws by itself survived the re-colour, because
 // app.css never coloured them: the ☎ call link (an <a>, so link blue), the live view's <progress> bars and ticked
 // checkboxes (accent-color: auto). The markup below is the app's own (lib/boardui.js:86 and :829, lib/shiftlogui.js:1667,
-// the Site card's equipment ticks at lib/shiftlogui.js:2130), put into the real page so app.css styles it.
+// the Site card's walk-behind blower tick, lib/shiftlogui.js), put into the real page so app.css styles it.
 //   checkbox and progress: accent-color is --ink: #141414 by day, #f5f3ee at night (never gold: a gold fill on the Storm tab
 //   would read as "started"; never blue)
 //   the ☎ link: --ok, the green of the crew's round call button (.callbtn): #1e7a3c by day, #7ed69a at night

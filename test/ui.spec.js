@@ -4077,7 +4077,6 @@ test('crew still land on Tonight, with a Storm tab beside it', async ({ page }) 
 // equipment minutes. Start and finish are never typed: they are the first and
 // last tap at the site this shift (CrewShiftLog.siteTimes). Same 7:30 AM clock
 // as above, so the shift is "night-2026-10-02" and the fake files cards there.
-const EQUIP = ['blower', 'snowrator', 'bobcat', 'sweepster'];
 const visitRow = (n, siteId, byKey, byName, extra = {}) => ({ id: 'V-' + n, seq: n, storm_id: 'ST-1', shift_id: 'night-2026-10-02',
   site_id: siteId, by_key: byKey, by_name: byName, at: '2026-10-03T06:45:00.000-08:00', depth_in: '', materials_used: '',
   equipment: { blower: '', snowrator: '', bobcat: '', sweepster: '' }, machines: [], ...extra });
@@ -4121,32 +4120,37 @@ test('Matt sees Copy for BT on a route he opens', async ({ page }) => {
   await expect(page.locator('[data-bt="S1"]')).toBeVisible();
 });
 
-test('the site card sends depth, materials and ticked equipment minutes only', async ({ page }) => {
+test('the site card sends depth, materials, the walk-behind blower and its machine lines only', async ({ page }) => {
   const w = stormWorld();
   const calls = await openStorm(page, w);
   await openCard(page, 'S1');
-  // Minutes cannot be typed until the machine is ticked.
+  // Minutes cannot be typed until the walk-behind blower is ticked. The Bobcat, Snowrator and Sweepster boxes are gone.
   await expect(page.locator('[data-eqmin="blower"]')).toBeDisabled();
+  await expect(page.locator('[data-eq="bobcat"], [data-eq="snowrator"], [data-eq="sweepster"]')).toHaveCount(0);
   await page.fill('#vc_depth', '3.5');
   await page.fill('#vc_mat', 'salt, 2 bags');
   await page.check('[data-eq="blower"]');
   await expect(page.locator('[data-eqmin="blower"]')).toBeEnabled();
+  await page.fill('[data-eqmin="blower"]', '99');
+  // Ticked, typed, then unticked: the minutes are not sent. Ticked again with 30 they are.
+  await page.uncheck('[data-eq="blower"]');
+  await expect(page.locator('[data-eqmin="blower"]')).toBeDisabled();
+  await page.check('[data-eq="blower"]');
   await page.fill('[data-eqmin="blower"]', '30');
-  await page.check('[data-eq="bobcat"]');
-  await page.fill('[data-eqmin="bobcat"]', '45');
-  // Ticked, typed, then unticked: the minutes are not sent.
-  await page.check('[data-eq="snowrator"]');
-  await page.fill('[data-eqmin="snowrator"]', '99');
-  await page.uncheck('[data-eq="snowrator"]');
-  await expect(page.locator('[data-eqmin="snowrator"]')).toBeDisabled();
+  // One Bobcat line: Not sure for the unit, the bucket, Alex (C01), 45 minutes.
+  await page.click('#vc_add_bobcat');
+  await page.selectOption('[data-munit]', '__notsure');
+  await page.click('[data-matt="bucket"]');
+  await page.selectOption('[data-mop]', 'C01');
+  await page.fill('[data-mmin]', '45');
   await page.click('#vc_save');
   await expect(page.locator('#dlg')).toBeHidden();
   expect(visitCalls(calls)).toHaveLength(1);
   const body = visitCalls(calls)[0].body;
-  // Worked out: 3.5 in; the text as typed; blower 30 and bobcat 45; snowrator and sweepster unticked = blank.
-  expect(body).toMatchObject({ action: 'saveVisit', site_id: 'S1', depth_in: 3.5, materials_used: 'salt, 2 bags',
-    equipment: { blower: 30, snowrator: '', bobcat: 45, sweepster: '' } });
-  expect(Object.keys(body.equipment).sort()).toEqual([...EQUIP].sort());
+  // Worked out: 3.5 in; the text as typed; walk-behind blower 30; one Bobcat line, unit blank (Not sure), bucket, C01, 45.
+  expect(body).toMatchObject({ action: 'saveVisit', site_id: 'S1', depth_in: 3.5, materials_used: 'salt, 2 bags', equipment: { blower: 30 },
+    machines: [{ type: 'bobcat', unit: '', attachment: 'bucket', operator_key: 'C01', minutes: 45 }] });
+  expect(Object.keys(body.equipment)).toEqual(['blower']);
   // The server knows who, when and which shift: the phone sends none of it, nor start/finish.
   for (const k of ['by_name', 'by_key', 'by_profile', 'at', 'shift_id', 'storm_id', 'seq', 'start', 'finish']) expect(body).not.toHaveProperty(k);
   expect(w.visits).toHaveLength(1);
@@ -4157,13 +4161,14 @@ test('blank fields are sent blank, never 0', async ({ page }) => {
   const w = stormWorld();
   const calls = await openStorm(page, w);
   await openCard(page, 'S1');
-  // Nothing typed, nothing ticked: depth, materials and every machine go as ''.
+  // Nothing typed, nothing ticked, no machine line: depth, materials and the blower go as '', machines as [].
   await page.click('#vc_save');
   await expect(page.locator('#dlg')).toBeHidden();
   const first = visitCalls(calls)[0].body;
   expect(first.depth_in).toBe('');
   expect(first.materials_used).toBe('');
-  expect(first.equipment).toEqual({ blower: '', snowrator: '', bobcat: '', sweepster: '' });
+  expect(first.equipment).toEqual({ blower: '' });
+  expect(first.machines).toEqual([]);
   // A typed zero is a real answer and is sent as 0.
   await openCard(page, 'S1');
   await page.fill('#vc_depth', '0');
@@ -4173,35 +4178,28 @@ test('blank fields are sent blank, never 0', async ({ page }) => {
   await expect(page.locator('#dlg')).toBeHidden();
   const second = visitCalls(calls)[1].body;
   expect(second.depth_in).toBe(0);
-  expect(second.equipment).toEqual({ blower: 0, snowrator: '', bobcat: '', sweepster: '' });
+  expect(second.equipment).toEqual({ blower: 0 });
   expect(second.materials_used).toBe('');
 });
 
-test('a ticked machine needs minutes before it saves', async ({ page }) => {
+test('a ticked walk-behind blower needs minutes before it saves', async ({ page }) => {
   // Ticking says "this machine was used"; saved blank, the tick would be lost on reopening.
-  // Blower ticked with no minutes, Bobcat also ticked with none: the first (Blower, in card order) is named.
   const w = stormWorld();
   const calls = await openStorm(page, w);
   await openCard(page, 'S1');
-  await page.check('[data-eq="bobcat"]');
   await page.check('[data-eq="blower"]');
   await page.click('#vc_save');
   await expect(page.locator('#vc_err')).toBeVisible();
-  await expect(page.locator('#vc_err')).toHaveText('Add minutes for Blower, or untick it');
+  await expect(page.locator('#vc_err')).toHaveText('Add minutes for Walk-behind blower, or untick it');
   await expect(page.locator('#dlg')).toBeVisible();
   expect(visitCalls(calls)).toHaveLength(0);
   expect(w.visits || []).toHaveLength(0);
-  // Blower filled in: now Bobcat is the one named, still nothing sent.
+  // Minutes filled in: Save sends them.
   await page.fill('[data-eqmin="blower"]', '30');
-  await page.click('#vc_save');
-  await expect(page.locator('#vc_err')).toHaveText('Add minutes for Bobcat, or untick it');
-  expect(visitCalls(calls)).toHaveLength(0);
-  // Untick it (unticked machines go as ''), and Save sends the minutes typed.
-  await page.uncheck('[data-eq="bobcat"]');
   await page.click('#vc_save');
   await expect(page.locator('#dlg')).toBeHidden();
   expect(visitCalls(calls)).toHaveLength(1);
-  expect(visitCalls(calls)[0].body.equipment).toEqual({ blower: 30, snowrator: '', bobcat: '', sweepster: '' });
+  expect(visitCalls(calls)[0].body.equipment).toEqual({ blower: 30 });
 });
 
 test('materials needed is printed beside materials used', async ({ page }) => {
@@ -4270,15 +4268,15 @@ test('reopening the card shows your own last save, not someone else\'s', async (
   await expect(page.locator('#vc_mat')).toHaveValue('salt');
   await expect(page.locator('[data-eq="blower"]')).toBeChecked();
   await expect(page.locator('[data-eqmin="blower"]')).toHaveValue('20');
-  await expect(page.locator('[data-eq="sweepster"]')).toBeChecked();   // a saved 0 is a real answer: ticked, shows 0
-  await expect(page.locator('[data-eqmin="sweepster"]')).toHaveValue('0');
-  await expect(page.locator('[data-eq="bobcat"]')).not.toBeChecked(); // Alex's 45 is not Jordan's
-  await expect(page.locator('[data-eqmin="bobcat"]')).toHaveValue('');
+  // Jordan's shell-78 Sweepster 0 (a saved 0 is a real answer) shows read-only, as saved before machine lines; no box to type in.
+  await expect(page.locator('.vc-oldeq[data-oldeq="sweepster"]')).toContainText('Sweepster 0 min, saved before machine lines');
+  await expect(page.locator('[data-eq="sweepster"], [data-eqmin="sweepster"]')).toHaveCount(0);
+  await expect(page.locator('.vc-oldeq[data-oldeq="bobcat"]')).toHaveCount(0); // Alex's 45 is not Jordan's
   // Change the depth and save: that re-save is Jordan's newest card (V-6).
   await page.fill('#vc_depth', '4');
   await page.click('#vc_save');
   await expect(page.locator('#dlg')).toBeHidden();
-  expect(visitCalls(calls)[0].body).toMatchObject({ depth_in: 4, materials_used: 'salt', equipment: { blower: 20, snowrator: '', bobcat: '', sweepster: 0 } });
+  expect(visitCalls(calls)[0].body).toMatchObject({ depth_in: 4, materials_used: 'salt', equipment: { blower: 20, sweepster: 0 }, machines: [] });
   expect(w.visits).toHaveLength(6);
   expect(w.visits[5]).toMatchObject({ by_key: 'C03', depth_in: 4 });
   await openCard(page, 'S1');
@@ -4433,7 +4431,7 @@ test('a route shows how many sites are done', async ({ page }) => {
   await pollNow(page);
   // Worked out: blower 30 + 15 = 45, bobcat 45, nothing logged for the others; depth per person.
   const totals = page.locator('[data-livesite="S1"] .live-totals');
-  await expect(totals).toContainText('Blower 45 min');
+  await expect(totals).toContainText('Walk-behind blower 45 min');
   await expect(totals).toContainText('Bobcat 45 min');
   await expect(totals).not.toContainText('Snowrator');
   await expect(totals).toContainText('Jordan Demo 3.5 in');

@@ -11,6 +11,8 @@ test('the self-field list is the backend\'s, word for word', () => {
   // this file carries a copy so the phone never sends a field the server would ignore.
   // SNOW_SERVER_REPO (as test/log-fields.js reads it) points at a server worktree that is ahead of the main checkout.
   const backend = path.join(process.env.SNOW_SERVER_REPO || path.join(__dirname, '..', '..', 'snow-app-script'), 'roster.js');
+  // A path the caller named that is wrong must FAIL (a typo would otherwise pass silently); only the unset default may skip.
+  if (process.env.SNOW_SERVER_REPO && !fs.existsSync(backend)) assert.fail('SNOW_SERVER_REPO is set but has no roster.js: ' + backend);
   if (!fs.existsSync(backend)) { assert.ok(true, 'backend repo not beside this one: list unchecked'); return; }
   const B = require(backend);
   assert.deepEqual(R.SELF_FIELDS, B.SELF_FIELDS);

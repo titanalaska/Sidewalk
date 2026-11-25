@@ -102,6 +102,8 @@ header button{flex:none}
 .banner-pic span{flex:1 1 14em;min-width:0}
 .banner-pic button{flex:none;margin-left:auto}
 .pic-need{color:var(--warn);font-weight:600}
+/* the Add gate's button is OFF and must not look like Add to crew beside it: no fill, the warning colour, a dashed edge */
+button[data-addcrew-nopic]{background:var(--chip);color:var(--warn);border:1px dashed var(--warn);cursor:not-allowed}
 .tile .nopic{color:var(--warn);font-size:13px}
 .grp-nopic{color:var(--warn);font-size:14px;margin-left:8px}
 #tabs button[aria-current="page"]{color:var(--accent);font-weight:600}

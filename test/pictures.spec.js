@@ -189,6 +189,9 @@ test('gate: in the waiting list, no picture = "Add a picture first", off; a pict
   await expect(nina.locator('button')).toBeDisabled();
   await expect(nina.locator('[data-addcrew]')).toHaveCount(0);
   await expect(pat.locator('[data-addcrew]')).toHaveText('Add to crew');
+  // the off button must not LOOK like Add to crew (a disabled primary button kept the same blue fill: seen in the 11/24 screenshot)
+  const fill = (l) => l.evaluate((e) => getComputedStyle(e).backgroundColor);
+  expect(await fill(nina.locator('button'))).not.toBe(await fill(pat.locator('[data-addcrew]')));
   await nina.locator('button').click({ force: true });           // a tap on the off button does nothing
   expect(sent(calls, 'saveCrew')).toHaveLength(0);
   await pat.locator('[data-addcrew]').click();

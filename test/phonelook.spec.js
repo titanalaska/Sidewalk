@@ -119,7 +119,7 @@ const backSettled = (page) => page.waitForFunction(() => !((history.state && his
 
 test('name bar: bold, dark, readable at 320 px, light mode, inside the card, no sideways scroll', async ({ page }) => {
   await open(page, world());
-  // S3: nothing marked, so its bar is the navy one. S1 has two walks done and reads amber since the status bars (Matt, 11/19/26,
+  // S3: nothing marked, so its bar is the black one (navy until Titan colours, 11/24/26). S1 has two walks done and reads amber since the status bars (Matt, 11/19/26,
   // test/statusbar.spec.js), so it is not the dark band this test is about.
   const bar = page.locator('[data-shiftsite="S3"] .site-bar');
   await expect(bar).toBeVisible();
@@ -153,7 +153,7 @@ test('name bar: dark mode keeps light text on a solid band that is not the card 
   const lum = ([r, g, b]) => (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
   expect(m.bg).toMatch(/^rgb[(]/);
   expect(m.bg).not.toBe(m.card);
-  expect(lum(rgb(m.color))).toBeGreaterThan(0.8);   // white on a saturated blue band
+  expect(lum(rgb(m.color))).toBeGreaterThan(0.8);   // white on the black band
   expect(lum(rgb(m.bg))).toBeLessThan(0.3);
 });
 

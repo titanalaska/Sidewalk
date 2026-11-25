@@ -33,11 +33,11 @@ test('dark mode: text on a card stays readable (muted 4.5, ink 7)', () => {
   assert.ok(ratio(t['--ink'], t['--card']) >= 7, 'ink ' + ratio(t['--ink'], t['--card']).toFixed(2));
 });
 
-test('light mode is unchanged: page #f6f5f2, card #fff, line #dedcd6', () => {
+test('light mode: page #f4f2ec, card #fff, line #ddd8cc (Titan colours, 11/24/26)', () => {
   const t = tokens(css, 'day');
-  assert.equal(t['--bg'], '#f6f5f2');
+  assert.equal(t['--bg'], '#f4f2ec');
   assert.equal(t['--card'], '#fff');
-  assert.equal(t['--line'], '#dedcd6');
+  assert.equal(t['--line'], '#ddd8cc');
 });
 
 test('the heavier card shadow is for dark mode only', () => {

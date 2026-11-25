@@ -1,11 +1,15 @@
 :root{color-scheme:light dark}
-:root{--bg:#f6f5f2;--card:#fff;--ink:#1d1d1b;--muted:#6b6a66;--line:#dedcd6;--accent:#1f5fa8;--on-accent:#fff;--warn:#b3261e;--warn-bg:#fbe9e7;--chip:#eef1f5;--amber:#b36b00;--amber-bg:#fff0d1}
-@media (prefers-color-scheme: dark){:root{--bg:#060708;--card:#232a33;--ink:#eee;--muted:#b4bcc6;--line:#46505c;--accent:#7fb0ea;--on-accent:#0b1b2e;--warn:#ff8a80;--warn-bg:#3a1d1b;--chip:#2e3640;--amber:#ffc266;--amber-bg:#3d2c0c}}
+/* Titan gold and black (Matt, 11/24/26). Day colours in :root, night colours in the dark media block under each, once each.
+   Gold (--gold #f5b800) is only ever lettering or an edge on --black, never a fill: amber already means "started" on the Storm tab.
+   --gold-ink is gold as text or an edge on the page's own surfaces (dark gold by day, where #f5b800 on white is only 1.8:1).
+   Every text pair is 4.5:1 or better in both modes (test/theme.test.js, worked on paper). */
+:root{--bg:#f4f2ec;--card:#fff;--ink:#141414;--muted:#5f5b52;--line:#ddd8cc;--warn:#b3261e;--warn-bg:#fbe9e7;--chip:#efece4;--amber:#b36b00;--amber-bg:#fff0d1;--black:#111;--gold:#f5b800;--gold-ink:#7a5900;--btn-edge:#111;--head-chip:#2a2824;--head-ink:#e8e2d4;--head-muted:#bdb7a8;--head-line:#4a4740;--bar-addr:#d8d2c3}
+@media (prefers-color-scheme: dark){:root{--bg:#000;--card:#262420;--ink:#f5f3ee;--muted:#b9b3a5;--line:#4a4740;--warn:#ff8a80;--warn-bg:#3a1d1b;--chip:#33302a;--amber:#ffc266;--amber-bg:#3d2c0c;--black:#000;--gold-ink:#f5b800;--btn-edge:#f5b800;--bar-addr:#b9b3a5}}
 *{box-sizing:border-box}
 [hidden]{display:none !important}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding-bottom:140px}
-header{position:sticky;top:0;z-index:5;background:var(--card);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;gap:8px;align-items:center}
-header h1{font-size:18px;margin:0;flex:1}
+header{position:sticky;top:0;z-index:5;background:var(--black);border-bottom:1px solid var(--gold);box-shadow:0 1px 0 var(--gold);padding:10px 16px;display:flex;gap:8px;align-items:center}
+header h1{font-size:18px;margin:0;flex:1;color:var(--gold)}
 .badge{font-size:12px;padding:2px 8px;border-radius:10px;background:var(--chip);color:var(--muted)}
 .badge:empty{display:none}
 .badge.off{background:var(--warn-bg);color:var(--warn)}
@@ -16,25 +20,25 @@ header h1{font-size:18px;margin:0;flex:1}
 /* A 320 px phone: only the button that switches shows, so the name badge keeps its room over the title */
 @media (max-width:360px){.lang-btn.on{display:none}.lang-btn{padding:4px 5px}}
 main{padding:12px 16px;max-width:720px;margin:0 auto}
-nav{position:fixed;bottom:0;left:0;right:0;z-index:7;display:flex;background:var(--card);border-top:1px solid var(--line)}
-nav button{flex:1;border:0;border-radius:0;background:none;color:var(--muted)}
-nav button[aria-current="page"]{color:var(--accent);font-weight:600}
+nav{position:fixed;bottom:0;left:0;right:0;z-index:7;display:flex;background:var(--black);border-top:1px solid var(--head-line)}
+nav button{flex:1;border:0;border-radius:0;background:none;color:var(--head-muted)}
+nav button[aria-current="page"]{color:var(--gold);font-weight:600;box-shadow:inset 0 2px 0 var(--gold)}
 button{font:inherit;min-height:44px;padding:8px 14px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
-.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.primary{background:var(--black);color:var(--gold);border-color:var(--btn-edge)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
 .card h2{margin:0;font-size:17px}
 .sites{color:var(--muted);font-size:13px;margin:2px 0 8px}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 .chip{display:flex;align-items:center;gap:6px;background:var(--chip);border-radius:24px;padding:4px 8px 4px 4px;min-height:44px;cursor:pointer;border:2px solid transparent}
-.chip.sel{border-color:var(--accent)}
+.chip.sel{border-color:var(--gold-ink)}
 .chip.off{opacity:.55}
 .chip img,.chip .ph{width:36px;height:36px;border-radius:50%;object-fit:cover;background:var(--line);flex:none}
-.lead{font-size:11px;color:var(--accent);font-weight:700}
+.lead{font-size:11px;color:var(--gold-ink);font-weight:700}
 .q{color:var(--muted);font-size:12px}
 .call{text-decoration:none;font-size:18px;padding:4px}
 .warns{margin:8px 0 0;padding:0;list-style:none}
 .warns li{color:var(--warn);background:var(--warn-bg);border-radius:6px;padding:4px 8px;margin-top:4px;font-size:14px}
-.bar{position:fixed;left:0;right:0;bottom:57px;z-index:6;background:var(--card);border-top:2px solid var(--accent);padding:8px 16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.bar{position:fixed;left:0;right:0;bottom:57px;z-index:6;background:var(--card);border-top:2px solid var(--gold-ink);padding:8px 16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:8px;margin-top:12px}
 .grid>.grp-letter{grid-column:1/-1;margin:4px 0 0}   /* the Roster's letter row spans every column, never one cell of the grid */
 .tile{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:6px;cursor:pointer;display:flex;align-items:center;gap:10px;text-align:left}
@@ -54,17 +58,17 @@ table{width:100%;border-collapse:collapse;font-size:14px}
 td,th{padding:6px 4px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
 th{color:var(--muted);font-weight:500;width:38%}
 /* ---- dressed-up cards, shared by the owner board and the crew view (9/30/26) ---- */
-:root{--lead-bg:#e8f0fb;--ok:#1e7a3c;--ok-bg:#e6f4ea;--pill:#f1efe8}
-@media (prefers-color-scheme: dark){:root{--lead-bg:#1a2a3d;--ok:#7ed69a;--ok-bg:#16301f;--pill:#2e3640}}
+:root{--lead-bg:#f6edd4;--ok:#1e7a3c;--ok-bg:#e6f4ea;--pill:#f1efe8}
+@media (prefers-color-scheme: dark){:root{--lead-bg:#2e2817;--ok:#7ed69a;--ok-bg:#16301f;--pill:#33302a}}
 .card{border-radius:14px;padding:14px;box-shadow:0 1px 2px rgba(0,0,0,.05)}
 /* Dark mode: cards stand apart from the page (Matt, 11/12/26: the pages blurred together in dark mode) */
 @media (prefers-color-scheme: dark){:root .card{box-shadow:0 3px 14px rgba(0,0,0,.7),inset 0 1px 0 rgba(255,255,255,.07);margin-bottom:20px}}
 .route-top{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:10px}
-.route-badge{background:var(--accent);color:var(--on-accent);font-weight:700;font-size:18px;padding:3px 14px;border-radius:999px;letter-spacing:.3px}
+.route-badge{background:var(--black);color:var(--gold);font-weight:700;font-size:18px;padding:3px 14px;border-radius:999px;letter-spacing:.3px}
 .site-pill{border:1px solid var(--line);background:var(--pill);color:var(--muted);font-size:12px;padding:2px 9px;border-radius:999px}
-.site-pill.cleared{border-color:var(--accent);color:var(--accent)}
+.site-pill.cleared{border-color:var(--gold-ink);color:var(--gold-ink)}
 .chip.is-lead{background:var(--lead-bg)}
-.lead-pill{display:inline-block;font-size:11px;font-weight:700;background:var(--accent);color:var(--on-accent);padding:1px 8px;border-radius:999px;vertical-align:1px;margin-left:2px}
+.lead-pill{display:inline-block;font-size:11px;font-weight:700;background:var(--black);color:var(--gold);padding:1px 8px;border-radius:999px;vertical-align:1px;margin-left:2px}
 .chip img,.chip .ph{width:40px;height:40px}
 .dropzone{border:2px dashed var(--line);border-radius:12px;padding:14px;text-align:center;color:var(--muted);font-size:14px}
 .heads-up{margin-top:10px;padding-top:8px;border-top:1px solid var(--line)}
@@ -91,6 +95,11 @@ header button,.badge{white-space:nowrap}
 /* Share joined the top bar (10/5/26): on a small phone the name badge gives way (trimmed with …), never the buttons. */
 header #who{min-width:0;overflow:hidden;text-overflow:ellipsis}
 header button{flex:none}
+/* Titan colours (11/24/26): the header is black, so its badge and buttons are dark chips on it, never white boxes */
+header .badge{background:var(--head-chip);color:var(--head-ink)}
+header .badge.off{background:var(--warn-bg);color:var(--warn)}
+header button{background:var(--head-chip);color:var(--head-ink);border-color:var(--head-line)}
+header .lang-btn.on{background:var(--black);color:var(--gold);border-color:var(--gold)}
 
 /* ---- snow app (Foundation) ---- */
 .banner{background:var(--warn-bg);color:var(--warn);padding:8px 16px;font-size:14px;border-bottom:1px solid var(--warn)}
@@ -103,7 +112,7 @@ header button{flex:none}
 button[data-addcrew-nopic]{background:var(--chip);color:var(--warn);border:1px dashed var(--warn);cursor:not-allowed}
 .tile .nopic{color:var(--warn);font-size:13px}
 .grp-nopic{color:var(--warn);font-size:14px;margin-left:8px}
-#tabs button[aria-current="page"]{color:var(--accent);font-weight:600}
+#tabs button[aria-current="page"]{color:var(--gold);font-weight:600;box-shadow:inset 0 2px 0 var(--gold)}
 button.small{min-height:36px;padding:4px 10px;font-size:14px;margin-left:auto}
 .route-top .small + .small{margin-left:4px}
 /* the Directions link is an <a>, so it gets none of the button rules: it looks and measures like button.small beside it
@@ -188,12 +197,12 @@ body.has-ref.ref-min #mapbox{height:62vh}
 .edfloat{position:absolute;left:8px;bottom:8px;z-index:2;display:flex;gap:6px;flex-wrap:wrap;align-items:center;max-width:calc(100% - 60px)}
 .edfloat button{min-height:40px;padding:4px 12px;font-size:14px;background:rgba(255,255,255,.94);color:#1d1d1b;border:1px solid #bbb}
 #ed_drawctl{display:flex;gap:6px;flex-wrap:wrap}
-#z_mode.on{background:#1f5fa8;color:#fff;border-color:#1f5fa8}
+#z_mode.on{background:var(--black);color:var(--gold);border-color:var(--black)}
 #z_delcorner:disabled{opacity:.5}
 .zone-corner.sel{background:#d62828;border-color:#fff;width:22px;height:22px}
 /* import from Bootprint */
 .bpjob{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;margin-top:6px;text-align:left}
-.bpjob.sel{border:2px solid var(--accent)}
+.bpjob.sel{border:2px solid var(--gold-ink)}
 #bp_sum{margin-top:10px}
 /* Storm tab: crew tap each walk (10/3/26). Big buttons: gloves, snow, a phone in one hand. */
 .stormhead{font-weight:700;font-size:17px;padding:10px 14px;border-radius:12px;background:var(--chip);color:var(--muted);margin-bottom:12px}
@@ -203,7 +212,7 @@ body.has-ref.ref-min #mapbox{height:62vh}
 .walk-name{font-weight:600;margin-bottom:6px}
 .walk-btns{display:flex;gap:8px;flex-wrap:wrap}
 .walkbtn{flex:1;min-width:84px;min-height:52px;font-weight:600}
-.walkbtn[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.walkbtn[aria-pressed="true"]{background:var(--black);color:var(--gold);border-color:var(--btn-edge)}
 .walkbtn.s-problem[aria-pressed="true"]{background:var(--warn);border-color:var(--warn);color:var(--bg)}
 .walk.pending .walk-btns{opacity:.55}
 .walk-last{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px;font-size:14px}
@@ -228,7 +237,7 @@ body.has-ref.ref-min #mapbox{height:62vh}
 .stormctl .row{margin-top:0;flex-wrap:wrap;align-items:center}
 .stormbtn{font-weight:600;min-height:52px}
 .stormbtn.danger{border-color:var(--warn);color:var(--warn)}
-.stormbtn[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.stormbtn[aria-pressed="true"]{background:var(--black);color:var(--gold);border-color:var(--btn-edge)}
 .stormbtn:disabled{opacity:.7}
 .stormbtn.pending{opacity:.55}
 .seg{display:inline-flex;gap:0}
@@ -372,6 +381,8 @@ header #who{flex:1 1 auto;min-width:0;text-align:left}
 /* Site done / Site treated (11/13/26): two big buttons, then the folded line a tap leaves (parts, Undo, Show walks) */
 .site-tap{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 10px}
 .site-tap .sitetapbtn{flex:1 1 120px;min-width:0;min-height:52px;font-weight:600;margin-left:0}
+/* Site done wears the main-button look (Titan colours, 11/24/26: as on the mockup Matt picked) */
+.sitetapbtn[data-kind="done"]{background:var(--black);color:var(--gold);border-color:var(--btn-edge)}
 .site-tap.pending .sitetapbtn{opacity:.55}
 .site-tap .walk-fail,.site-tap .walk-warn{flex:1 0 100%;margin:0}
 .site-line{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;margin:0 0 10px;font-size:14px;overflow-wrap:anywhere}
@@ -402,10 +413,10 @@ header #who{flex:1 1 auto;min-width:0;text-align:left}
    .grp-bar, .grp-count and .grp-letter are the shared look: the route editor's Add sites view and release 2's screens reuse them. All
    colours are the existing tokens, so dark follows. The bar sticks right under the top bar (header: 10 + 40 + 10 padding + 1 border = 61 px;
    test/ui.spec.js measures the two against each other). */
-.grp-bar{position:sticky;top:61px;z-index:4;display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:44px;margin:16px 0 8px;padding:6px 12px;background:var(--lead-bg);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:8px}
+.grp-bar{position:sticky;top:61px;z-index:4;display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:44px;margin:16px 0 8px;padding:6px 12px;background:var(--lead-bg);border:1px solid var(--line);border-left:4px solid var(--gold-ink);border-radius:8px}
 .grp-bar .site-group{flex:1;min-width:0;margin:0;font-size:17px;font-weight:700;overflow-wrap:anywhere}
-.grp-count{flex:none;min-width:28px;padding:1px 10px;border-radius:999px;background:var(--accent);color:var(--on-accent);font-size:14px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums}
-.grp-letter{margin:8px 0 6px;padding:2px 4px;border-bottom:1px solid var(--line);color:var(--accent);font-size:14px;font-weight:700}
+.grp-count{flex:none;min-width:28px;padding:1px 10px;border-radius:999px;background:var(--black);color:var(--gold);font-size:14px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums}
+.grp-letter{margin:8px 0 6px;padding:2px 4px;border-bottom:1px solid var(--line);color:var(--gold-ink);font-size:14px;font-weight:700}
 #site_q{min-height:44px;margin:0}
 /* The Roster's box: a 44 px target like #site_q, with 8 px above it (Add worker's row has no bottom margin); the 8 px are won back below, so the list does not move down. */
 #roster_q{min-height:44px;margin:8px 0 0}
@@ -413,7 +424,7 @@ header #who{flex:1 1 auto;min-width:0;text-align:left}
 #roster_list>.grid{margin-top:0}
 #site_chips:empty{display:none}
 #site_chips button{min-width:0;max-width:100%;overflow-wrap:anywhere}
-#site_chips button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+#site_chips button[aria-pressed="true"]{background:var(--black);color:var(--gold);border-color:var(--btn-edge)}
 
 /* The route editor's Add sites view (Matt, 11/15/26). The dialog's own scroller (.in, 16 px of padding, 85vh) is covered by .pickview, which
    pulls out to the dialog's edges and splits into a title row, ONE scroller (#pick_scroll) and the bar, as three rows of a column: the bar is
@@ -430,13 +441,13 @@ header #who{flex:1 1 auto;min-width:0;text-align:left}
 #pick_chips{margin-top:8px}
 #pick_chips:empty{display:none}
 #pick_chips button{min-width:0;max-width:100%;overflow-wrap:anywhere}
-#pick_chips button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+#pick_chips button[aria-pressed="true"]{background:var(--black);color:var(--gold);border-color:var(--btn-edge)}
 .grp-row{display:flex;align-items:center;gap:12px;min-height:44px;margin:0;padding:6px 8px;color:var(--ink);font-size:16px;border-bottom:1px solid var(--line);cursor:pointer;scroll-margin-top:60px}
 .grp-row.grp-alt{background:var(--chip)}
-.grp-row input{flex:none;width:24px;height:24px;margin:0;padding:0;accent-color:var(--accent)}
+.grp-row input{flex:none;width:24px;height:24px;margin:0;padding:0;accent-color:var(--gold-ink)}
 .grp-row .grp-name{flex:1;min-width:0;display:flex;flex-direction:column;overflow-wrap:anywhere}
 .grp-row .site-addr{font-size:14px}
-.pickbar{flex:none;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 16px;background:var(--card);border-top:2px solid var(--accent)}
+.pickbar{flex:none;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 16px;background:var(--card);border-top:2px solid var(--gold-ink)}
 .pickbar #pick_hidden{flex:1 0 100%}
 .pickbar button{flex:1 1 0;min-width:0}
 .pickbar #pick_add{flex:2 1 0}
@@ -458,12 +469,11 @@ header #who{flex:1 1 auto;min-width:0;text-align:left}
 
 /* ---- Storm tab: a bold name bar on every site card (Matt, 11/19/26: scrolling fast you went past the next site's name) ---- */
 .shift-site{margin-top:20px;overflow:hidden}
-.site-bar{background:#12263d;color:#fff;margin:-14px -14px 10px;padding:12px 14px;border-radius:14px 14px 0 0}
+.site-bar{background:var(--black);color:#fff;margin:-14px -14px 10px;padding:12px 14px;border-radius:14px 14px 0 0}
 .site-bar .site-name{font-size:21px;font-weight:800;line-height:1.2;color:#fff;overflow-wrap:anywhere}
-.site-bar .site-addr{color:#c9d6e4;font-size:13px;font-weight:500;display:block}
-@media (prefers-color-scheme: dark){:root .site-bar{background:#17457a}}
+.site-bar .site-addr{color:var(--bar-addr);font-size:13px;font-weight:500;display:block}
 /* ---- The bar's colour is the site's status (Matt, 11/19/26), from lib/sitestatus.js: red = a Problem, green = every walk marked,
-   amber = the crew came or something is marked, navy (above) = nothing yet. Words under the name say the same, so colour is
+   amber = the crew came or something is marked, black (above, --black; navy until 11/24/26) = nothing yet. Words under the name say the same, so colour is
    never the only sign. Amber takes dark text; every pair is 4.5:1 or better (test/statusbar.spec.js), light and dark. ---- */
 .site-bar .site-status{display:block;font-size:14px;font-weight:700;margin-top:3px;color:#fff}
 .site-bar.st-problem{background:#a3231b}

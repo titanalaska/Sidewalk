@@ -2,14 +2,14 @@
 //   red    any walk at Problem                         words "1 problem" / "N problems"
 //   green  every non-curb walk Cleared/Treated/Checked words "Done"
 //   amber  a standing Arrived/Left, or any walk done   words "Arrived" or "K of N walks done"
-//   navy   nothing yet (the phone look's bar)         no words
-// Colour is never the only signal: every coloured bar carries its words. With no storm open every bar is navy.
+//   black  nothing yet (the phone look's bar; navy until Titan colours, 11/24/26)  no words
+// Colour is never the only signal: every coloured bar carries its words. With no storm open every bar is black.
 // The real page over file://, Matt's live view, a small fake backend (made-up names only). Viewport 320 px wide.
 //
 // The world, worked on paper (route R1, storm ST-1 open, the clock in night-2026-10-02):
 //   S1 Big Clinic   9 sidewalks Z1..Z9    log: Z1 treated, Z2 cleared          -> amber "2 of 9 walks done"
-//   S2 Mid Lot      8 sidewalks Y1..Y8    nothing                              -> navy, no words
-//   S3 Small Shop   3 sidewalks X1..X3    nothing                              -> navy, no words
+//   S2 Mid Lot      8 sidewalks Y1..Y8    nothing                              -> black, no words
+//   S3 Small Shop   3 sidewalks X1..X3    nothing                              -> black, no words
 // Each case below adds rows to that world and works its own answer out beside it.
 const { test, expect } = require('./no-real-weather.js');
 const path = require('path');
@@ -105,7 +105,7 @@ async function colours(page, site) {
   });
 }
 
-test('the world as it opens: S1 amber "2 of 9 walks done", S2 and S3 navy with no words', async ({ page }) => {
+test('the world as it opens: S1 amber "2 of 9 walks done", S2 and S3 black with no words', async ({ page }) => {
   await open(page, world());
   await expect(bar(page, 'S1')).toHaveAttribute('data-status', 'working');
   await expect(words(page, 'S1')).toHaveText('2 of 9 walks done');
@@ -113,8 +113,8 @@ test('the world as it opens: S1 amber "2 of 9 walks done", S2 and S3 navy with n
     await expect(bar(page, s)).toHaveAttribute('data-status', 'none');
     await expect(words(page, s)).toHaveCount(0);
   }
-  // navy stays the phone look's colour
-  expect((await colours(page, 'S2')).bg).toBe('rgb(18, 38, 61)');   // #12263d
+  // nothing yet = the black bar: #111 is --black in day colours (Titan colours, 11/24/26; was navy #12263d)
+  expect((await colours(page, 'S2')).bg).toBe('rgb(17, 17, 17)');   // #111
 });
 
 test('Site done on the amber site turns it green, "Done"', async ({ page }) => {
@@ -146,14 +146,14 @@ test('every walk treated (a treat-only night) is green', async ({ page }) => {
   await expect(bar(page, 'S3')).toHaveAttribute('data-status', 'done');
 });
 
-test('Clean again starts the site over: back to navy', async ({ page }) => {
-  // S3 all cleared (green), then a Clean again row: the new pass has nothing -> navy
+test('Clean again starts the site over: back to black', async ({ page }) => {
+  // S3 all cleared (green), then a Clean again row: the new pass has nothing -> black
   await open(page, add(world(), logRow(3, 'S3', 'X1', 'cleared'), logRow(4, 'S3', 'X2', 'cleared'), logRow(5, 'S3', 'X3', 'cleared'), logRow(6, 'S3', '*', 'again')));
   await expect(bar(page, 'S3')).toHaveAttribute('data-status', 'none');
   await expect(words(page, 'S3')).toHaveCount(0);
 });
 
-test('no storm open: every bar navy, no words', async ({ page }) => {
+test('no storm open: every bar black, no words', async ({ page }) => {
   const w = world(); w.storms = [START, END];
   await open(page, w);
   for (const s of ['S1', 'S2', 'S3']) {
@@ -162,7 +162,7 @@ test('no storm open: every bar navy, no words', async ({ page }) => {
   }
 });
 
-// One world with all four colours: S1 amber, S2 green (Y1..Y8 cleared), S3 red (X1 problem), plus navy S4.
+// One world with all four colours: S1 amber, S2 green (Y1..Y8 cleared), S3 red (X1 problem), plus black S4.
 function fourColours() {
   const w = world();
   for (let i = 1; i <= 8; i++) w.log.push(logRow(2 + i, 'S2', 'Y' + i, 'cleared'));
@@ -214,4 +214,86 @@ test('Spanish: the words read in Spanish, the site name stays', async ({ page })
   await expect(words(page, 'S3')).toHaveText('1 problema');
   await expect(words(page, 'S4')).toHaveText('Llegué');
   await expect(page.locator('[data-shiftsite="S1"] .site-name')).toContainText('Big Clinic');
+});
+
+// ---- Titan colours (Matt, 11/24/26): gold and black. Gold #f5b800 is only ever lettering or an edge on --black; the amber
+// "started" bar stays the only gold-looking block on the Storm tab, so a crew member scanning a route for amber sees nothing
+// else that looks like one. --black is #111 by day and #000 at night. Values from the design's table, never from a run.
+const GOLD = 'rgb(245, 184, 0)';                                            // #f5b800
+const BLACK = { false: 'rgb(17, 17, 17)', true: 'rgb(0, 0, 0)' };          // --black, keyed by dark
+for (const dark of [false, true]) {
+  const mode = dark ? 'dark' : 'light';
+
+  test('Titan colours: no gold fill but the started bar (' + mode + ')', async ({ page }) => {
+    await open(page, fourColours(), { dark });
+    // "Gold-looking": red 200+, green 120..200, blue 80 or under. Gold 245,184,0, day amber 242,176,30 and night amber 224,160,16 all are.
+    const found = await page.evaluate(() => {
+      const out = [];
+      document.querySelectorAll('header, header *, main, main *, nav, nav *').forEach((el) => {
+        if (!el.getClientRects().length) return;
+        const m = getComputedStyle(el).backgroundColor.match(/[\d.]+/g);
+        if (!m) return;
+        const [r, g, b, a] = m.map(Number);
+        if (a === 0) return;
+        if (r >= 200 && g >= 120 && g <= 200 && b <= 80) out.push(el.matches('.site-bar.st-working') ? 'started bar' : el.tagName + '.' + el.className);
+      });
+      return out;
+    });
+    expect(found).toContain('started bar');                               // S1's bar: the check can see a gold-looking fill
+    expect(found.filter((x) => x !== 'started bar')).toEqual([]);
+  });
+
+  test('Titan colours: the black header reads at 320 px (' + mode + ')', async ({ page }) => {
+    await open(page, fourColours(), { dark });
+    const h = await page.evaluate(() => {
+      const cs = (el) => getComputedStyle(el), vis = (el) => !!el && el.getClientRects().length > 0, head = document.querySelector('header');
+      const parts = [document.querySelector('#who'), [...document.querySelectorAll('header .lang-btn')].find(vis), document.querySelector('#share')];
+      return { bg: cs(head).backgroundColor, edge: cs(head).borderBottomColor, edgeW: cs(head).borderBottomWidth, shadow: cs(head).boxShadow,
+        parts: parts.map((el) => ({ id: el ? el.id || el.dataset.lang : 'missing', shown: vis(el), bg: el && cs(el).backgroundColor, color: el && cs(el).color })) };
+    });
+    expect(h.bg).toBe(BLACK[dark]);
+    // the 2 px gold line under the header: a 1 px border + 1 px of shadow below it, so the header stays 61 px tall
+    // (the Sites tab's heading bars stick at top:61px, and the roster spec's room is worked on paper from 61)
+    expect(h.edge).toBe(GOLD);
+    expect(h.edgeW).toBe('1px');
+    expect(h.shadow).toContain(GOLD);
+    for (const p of h.parts) {
+      expect(p.shown, p.id).toBe(true);
+      expect(p.bg, p.id).toBe('rgb(42, 40, 36)');                          // --head-chip #2a2824, never a white box on black
+      expect(contrast(p.color, p.bg), p.id).toBeGreaterThanOrEqual(4.5);  // --head-ink #e8e2d4 on it: 11.39 on paper
+    }
+  });
+
+  test('Titan colours: the selected tab is more than a colour (' + mode + ')', async ({ page }) => {
+    await open(page, fourColours(), { dark });
+    const tabs = await page.evaluate(() => [...document.querySelectorAll('nav button')].filter((b) => b.getClientRects().length)
+      .map((b) => ({ cur: b.getAttribute('aria-current') === 'page', color: getComputedStyle(b).color, shadow: getComputedStyle(b).boxShadow })));
+    const cur = tabs.filter((t) => t.cur), rest = tabs.filter((t) => !t.cur);
+    expect(cur).toHaveLength(1);
+    expect(cur[0].color).toBe(GOLD);
+    expect(cur[0].shadow).toContain(GOLD);                                 // the gold top edge
+    expect(rest.length).toBeGreaterThan(0);
+    for (const t of rest) {
+      expect(t.color).toBe('rgb(189, 183, 168)');                         // --head-muted #bdb7a8
+      expect(t.shadow).toBe('none');
+    }
+  });
+
+  test('Titan colours: Site done is black with gold lettering (' + mode + ')', async ({ page }) => {
+    await open(page, world(), { dark });
+    const b = await page.locator('[data-sitetap="S2"][data-kind="done"]').evaluate((el) => {
+      const c = getComputedStyle(el);
+      return { color: c.color, bg: c.backgroundColor, edge: c.borderTopColor };
+    });
+    // --btn-edge: #111 by day (the button's own black), gold at night (black on a near-black card needs the edge)
+    expect(b).toEqual({ color: GOLD, bg: BLACK[dark], edge: dark ? GOLD : 'rgb(17, 17, 17)' });
+  });
+}
+
+test('Titan colours: a phone that turns dark while the app is open follows it', async ({ page }) => {
+  await open(page, world());
+  const read = () => bar(page, 'S2').evaluate((el) => ({ bar: getComputedStyle(el).backgroundColor, card: getComputedStyle(el.closest('.shift-site')).backgroundColor }));
+  expect(await read()).toEqual({ bar: 'rgb(17, 17, 17)', card: 'rgb(255, 255, 255)' });   // day: --black #111, --card #fff
+  await page.emulateMedia({ colorScheme: 'dark' });
+  expect(await read()).toEqual({ bar: 'rgb(0, 0, 0)', card: 'rgb(38, 36, 32)' });         // night: --black #000, --card #262420
 });

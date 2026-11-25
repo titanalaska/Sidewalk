@@ -52,7 +52,7 @@ function world() {
 
 function fakeSnow(state) {
   return (body) => {
-    const v = { version: 'crewstats-1', action: body.action };
+    const v = { version: 'cards-1', action: body.action };
     if (body.token !== 'tok-matt' && body.token !== 'tok-jordan') return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     // tok-jordan is a CREW member (C03), on no roster file here: the Post (state.post) is what puts him on a route. Crew never get the
     // admin's moves / callouts / gear, as the real bootstrap.

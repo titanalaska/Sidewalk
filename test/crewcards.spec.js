@@ -391,3 +391,84 @@ test("crew cards: Matt's save of a 41-character line shows the refusal inside th
   await expect(page.locator('#dlg')).toHaveJSProperty('open', false);
   expect(w.crew[0].card_line).toBe('New line');
 });
+
+// Share my card (Task 8): a PNG of one's own card. The text drawn on the canvas is recorded (fillText wrapped before the page loads);
+// navigator.share / canShare are stubbed to record the files they are handed. The phone number is never drawn.
+// Abel (C01): "2 seasons", line "Plow before sunrise", Nights worked 9, Team sq ft 1,214,300, footer "Shovel Command · Winter 2026–27".
+const SHARE_STUB = (mode) => {
+  window.__fills = []; window.__shared = [];
+  const f = CanvasRenderingContext2D.prototype.fillText;
+  CanvasRenderingContext2D.prototype.fillText = function (t) { window.__fills.push(String(t)); return f.apply(this, arguments); };
+  if (mode === 'none') { navigator.canShare = () => false; navigator.share = undefined; return; }
+  navigator.canShare = () => mode !== 'cannot';
+  navigator.share = async (d) => {
+    window.__shared.push((d.files || []).map((x) => ({ name: x.name, type: x.type, size: x.size })));
+    if (mode === 'cancel') { const e = new Error('cancelled'); e.name = 'AbortError'; throw e; }
+  };
+};
+async function openShare(page, mode) {
+  await page.addInitScript(SHARE_STUB, mode);
+  return open(page, world(), 'tok-abel');
+}
+
+test('share my card: one image/png file named crew-card.png goes to navigator.share', async ({ page }) => {
+  const errors = await openShare(page, 'ok');
+  await page.click('[data-ccshare]');
+  await expect.poll(() => page.evaluate(() => window.__shared.length)).toBe(1);
+  const files = await page.evaluate(() => window.__shared[0]);
+  expect(files.length).toBe(1);
+  expect(files[0].name).toBe('crew-card.png');
+  expect(files[0].type).toBe('image/png');
+  expect(files[0].size).toBeGreaterThan(100);
+  expect(errors).toEqual([]);
+});
+
+test('share my card: the picture carries name, seasons, line, both numbers and the footer, never the phone number', async ({ page }) => {
+  await openShare(page, 'ok');
+  await page.click('[data-ccshare]');
+  await expect.poll(() => page.evaluate(() => window.__shared.length)).toBe(1);
+  const fills = await page.evaluate(() => window.__fills);
+  for (const want of ['Abel Stone', '2 seasons', 'Plow before sunrise', 'Nights worked', '9', 'Team sq ft', '1,214,300', 'Shovel Command \u00b7 Winter 2026\u201327']) {
+    expect(fills, want).toContain(want);
+  }
+  const all = fills.join(' | ');
+  expect(all).not.toContain('555');
+  expect(all).not.toContain('907');
+});
+
+test('share my card: a person with no picture is drawn as initials on a circle', async ({ page }) => {
+  const w = world();
+  w.crew[0].photo_thumb = null;
+  await page.addInitScript(SHARE_STUB, 'ok');
+  await open(page, w, 'tok-abel');
+  await page.click('[data-ccshare]');
+  await expect.poll(() => page.evaluate(() => window.__shared.length)).toBe(1);
+  expect(await page.evaluate(() => window.__fills)).toContain('AS');
+});
+
+test('share my card: with canShare false a download of crew-card.png starts', async ({ page }) => {
+  await openShare(page, 'cannot');
+  const dl = page.waitForEvent('download');
+  await page.click('[data-ccshare]');
+  expect((await dl).suggestedFilename()).toBe('crew-card.png');
+  expect(await page.evaluate(() => window.__shared.length)).toBe(0);
+});
+
+test('share my card: a cancelled share shows no error', async ({ page }) => {
+  const errors = await openShare(page, 'cancel');
+  await page.click('[data-ccshare]');
+  await expect.poll(() => page.evaluate(() => window.__shared.length)).toBe(1);
+  await page.waitForTimeout(300);
+  await expect(page.locator('#toast')).toBeHidden();
+  expect(errors).toEqual([]);
+});
+
+test('share my card: the button on the back of your own card shares too; the back of someone else has none', async ({ page }) => {
+  await openShare(page, 'ok');
+  await page.locator('.ccard[data-card="C01"] .cc-top').click();
+  await page.click('.ccard[data-card="C01"] [data-ccshare2]');
+  await expect.poll(() => page.evaluate(() => window.__shared.length)).toBe(1);
+  await page.locator('.ccard[data-card="C02"] .cc-top').click();
+  await expect(page.locator('.ccard[data-card="C02"] .cc-back')).toBeVisible();
+  await expect(page.locator('.ccard[data-card="C02"] [data-ccshare], .ccard[data-card="C02"] [data-ccshare2]')).toHaveCount(0);
+});

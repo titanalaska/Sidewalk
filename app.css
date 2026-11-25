@@ -1,7 +1,6 @@
 :root{color-scheme:light dark}
 :root{--bg:#f6f5f2;--card:#fff;--ink:#1d1d1b;--muted:#6b6a66;--line:#dedcd6;--accent:#1f5fa8;--on-accent:#fff;--warn:#b3261e;--warn-bg:#fbe9e7;--chip:#eef1f5;--amber:#b36b00;--amber-bg:#fff0d1}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#060708;--card:#232a33;--ink:#eee;--muted:#b4bcc6;--line:#46505c;--accent:#7fb0ea;--on-accent:#0b1b2e;--warn:#ff8a80;--warn-bg:#3a1d1b;--chip:#2e3640;--amber:#ffc266;--amber-bg:#3d2c0c}}
-:root[data-theme="dark"]{--bg:#060708;--card:#232a33;--ink:#eee;--muted:#b4bcc6;--line:#46505c;--accent:#7fb0ea;--on-accent:#0b1b2e;--warn:#ff8a80;--warn-bg:#3a1d1b;--chip:#2e3640;--amber:#ffc266;--amber-bg:#3d2c0c}
+@media (prefers-color-scheme: dark){:root{--bg:#060708;--card:#232a33;--ink:#eee;--muted:#b4bcc6;--line:#46505c;--accent:#7fb0ea;--on-accent:#0b1b2e;--warn:#ff8a80;--warn-bg:#3a1d1b;--chip:#2e3640;--amber:#ffc266;--amber-bg:#3d2c0c}}
 *{box-sizing:border-box}
 [hidden]{display:none !important}
 body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding-bottom:140px}
@@ -56,12 +55,10 @@ td,th{padding:6px 4px;border-bottom:1px solid var(--line);vertical-align:top;tex
 th{color:var(--muted);font-weight:500;width:38%}
 /* ---- dressed-up cards, shared by the owner board and the crew view (9/30/26) ---- */
 :root{--lead-bg:#e8f0fb;--ok:#1e7a3c;--ok-bg:#e6f4ea;--pill:#f1efe8}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--lead-bg:#1a2a3d;--ok:#7ed69a;--ok-bg:#16301f;--pill:#2e3640}}
-:root[data-theme="dark"]{--lead-bg:#1a2a3d;--ok:#7ed69a;--ok-bg:#16301f;--pill:#2e3640}
+@media (prefers-color-scheme: dark){:root{--lead-bg:#1a2a3d;--ok:#7ed69a;--ok-bg:#16301f;--pill:#2e3640}}
 .card{border-radius:14px;padding:14px;box-shadow:0 1px 2px rgba(0,0,0,.05)}
 /* Dark mode: cards stand apart from the page (Matt, 11/12/26: the pages blurred together in dark mode) */
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .card{box-shadow:0 3px 14px rgba(0,0,0,.7),inset 0 1px 0 rgba(255,255,255,.07);margin-bottom:20px}}
-:root[data-theme="dark"] .card{box-shadow:0 3px 14px rgba(0,0,0,.7),inset 0 1px 0 rgba(255,255,255,.07);margin-bottom:20px}
+@media (prefers-color-scheme: dark){:root .card{box-shadow:0 3px 14px rgba(0,0,0,.7),inset 0 1px 0 rgba(255,255,255,.07);margin-bottom:20px}}
 .route-top{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:10px}
 .route-badge{background:var(--accent);color:var(--on-accent);font-weight:700;font-size:18px;padding:3px 14px;border-radius:999px;letter-spacing:.3px}
 .site-pill{border:1px solid var(--line);background:var(--pill);color:var(--muted);font-size:12px;padding:2px 9px;border-radius:999px}
@@ -224,8 +221,7 @@ body.has-ref.ref-min #mapbox{height:62vh}
 .vc-times{margin-top:12px}
 /* Live view and storm controls (Matt and the leads, 10/3/26). */
 :root{--yellow-bg:#fff3bf;--yellow-ink:#5c4400;--yellow-line:#e0b400}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--yellow-bg:#3d3300;--yellow-ink:#ffe27a;--yellow-line:#a88700}}
-:root[data-theme="dark"]{--yellow-bg:#3d3300;--yellow-ink:#ffe27a;--yellow-line:#a88700}
+@media (prefers-color-scheme: dark){:root{--yellow-bg:#3d3300;--yellow-ink:#ffe27a;--yellow-line:#a88700}}
 .walk-nosalt{margin:-2px 0 6px;font-size:14px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:6px}
 .walk-nosalt i.stripes{display:inline-block;width:22px;height:14px;border-radius:3px;flex:none;background:repeating-linear-gradient(135deg,#b5e61d 0 3px,#9aa 3px 6px)}
 .walk-warn{margin-top:8px;padding:8px 10px;border-radius:8px;background:var(--yellow-bg);color:var(--yellow-ink);border:1px solid var(--yellow-line);font-size:14px;font-weight:600}
@@ -465,8 +461,7 @@ header #who{flex:1 1 auto;min-width:0;text-align:left}
 .site-bar{background:#12263d;color:#fff;margin:-14px -14px 10px;padding:12px 14px;border-radius:14px 14px 0 0}
 .site-bar .site-name{font-size:21px;font-weight:800;line-height:1.2;color:#fff;overflow-wrap:anywhere}
 .site-bar .site-addr{color:#c9d6e4;font-size:13px;font-weight:500;display:block}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .site-bar{background:#17457a}}
-:root[data-theme="dark"] .site-bar{background:#17457a}
+@media (prefers-color-scheme: dark){:root .site-bar{background:#17457a}}
 /* ---- The bar's colour is the site's status (Matt, 11/19/26), from lib/sitestatus.js: red = a Problem, green = every walk marked,
    amber = the crew came or something is marked, navy (above) = nothing yet. Words under the name say the same, so colour is
    never the only sign. Amber takes dark text; every pair is 4.5:1 or better (test/statusbar.spec.js), light and dark. ---- */
@@ -479,12 +474,9 @@ header #who{flex:1 1 auto;min-width:0;text-align:left}
 .site-bar.st-working .site-name,.site-bar.st-working .site-status{color:#1b1400}
 .site-bar.st-working .site-addr{color:#3d2e00}
 @media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]) .site-bar.st-problem{background:#b42a22}
-  :root:not([data-theme="light"]) .site-bar.st-done{background:#22783c}
-  :root:not([data-theme="light"]) .site-bar.st-working{background:#e0a010}
+  :root .site-bar.st-problem{background:#b42a22}
+  :root .site-bar.st-done{background:#22783c}
+  :root .site-bar.st-working{background:#e0a010}
 }
-:root[data-theme="dark"] .site-bar.st-problem{background:#b42a22}
-:root[data-theme="dark"] .site-bar.st-done{background:#22783c}
-:root[data-theme="dark"] .site-bar.st-working{background:#e0a010}
 .walks-toggle{margin:2px 0 8px}
 .walks-toggle button{width:100%}

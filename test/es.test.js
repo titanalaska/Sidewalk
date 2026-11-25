@@ -97,7 +97,7 @@ test('final review: the rows and rules the crew screens were still missing', () 
     'Type your first and last name and choose a 4-digit PIN. Matt approves it here in Shovel Command. Then sign in with your name and this PIN.':
       'Escribe tu nombre y apellido y elige un PIN de 4 dígitos. Matt lo aprueba aquí en Shovel Command. Después inicia sesión con tu nombre y este PIN.',
     "Can't reach the server. Trying again.": 'No se puede conectar con el servidor. Intentando de nuevo.',
-    'Add minutes for Blower, or untick it': 'Agrega minutos para Sopladora, o desmárcala',
+    'Add minutes for Walk-behind blower, or untick it': 'Agrega minutos para Soplador de empuje, o desmárcala',
     'Night of 10/3, posted 12:12 AM': 'Noche del 10/3, publicado 12:12 AM',
     'Day of 10/3, posted 9:05 AM': 'Día del 10/3, publicado 9:05 AM',
     'Shifts worked': 'Turnos trabajados',
@@ -333,4 +333,72 @@ test('check night (final review I3): the pass line "Storm · became a storm" rea
   assert.equal(Es.translateString('Storm · became a storm 1:00 AM by Matt Walsh'), 'Tormenta · se volvió tormenta 1:00 AM por Matt Walsh');
   // No name on the row: the time ends the line.
   assert.equal(Es.translateString('Storm · became a storm 1:00 AM'), 'Tormenta · se volvió tormenta 1:00 AM');
+});
+
+// Site card machine lines (Matt, 11/24/26). Crew read owed. Brand names (Bobcat, Snowrator, Sweepster), people and units
+// stay English: the card puts them under data-no-es, or they sit inside a sentence as plain text and are kept by the rule.
+test('machine lines: the line-numbered refusals keep the brand name and N', () => {
+  const cases = {
+    'Pick the unit for Bobcat 2, or remove it': 'Elige la unidad de Bobcat 2, o quítala',
+    'Pick an attachment for Bobcat 2, or remove it': 'Elige el aditamento de Bobcat 2, o quítala',
+    'Pick who ran Bobcat 1, or remove it': 'Elige quién operó Bobcat 1, o quítala',
+    'Add minutes for Bobcat 3, or remove it': 'Agrega minutos para Bobcat 3, o quítala',
+    'Pick the unit for Snowrator 1, or remove it': 'Elige la unidad de Snowrator 1, o quítala',
+    'Pick who ran Snowrator 2, or remove it': 'Elige quién operó Snowrator 2, o quítala',
+    'Add minutes for Snowrator 1, or remove it': 'Agrega minutos para Snowrator 1, o quítala',
+    'Add minutes for Walk-behind blower, or untick it': 'Agrega minutos para Soplador de empuje, o desmárcala',
+  };
+  for (const [en, es] of Object.entries(cases)) assert.equal(Es.translateString(en), es, en);
+});
+
+test('machine lines: the duplicate refusals keep the name, the unit and the brand name', () => {
+  const cases = {
+    'Loki Haskins is on BC5 twice': 'Loki Haskins está en BC5 dos veces',
+    'Loki Haskins is on two Bobcats with no unit: pick the units': 'Loki Haskins está en dos Bobcats sin unidad: elige las unidades',
+    'Jordan Demo is on two Snowrators with no unit: pick the units': 'Jordan Demo está en dos Snowrators sin unidad: elige las unidades',
+  };
+  for (const [en, es] of Object.entries(cases)) assert.equal(Es.translateString(en), es, en);
+});
+
+test('machine lines: the server refusals a card can show are not half translated by the shorter rows', () => {
+  const cases = {
+    'Pick an attachment for each Bobcat': 'Elige un aditamento para cada Bobcat',
+    'Pick who ran each machine': 'Elige quién operó cada máquina',
+    'Add minutes for each machine': 'Agrega minutos para cada máquina',
+    'A unit number is text, 20 characters at most': 'Un número de unidad es texto, 20 caracteres como máximo',
+    'Too many machines on one card': 'Demasiadas máquinas en una tarjeta',
+    "That person isn't on the roster": 'Esa persona no está en la lista',
+  };
+  for (const [en, es] of Object.entries(cases)) assert.equal(Es.translateString(en), es, en);
+});
+
+test('machine lines: the labels, one text node each', () => {
+  const cases = {
+    'Pick': 'Elegir', 'Unit:': 'Unidad:', 'Minutes:': 'Minutos:', 'Operator:': 'Operador:', 'Not sure': 'No sé', 'Remove': 'Quitar',
+    'Snowblower': 'Soplador de nieve', 'Bucket': 'Cucharón', 'Equipment': 'Equipo', 'Walk-behind blower': 'Soplador de empuje',
+    '+ Add a ': '+ Agregar un ',
+    'Already logged here this shift:': 'Ya registrado aquí en este turno:',
+    'Walk-behind blower minutes': 'Minutos del soplador de empuje',
+    'Attachment for Bobcat 2': 'Aditamento para Bobcat 2',
+    ' 106 min': ' 106 min',   // "min" is the same word in Spanish: no row
+  };
+  for (const [en, es] of Object.entries(cases)) assert.equal(Es.translateString(en), es, JSON.stringify(en));
+});
+
+test('machine lines: the old-minutes row and the replaced note, split around their brand names and people', () => {
+  const cases = {
+    ' 106 min, saved before machine lines': ' 106 min, guardado antes de las líneas de máquina',
+    'Remove it if you add this': 'Quítalo si agregas este',
+    ' as a line': ' como una línea',
+    ' logged ': ' registró a ',
+    ' later; that line counts.': ' después; esa línea cuenta.',
+  };
+  for (const [en, es] of Object.entries(cases)) assert.equal(Es.translateString(en), es, JSON.stringify(en));
+});
+
+test('machine lines: the new bare words never bite longer English or the old card words', () => {
+  assert.equal(Es.translateString('Pick a route'), 'Elige una ruta');
+  assert.equal(Es.translateString('Minutes must be a whole number, zero or more'), 'Los minutos deben ser un número entero, cero o más');
+  assert.equal(Es.translateString('Blower'), 'Blower', 'no bare Blower row');
+  assert.ok(!('Equipment (minutes)' in Es.ES) && !('Blower' in Es.ES));
 });

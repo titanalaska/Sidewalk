@@ -378,3 +378,39 @@ test('the card fits at 320 px with two Bobcats, a Snowrator and long names', asy
   expect(m.wide).toBe(false);
   expect(m.dlgWide).toBe(false);
 });
+
+// Spanish at 320 px (Task 8, UNRUN when written): the card in Spanish with two Bobcats, a Snowrator and a long name keeps
+// every control inside the screen, and the words the crew reads are Spanish while brand names, units and names stay as they are.
+test('the card in Spanish fits at 320 px, brand names and people kept', async ({ page }) => {
+  const w = world();
+  w.crew.push({ id: 'C30', name: 'Bartholomew Montgomery-Featherstonehaugh', rev: 1 });
+  w.sites[0].units.bobcat = 'BC5-ABCDEFGHIJKLMNO, BT13';
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await open(page, w);
+  await openCard(page);
+  await page.click('#vc_add_bobcat'); await page.click('#vc_add_bobcat'); await page.click('#vc_add_snowrator');
+  await fill(page, 'bobcat', 1, { unit: 'BC5-ABCDEFGHIJKLMNO', att: 'snowblower', op: 'C30', min: 106 });
+  const l = line(page, 'bobcat', 1);
+  await expect(l.locator('label').first()).toHaveText('Unidad:');
+  await expect(l.locator('[data-matt="snowblower"]')).toHaveText('Soplador de nieve');
+  await expect(l.locator('[data-matt="bucket"]')).toHaveText('Cucharón');
+  await expect(l.locator('.vc-mremove')).toHaveText('Quitar');
+  await expect(l.locator('.vc-mhead b')).toHaveText('Bobcat 1');
+  await expect(page.locator('#vc_add_bobcat')).toHaveText('+ Agregar un Bobcat');
+  await expect(page.locator('#vc_add_snowrator')).toHaveText('+ Agregar un Snowrator');
+  await expect(line(page, 'bobcat', 1).locator('[data-munit] option[value="BC5-ABCDEFGHIJKLMNO"]')).toHaveText('BC5-ABCDEFGHIJKLMNO');
+  await page.click('#vc_save');
+  await expect(err(page)).toHaveText('Elige la unidad de Bobcat 2, o quítala');
+  const m = await page.evaluate(() => {
+    const dlg = document.querySelector('#dlgIn'), W = document.documentElement.clientWidth;
+    const bad = [];
+    dlg.querySelectorAll('.vc-mline select, .vc-mline input, .vc-mline button, #vc_add_bobcat, #vc_add_snowrator').forEach((el) => {
+      const r = el.getBoundingClientRect();
+      if (r.right > W + 0.5 || r.left < -0.5) bad.push(el.outerHTML.slice(0, 60) + ' ' + Math.round(r.left) + '-' + Math.round(r.right));
+    });
+    return { bad, wide: document.documentElement.scrollWidth > W, dlgWide: dlg.scrollWidth > dlg.clientWidth + 1 };
+  });
+  expect(m.bad).toEqual([]);
+  expect(m.wide).toBe(false);
+  expect(m.dlgWide).toBe(false);
+});

@@ -306,3 +306,50 @@ test('R42 BT: a typed row at or below the pass start stays out even with an Arri
   assert.deepEqual([N.btNote(o, 'night-2026-12-04').timeIn], ['2:10 AM']);
 });
 
+
+// ---- Check night (design 11/24/26): Copy for BT agrees with the sheet's derived Checked ----
+// The paper fixture: storm ST-1 a check night. S1 "Loussac": Front walk (sidewalk), Ramp (heated). S2: East walk, West walk.
+// Log 1 S1 arrived, 2 S1 left, 3 S2 arrived, 4 S2 East walk treated, 5 S2 left, all in night-2026-11-26.
+// The switch: Log 6 a storm-wide 'stormed' row at 02:04, Log 7 West walk cleared at 02:30.
+const CN_NIGHT = 'night-2026-11-26';
+const cnZ = [
+  { id: 'Z1', site_id: 'S1', type: 'sidewalk', name: 'Front walk' }, { id: 'Z2', site_id: 'S1', type: 'heated', name: 'Ramp' },
+  { id: 'Z3', site_id: 'S2', type: 'sidewalk', name: 'East walk' }, { id: 'Z4', site_id: 'S2', type: 'sidewalk', name: 'West walk' },
+];
+const cnRow = (seq, site, zone, state, at, extra = {}) => ({ id: 'L-' + seq, seq, storm_id: 'ST-1', shift_id: CN_NIGHT, site_id: site, zone_id: zone,
+  state, note: '', by_name: 'Alex Test', at: '2026-11-26T' + at + ':00.000-09:00', snowing_warned: false, ...extra });
+const cnLog = () => [cnRow(1, 'S1', '*', 'arrived', '21:42'), cnRow(2, 'S1', '*', 'left', '22:05'), cnRow(3, 'S2', '*', 'arrived', '22:08'),
+  cnRow(4, 'S2', 'Z3', 'treated', '22:15'), cnRow(5, 'S2', '*', 'left', '22:31')];
+const cnStorms = (check) => [{ id: 'ST-1', seq: 1, kind: 'start', storm_id: 'ST-1', at: '2026-11-26T21:00:00.000-09:00', ...(check ? { check: true } : {}) },
+  ...(check === 'switched' ? [{ id: 'ST-2', seq: 2, kind: 'to_storm', storm_id: 'ST-1', log_seq: 6, visit_seq: 0, at: '2026-11-27T02:04:00.000-09:00' }] : [])];
+const cnNote = (siteId, log, storms) => N.btNote({ site: { id: siteId, name: siteId, units: {} }, zones: cnZ, storm_id: 'ST-1', log, visits: [], storms }, CN_NIGHT).text.split('\n')[0];
+
+test('btNote: S1 on a check night lists Front walk and Ramp under Checked', () => {
+  // S1 was visited (Arrived stands) and no walk was tapped: both walks are checked by the visit, in name order.
+  assert.equal(cnNote('S1', cnLog(), cnStorms(true)), 'Checked: Front walk, Ramp.');
+  // A walk that was tapped keeps its own state: S2's East walk is Treated, West walk (untapped, visited) is Checked.
+  // STATES order lists Treated before Checked.
+  assert.equal(cnNote('S2', cnLog(), cnStorms(true)), 'Treated: East walk. Checked: West walk.');
+});
+
+test('btNote: the storm-night copy says Not done', () => {
+  // The same Log with no check flag: untapped walks are Not done, as today.
+  assert.equal(cnNote('S1', cnLog(), cnStorms(false)), 'Not done: Front walk, Ramp.');
+  // And with no storms handed in at all.
+  assert.equal(cnNote('S1', cnLog(), undefined), 'Not done: Front walk, Ramp.');
+});
+
+test('btNote: a check night site with no visit says Not done', () => {
+  // S1's rows removed: not visited, nothing is derived.
+  const log = cnLog().filter((r) => r.site_id !== 'S1');
+  assert.equal(cnNote('S1', log, cnStorms(true)), 'Not done: Front walk, Ramp.');
+});
+
+test('btNote after the switch uses storm rules', () => {
+  // Log 6 is a storm-wide pass break at 02:04; Log 7 clears West walk at 02:30. After it every walk starts fresh and the latest
+  // pass is the storm's: S2 lists Cleared: West walk and Not done: East walk (its check-time Treated belongs to the earlier pass).
+  // S1 has nothing since the switch: Not done for both, never the derived Checked.
+  const log = cnLog().concat([cnRow(6, '*', '*', 'stormed', '02:04', { by_name: 'Matthew' }), cnRow(7, 'S2', 'Z4', 'cleared', '02:30')]);
+  assert.equal(cnNote('S2', log, cnStorms('switched')), 'Cleared: West walk. Not done: East walk.');
+  assert.equal(cnNote('S1', log, cnStorms('switched')), 'Not done: Front walk, Ramp.');
+});

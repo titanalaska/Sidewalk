@@ -51,7 +51,7 @@ test('the audit fixture really holds one of each new state, and a time_in / time
 test('the live summary: done, Touched, problems, last tap and routes started do not move for a mark', () => {
   // Paper (the live view's own fixture): S1 done (both walks cleared); S2's Problem was undone, so none; S3 has an open Problem.
   // The newest REAL tap is L-5 at 19:50 (L-6 is a reading, L-4 an undo); R1 (S1) and R2 (S3) started, R3 (S2 alone) did not.
-  const want = { sitesDone: 1, sitesTouched: 0, sitesTotal: 3, problems: 1, lastTapAt: '2026-12-04T19:50:00-09:00', routesStarted: 2, routesTotal: 3 };
+  const want = { sitesDone: 1, sitesTouched: 0, sitesChecked: 0, sitesTotal: 3, problems: 1, lastTapAt: '2026-12-04T19:50:00-09:00', routesStarted: 2, routesTotal: 3 };
   assert.deepEqual(LiveSum.liveSummary({ routes: ROUTES, zones: ZONES, log: BASE, stormId: ST }), want);
   WITH.forEach(([name, log]) => assert.deepEqual(LiveSum.liveSummary({ routes: ROUTES, zones: ZONES, log: clone(log), stormId: ST }), want, name));
 });

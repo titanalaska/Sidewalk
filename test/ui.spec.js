@@ -11873,3 +11873,21 @@ test('next bar: the one-site drill-in has no bar, but keeps its Directions link'
   await expect(page.locator('[data-nextsite]')).toHaveCount(0);
   await expect(page.locator('a[data-directions]')).toHaveCount(1);
 });
+
+// ---------- Check night (design 11/24/26) ----------
+test.describe('check night:', () => {
+  test('the live summary says 2 of 3 sites checked', async ({ page }) => {
+    // The paper fixture: a check night (the start row says check:true); one route of three sites. S1 (PAC) and S2 (TUDOR-TRANSIT) each
+    // have an Arrived and a Left; S3 has no row. Visited = 2 of 3 sites, so the line leads with "2 of 3 sites checked" and not with
+    // the done count. Arrived / Left are not walk taps: no tap yet, and the one route has had none, so "0 of 1 routes started".
+    const w = stormWorld();
+    w.sites = [...w.sites, { id: 'S3', name: 'MC Properties', rev: 1 }];
+    w.routes = [{ id: 'R6', name: 'N6', rev: 1, site_ids: ['S1', 'S2', 'S3'] }];
+    w.storms = [{ ...START_ROW, check: true }];
+    w.log = [logRow(1, 'S1', '*', 'arrived', 'Alex Test'), logRow(2, 'S1', '*', 'left', 'Alex Test'),
+      logRow(3, 'S2', '*', 'arrived', 'Alex Test'), logRow(4, 'S2', '*', 'left', 'Alex Test')];
+    await openStorm(page, w, { token: 'tok-matt' });
+    await expect(page.locator('#livesum')).toContainText('2 of 3 sites checked');
+    await expect(page.locator('#livesum')).not.toContainText('sites done');
+  });
+});

@@ -46,7 +46,7 @@ function world() {
 
 function fakeSnow(state) {
   return async (body) => {
-    const v = { version: 'checknight-1', action: body.action };
+    const v = { version: 'machines-1', action: body.action };
     if (body.token !== 'tok-matt') return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     const me = { name: 'Matthew', role: 'admin', crew_id: null };
     if (body.action === 'bootstrap') return { ok: true, me, sites: [], routes: state.routes, zones: [], crew: state.crew, post: null, moves: [], callouts: [], gear: [], ...v };

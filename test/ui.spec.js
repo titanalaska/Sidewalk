@@ -26,7 +26,7 @@ function fakeSnow(state, opts = {}) {
   return (body) => {
     // Every POST reply carries `action`, the action it answers (outlines-1 on): the phone refuses a reply from its own version that
     // does not (lib/api.js, the not-saved guard). A curbs-1 server (opts.oldBackend) has never sent one.
-    const v = { version: opts.version || (opts.oldBackend ? 'curbs-1' : 'checknight-1'), ...(opts.oldBackend ? {} : { action: body.action }) };
+    const v = { version: opts.version || (opts.oldBackend ? 'curbs-1' : 'machines-1'), ...(opts.oldBackend ? {} : { action: body.action }) };
     // Outlines on demand (10/9/26, snow-app-script Code.js): `slim: true`, exactly true, and nothing else.
     const slim = body.slim === true && !opts.oldBackend;
     if (opts.expired && opts.expired.on) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
@@ -82,7 +82,7 @@ function fakeSnow(state, opts = {}) {
     if (body.action === 'bootstrap') {
       // Crew and leads never receive a pending card; Matt gets them whole.
       const crew = role === 'admin' ? state.crew : state.crew.filter((c) => c.pending !== true).map((c) => ({ id: c.id, name: c.name, phone: c.phone, photo_thumb: c.photo_thumb || null, is_lead: !!c.is_lead }));
-      const out = { ok: true, me, sites: state.sites, routes: state.routes, zones: state.zones || [], crew, post: state.posts.at(-1) || null, ...v };
+      const out = { ok: true, me, admin_name: 'Matthew', sites: state.sites, routes: state.routes, zones: state.zones || [], crew, post: state.posts.at(-1) || null, ...v };
       if (role === 'admin') Object.assign(out, { moves: state.moves, callouts: state.callouts, gear: state.gear });
       else out.card = selfView(own());   // one's own card, the self view (never the record)
       // As Code.js: the points are worked out FIRST, from the outlines the zones still have, then the
@@ -448,9 +448,37 @@ function fakeSnow(state, opts = {}) {
       if (body.action !== 'undoTap' && body.action !== 'undoSiteTap' && body.action !== 'tapSite' && !state.sites.find((s) => s.id === body.site_id && !s.archived)) return refuse('invalid', 'Unknown site');
       if (body.action === 'saveVisit') {
         const n = state.visits.length + 1, eq = { blower: '', snowrator: '', bobcat: '', sweepster: '', ...(body.equipment || {}) };
+        // Machine lines (snow-app-script saveVisit_, machines-1): absent = none; a non-list or a non-object line is refused; each
+        // operator_key is 'admin' (Matt's name) or a live, added roster card (else refused); CrewShiftLog.machineProblem judges the
+        // lines; each is saved as exactly the keys below, stamped against the saver's own previous newest card at this site and shift.
+        const sentLines = body.machines == null ? [] : body.machines;
+        if (!Array.isArray(sentLines)) return refuse('invalid', 'Machines must be a list');
+        const roster = state.crew || [], lines = [];
+        for (const sl of sentLines) {
+          if (!sl || typeof sl !== 'object' || Array.isArray(sl)) return refuse('invalid', 'Unknown machine');
+          const line = { type: sl.type, unit: sl.unit == null ? '' : (typeof sl.unit === 'string' ? sl.unit.trim() : sl.unit),
+            attachment: sl.attachment || '', operator_key: sl.operator_key, operator_name: '', minutes: sl.minutes };
+          const op = line.operator_key;
+          if (op !== undefined && op !== null && String(op).trim() !== '') {
+            if (op === 'admin') line.operator_name = 'Matthew';
+            else {
+              const card = roster.find((r) => r.id === op && r.archived !== true && r.pending !== true);
+              if (!card) return refuse('invalid', "That person isn't on the roster");
+              line.operator_name = card.name;
+            }
+          }
+          lines.push(line);
+        }
+        const problem = SL.machineProblem(lines);
+        if (problem) return refuse('invalid', problem);
+        lines.forEach((l) => { l.minutes = Number(l.minutes); });
+        const mine = me.crew_id || 'admin';
+        const prev = SL.visitTotals(state.visits, body.site_id, 'night-2026-10-02').cards.find((c) => c.by_key === mine) || null;
         // by_key is the crew id, or 'admin' for Matt (who is not on the roster): the server's rule.
-        const row = { id: 'V-' + n, seq: n, storm_id: storm.storm_id, shift_id: 'night-2026-10-02', site_id: body.site_id, by_key: me.crew_id || 'admin', by_name: me.name, at: stamp,
-          depth_in: body.depth_in === undefined ? '' : body.depth_in, materials_used: body.materials_used || '', equipment: eq };
+        const row = { id: 'V-' + n, seq: n, storm_id: storm.storm_id, shift_id: 'night-2026-10-02', site_id: body.site_id, by_key: mine, by_name: me.name, at: stamp,
+          depth_in: body.depth_in === undefined ? '' : body.depth_in, materials_used: body.materials_used || '', equipment: eq,
+          machines: SL.stampMachines(prev, lines.map((l) => ({ type: l.type, unit: l.unit, attachment: l.type === 'snowrator' ? '' : l.attachment,
+            operator_key: l.operator_key, operator_name: l.operator_name, minutes: l.minutes }))) };
         state.visits.push(row);
         return { ok: true, record: view(row), ...v };
       }
@@ -1095,7 +1123,7 @@ test('after a conflict the app reloads the latest, so the retry can save', async
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'checknight-1', action: b.action };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'machines-1', action: b.action };
     }
     return base(b);
   } });
@@ -4052,7 +4080,7 @@ test('crew still land on Tonight, with a Storm tab beside it', async ({ page }) 
 const EQUIP = ['blower', 'snowrator', 'bobcat', 'sweepster'];
 const visitRow = (n, siteId, byKey, byName, extra = {}) => ({ id: 'V-' + n, seq: n, storm_id: 'ST-1', shift_id: 'night-2026-10-02',
   site_id: siteId, by_key: byKey, by_name: byName, at: '2026-10-03T06:45:00.000-08:00', depth_in: '', materials_used: '',
-  equipment: { blower: '', snowrator: '', bobcat: '', sweepster: '' }, ...extra });
+  equipment: { blower: '', snowrator: '', bobcat: '', sweepster: '' }, machines: [], ...extra });
 const cardBtn = (page, id) => page.locator('[data-card="' + id + '"]');
 const visitCalls = (calls) => calls.filter((c) => c.body.action === 'saveVisit');
 const openCard = async (page, id) => { await cardBtn(page, id).click(); await expect(page.locator('#dlg')).toBeVisible(); };
@@ -4780,7 +4808,7 @@ test('every bootstrap asks for the slim reply: at sign-in, and the reload after 
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'checknight-1', action: b.action };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'machines-1', action: b.action };
     }
     return base(b);
   } });
@@ -4794,7 +4822,7 @@ test('every bootstrap asks for the slim reply: at sign-in, and the reload after 
   const sent = base.replies.filter((r) => r.body.action === 'bootstrap').map((r) => r.reply);
   expect(sent).toHaveLength(2);
   for (const r of sent) { expect(r.points).toEqual({}); expect(JSON.stringify(r)).not.toContain('"ring"'); } // world() has no zones: no points
-  await expect(page.locator('#verwarn')).toBeHidden(); // checknight-1 is the version the app expects
+  await expect(page.locator('#verwarn')).toBeHidden(); // machines-1 is the version the app expects
 });
 
 test('the forecast point is the server\'s point: the slim sign-in carries no outline, and the hint still comes from where Main entry is', async ({ page }) => {

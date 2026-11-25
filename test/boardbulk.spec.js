@@ -44,7 +44,7 @@ const world = () => ({
 
 function fakeSnow(w) {
   return (body) => {
-    const v = { version: 'checknight-1', action: body.action };
+    const v = { version: 'machines-1', action: body.action };
     if (body.token !== 'tok-matt') return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     const me = { name: 'Matthew', role: 'admin', crew_id: null };
     if (body.action === 'bootstrap') return { ok: true, me, sites: w.sites, routes: w.routes, zones: [], crew: w.crew, post: w.post, moves: w.moves, callouts: [], gear: [], ...v };
@@ -89,9 +89,9 @@ async function open(page, w, o = {}) {
     if (o.abortIf && o.abortIf(body)) return route.abort();
     if (o.delay && body.action === 'boardBatch') await sleep(o.delay);
     const expired = o.signinIf && body.action === 'boardBatch' && o.signinIf(body);   // the server never sees an expired call
-    let reply = expired ? { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', version: 'checknight-1', action: 'boardBatch' } : fake(body);
-    if (o.forbid && body.action === 'boardBatch') reply = { ok: false, code: 'forbidden', reason: 'Only Matt can do that.', version: 'checknight-1', action: 'boardBatch' };
-    if (o.refuse && body.action === 'boardBatch') reply = { ok: false, code: 'invalid', reason: o.refuse, version: 'checknight-1', action: 'boardBatch' };
+    let reply = expired ? { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', version: 'machines-1', action: 'boardBatch' } : fake(body);
+    if (o.forbid && body.action === 'boardBatch') reply = { ok: false, code: 'forbidden', reason: 'Only Matt can do that.', version: 'machines-1', action: 'boardBatch' };
+    if (o.refuse && body.action === 'boardBatch') reply = { ok: false, code: 'invalid', reason: o.refuse, version: 'machines-1', action: 'boardBatch' };
     if (o.loseReply && o.loseReply(body)) return route.abort();
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(reply) });
   });

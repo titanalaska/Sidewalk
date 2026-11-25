@@ -1,7 +1,7 @@
 // Crew cards (Matt, 11/24/26): the Crew tab. Crew and leads get it after Sites, admins after Roster. A card shows a face (or the initials),
 // the name, seasons, a line the person wrote, Nights worked and Team sq ft; a tap flips it to a back with the phone as a tel: link, and
 // the person's own back has Edit your card. The rules and words are lib/crewcards.js (node tests there); this file is the PAGE: the real
-// page over file://, its own small fake backend answering checknight-1, made-up names only.
+// page over file://, its own small fake backend answering machines-1, made-up names only.
 //
 // Worked on paper. The reply (counted 2026-12-06 06:14 Alaska time, season 2026-27):
 //   C01 Abel Stone   seasons 2     line "Plow before sunrise"  nights 9  team 1,214,300 sq ft  -> 1214300/57600 = 21.08 -> "about 21 football fields"
@@ -45,7 +45,7 @@ const selfView = (c) => ({ id: c.id, name: c.name, pending: c.pending === true, 
 
 function fakeSnow(state) {
   return async (body) => {
-    const v = { version: 'checknight-1', action: body.action };
+    const v = { version: 'machines-1', action: body.action };
     const me = WHO[body.token];
     if (!me) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     const admin = me.role === 'admin';

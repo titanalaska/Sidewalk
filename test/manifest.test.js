@@ -102,3 +102,10 @@ test('sheets: clock.js is loaded before routesheet.js, which captures CrewClock 
   assert.ok(loaded.indexOf('lib/clock.js') < loaded.indexOf('lib/routesheet.js'), 'clock.js comes first');
   assert.ok(loaded.indexOf('lib/shiftlog.js') < loaded.indexOf('lib/routesheet.js'), 'shiftlog.js comes first');
 });
+// Titan colours (Matt, 11/24/26): the phone's own top strip and the splash behind the icon are black, as the header is.
+test("the phone's top strip is black", () => {
+  const m = JSON.parse(read('manifest.json'));
+  assert.strictEqual(m.theme_color, '#000000');
+  assert.strictEqual(m.background_color, '#000000');
+  assert.match(read('index.html').toString(), /<meta name="theme-color" content="#000000">/);
+});

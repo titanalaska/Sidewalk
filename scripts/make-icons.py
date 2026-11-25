@@ -1,10 +1,12 @@
-"""Draw Shovel Command's home-screen icons: a white snow shovel over a pale
-snowflake, on the app's blue.
+"""Draw Shovel Command's home-screen icons: a black snow shovel over a deeper-gold
+snowflake, on a gold tile.
 
-Gold is Inventory and green is Bootprint, so blue keeps the three apart on a
-phone's home screen. The snowflake is the icon the crew already knew (Snow
-Crew, until 10/20/26); the shovel says which snow app this is, now that Plow
-Command is coming. Drawn at 4x and scaled down, so the edges are smooth.
+Titan gold and black (Matt, 11/24/26). Titan Inventory's icon is a gold drawing on
+a black tile; Shovel Command is the reverse, black on gold, so the two Titan apps
+stay apart on a phone's home screen (Bootprint is green). Until 11/24/26 this tile
+was the app's blue. The snowflake is the icon the crew already knew (Snow Crew,
+until 10/20/26); the shovel says which snow app this is, beside Plow Command.
+Drawn at 4x and scaled down, so the edges are smooth.
 
 Usage: python scripts/make-icons.py   (writes icon-192/512 and the maskable one)
 """
@@ -14,9 +16,9 @@ import os
 from PIL import Image, ImageDraw
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
-BLUE = (31, 95, 168)      # --accent in app.css
-PALE = (84, 137, 201)     # the snowflake, a step lighter than the blue
-WHITE = (255, 255, 255)
+GOLD = (245, 184, 0)      # --gold in app.css
+DEEP_GOLD = (201, 148, 0)  # the snowflake, a step darker than the gold
+BLACK = (17, 17, 17)      # --black in app.css (day): the shovel
 TILT = 30                 # degrees: the shovel leans right, blade at the bottom
 
 
@@ -50,19 +52,19 @@ def shovel(s, cx, cy, length):
     # D-grip: a rounded ring
     gw, gh = L * 0.20, L * 0.13
     g0, g1 = (cx - gw / 2, top), (cx + gw / 2, top + gh)
-    d.rounded_rectangle([g0, g1], radius=int(gh * 0.45), fill=WHITE)
+    d.rounded_rectangle([g0, g1], radius=int(gh * 0.45), fill=BLACK)
     t = L * 0.04
     d.rounded_rectangle([g0[0] + t, g0[1] + t, g1[0] - t, g1[1] - t], radius=int(gh * 0.25), fill=(0, 0, 0, 0))
     # shaft
-    d.rectangle([cx - shaft / 2, top + gh - 1, cx + shaft / 2, top + L * 0.60], fill=WHITE)
+    d.rectangle([cx - shaft / 2, top + gh - 1, cx + shaft / 2, top + L * 0.60], fill=BLACK)
     # neck flaring into the scoop
     bw, by0, by1 = L * 0.46, top + L * 0.62, top + L
     d.polygon([(cx - shaft * 0.9, top + L * 0.56), (cx + shaft * 0.9, top + L * 0.56),
-               (cx + bw * 0.30, by0), (cx - bw * 0.30, by0)], fill=WHITE)
-    d.rounded_rectangle([cx - bw / 2, by0, cx + bw / 2, by1], radius=int(L * 0.05), fill=WHITE)
-    # wear strip, in the background blue
+               (cx + bw * 0.30, by0), (cx - bw * 0.30, by0)], fill=BLACK)
+    d.rounded_rectangle([cx - bw / 2, by0, cx + bw / 2, by1], radius=int(L * 0.05), fill=BLACK)
+    # wear strip, in the background gold
     d.line([(cx - bw / 2 + L * 0.03, by1 - L * 0.06), (cx + bw / 2 - L * 0.03, by1 - L * 0.06)],
-           fill=BLUE + (255,), width=max(2, int(L * 0.018)))
+           fill=GOLD + (255,), width=max(2, int(L * 0.018)))
     return lay.rotate(TILT, resample=Image.BICUBIC, center=(cx, cy))
 
 
@@ -71,11 +73,11 @@ def icon(size, flake_share, shovel_share, rounded):
     img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     if rounded:
-        d.rounded_rectangle([0, 0, s - 1, s - 1], radius=int(s * 0.18), fill=BLUE)
+        d.rounded_rectangle([0, 0, s - 1, s - 1], radius=int(s * 0.18), fill=GOLD)
     else:
-        d.rectangle([0, 0, s, s], fill=BLUE)  # maskable: the phone cuts its own shape
+        d.rectangle([0, 0, s, s], fill=GOLD)  # maskable: the phone cuts its own shape
     # Stroke scales with the flake, or a smaller flake's branches run together.
-    snowflake(d, s / 2, s / 2, s * flake_share / 2, max(4, int(s * flake_share * 0.076)), PALE)
+    snowflake(d, s / 2, s / 2, s * flake_share / 2, max(4, int(s * flake_share * 0.076)), DEEP_GOLD)
     img.alpha_composite(shovel(s, s / 2, s / 2, s * shovel_share))
     return img.resize((size, size), Image.LANCZOS)
 

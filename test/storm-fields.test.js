@@ -9,10 +9,10 @@ const fs = require('fs');
 const path = require('path');
 const FIELDS = require('./storm-fields.js');
 
-const backend = path.join(__dirname, '..', '..', 'snow-app-script');
+const backend = process.env.SNOW_SERVER_REPO || path.join(__dirname, '..', '..', 'snow-app-script');
 
 test("the fake backend's crew Storms fields are the server's PUBLIC_STORM_FIELDS", (t) => {
-  if (!fs.existsSync(backend)) return t.skip('no snow-app-script checkout beside this repo');
+  if (!fs.existsSync(backend)) return t.skip('no snow-app-script checkout beside this repo (or at SNOW_SERVER_REPO)');
   const roster = require(path.join(backend, 'roster.js')); // throws (fails) if the checkout has no roster.js
   assert.ok(Array.isArray(roster.PUBLIC_STORM_FIELDS), 'roster.js has no PUBLIC_STORM_FIELDS list');
   assert.deepStrictEqual(FIELDS, [...roster.PUBLIC_STORM_FIELDS]);

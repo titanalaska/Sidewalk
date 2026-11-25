@@ -62,16 +62,19 @@ function fakeSnow(state) {
     }
     if (body.action === 'saveVisit') {
       // The server's saveVisit_ (machines-1): the same refusals, the same stamping.
+      // An operator no longer live is held: accepted only as the same line as one on the saver's previous card (keeping its
+      // stamped name), else refused. The key is trimmed. The seq is above every row, as the server's is.
       const sent = body.machines == null ? [] : body.machines;
       if (!Array.isArray(sent)) return refuse('invalid', 'Machines must be a list');
-      const lines = [];
+      const lines = [], held = [];
       for (const sl of sent) {
-        const line = { type: sl.type, unit: sl.unit == null ? '' : String(sl.unit).trim(), attachment: sl.attachment || '', operator_key: sl.operator_key, operator_name: '', minutes: sl.minutes };
+        const line = { type: sl.type, unit: sl.unit == null ? '' : String(sl.unit).trim(), attachment: sl.attachment || '',
+          operator_key: typeof sl.operator_key === 'string' ? sl.operator_key.trim() : sl.operator_key, operator_name: '', minutes: sl.minutes };
         if (line.operator_key === 'admin') line.operator_name = 'Matthew';
-        else {
+        else if (line.operator_key) {
           const card = state.crew.find((r) => r.id === line.operator_key && r.archived !== true && r.pending !== true);
-          if (!card) return refuse('invalid', "That person isn't on the roster");
-          line.operator_name = card.name;
+          if (card) line.operator_name = card.name;
+          else { const gone = state.crew.find((r) => r.id === line.operator_key); line.operator_name = gone ? gone.name : ''; held.push(line); }
         }
         lines.push(line);
       }
@@ -79,7 +82,13 @@ function fakeSnow(state) {
       if (problem) return refuse('invalid', problem);
       lines.forEach((l) => { l.minutes = Number(l.minutes); });
       const prev = SL.visitTotals(state.visits, body.site_id, SHIFT).cards.find((c) => c.by_key === 'admin') || null;
-      const n = state.visits.length + 1;
+      const prevLines = (prev && prev.machines) || [], used = prevLines.map(() => false);
+      for (const hl of held) {
+        const at = prevLines.findIndex((p, i) => !used[i] && SL.sameLine(p, hl));
+        if (at < 0) return refuse('invalid', "That person isn't on the roster");
+        used[at] = true; hl.operator_name = prevLines[at].operator_name || hl.operator_name;
+      }
+      const n = state.visits.reduce((m, r) => Math.max(m, Number(r.seq) || 0), 0) + 1;
       const row = { id: 'V-' + n, seq: n, storm_id: 'ST-1', shift_id: SHIFT, site_id: body.site_id, by_key: 'admin', by_name: 'Matthew', at: STAMP,
         depth_in: body.depth_in === undefined ? '' : body.depth_in, materials_used: body.materials_used || '',
         equipment: { blower: '', snowrator: '', bobcat: '', sweepster: '', ...(body.equipment || {}) }, machines: SL.stampMachines(prev, lines) };
@@ -307,7 +316,8 @@ test("Already logged lists the other cards' counted lines; a replaced line of mi
   await openCard(page);
   const logged = page.locator('#vc_logged');
   await expect(logged).toContainText('Already logged here this shift:');
-  await expect(logged.locator('li')).toHaveText(['Ben Bravo: Bobcat BC5 Snowblower, Loki Haskins 106 min', 'Ben Bravo: Snowrator Snowrator 1, Jake Moss 50 min']);
+  // The machine reads as the sheets print it (CrewShiftLog.machineName): unit "Snowrator 1" -> "Snowrator 1", never "Snowrator Snowrator 1".
+  await expect(logged.locator('li')).toHaveText(['Ben Bravo: Bobcat BC5 Snowblower, Loki Haskins 106 min', 'Ben Bravo: Snowrator 1, Jake Moss 50 min']);
   await expect(page.locator('.vc-replaced')).toHaveCount(1);
   await expect(line(page, 'bobcat', 1).locator('.vc-replaced')).toHaveText('Ben Bravo logged Loki Haskins later; that line counts.');
 });
@@ -434,10 +444,11 @@ test('the card in Spanish fits at 320 px, brand names and people kept', async ({
   await expect(l.locator('.vc-mhead b')).toHaveText('Bobcat 1');
   await expect(page.locator('#vc_add_bobcat')).toHaveText('+ Agregar un Bobcat');
   await expect(page.locator('#vc_add_snowrator')).toHaveText('+ Agregar un Snowrator');
-  await expect(line(page, 'bobcat', 1).locator('[data-munit] option[value="BC5-ABCDEFGHIJKLMNOP"]')).toHaveText('BC5-ABCDEFGHIJKLMNOP (this site)');
-  // (worked on paper: SnowMachinePick labels this site's own unit "<unit> (this site)"; that marker is built in the pick and is not translated yet)
+  await expect(line(page, 'bobcat', 1).locator('[data-munit] option[value="BC5-ABCDEFGHIJKLMNOP"]')).toHaveText('BC5-ABCDEFGHIJKLMNOP (este sitio)');
+  // (worked on paper: SnowMachinePick labels this site's own unit "<unit> (this site)"; the es.js rule keeps the unit and makes the marker "(este sitio)")
   await page.click('#vc_save');
   await expect(err(page)).toHaveText('Elige la unidad de Bobcat 2, o quítala');
+  await expect(page.locator('#vc_save')).toHaveText('Guardar');
   const m = await page.evaluate(() => {
     const dlg = document.querySelector('#dlgIn'), W = document.documentElement.clientWidth;
     const bad = [];
@@ -450,4 +461,133 @@ test('the card in Spanish fits at 320 px, brand names and people kept', async ({
   expect(m.bad).toEqual([]);
   expect(m.wide).toBe(false);
   expect(m.dlgWide).toBe(false);
+});
+
+// ---- The Save guard (final review, 11/25/26) ----
+// A first Save that would replace a counted line on SOMEONE ELSE's card sends nothing, names each such line, and the button
+// reads "Save anyway"; the next tap sends. Any edit takes it back to Save. The counting rule (visitTotals) is unchanged.
+const guardText = (page) => page.locator('#vc_guard .vc-guardline');
+const LOKI_BC5_40 = "Saving replaces Ben Bravo's Bobcat BC5 Snowblower line for Loki Haskins (40 min). Add it here too if they ran it.";
+
+test('the Save guard: adding only BT13 for Loki replaces Ben\'s BC5 line for him; the first Save sends nothing, Save anyway sends', async ({ page }) => {
+  const w = world();
+  // Ben (seq 9): Bobcat BC5 Snowblower, Loki 40 (since 9). Matt adds ONE line: Bobcat BT13 Bucket, Loki 66.
+  // Worked on paper (visitTotals with Matt's would-be card, seq 10 = above every seq held, its new line since null = 10):
+  // Loki's Bobcat group is supplied by the card entered last, Matt's (10 > 9), so Ben's BC5 40 would be replaced and only
+  // 66 would count for Loki (not 40 + 66 = 106). The guard names Ben's line.
+  w.visits = [visit(9, 'S1', 'C05', 'Ben Bravo', { machines: [mline('bobcat', 'BC5', 'snowblower', 'C22', 'Loki Haskins', 40, 9)] })];
+  const calls = await open(page, w);
+  await openCard(page);
+  await page.click('#vc_add_bobcat');
+  await fill(page, 'bobcat', 1, { unit: 'BT13', att: 'bucket', op: 'C22', min: 66 });
+  await page.click('#vc_save');
+  await expect(guardText(page)).toHaveText([LOKI_BC5_40]);
+  await expect(page.locator('#vc_save')).toHaveText('Save anyway');
+  await expect(page.locator('#dlg')).toBeVisible();
+  await expect(err(page)).toHaveText('');
+  expect(saves(calls)).toHaveLength(0);
+  // Names and the machine are a person's words or brand + unit: under data-no-es.
+  expect(await guardText(page).locator('[data-no-es]').allTextContents()).toEqual(['Ben Bravo', 'Bobcat BC5', 'Loki Haskins']);
+  // Save anyway: sent as on screen.
+  await page.click('#vc_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(saves(calls)).toHaveLength(1);
+  expect(saves(calls)[0].machines).toEqual([{ type: 'bobcat', unit: 'BT13', attachment: 'bucket', operator_key: 'C22', minutes: 66 }]);
+});
+
+test('the Save guard: nothing of another card\'s is replaced, so the first Save sends', async ({ page }) => {
+  const w = world();
+  // Ben (seq 9): BC5 Loki 40. Matt adds BT13 Bucket for Jake (C23) 30: Jake's group is Matt's alone, Loki's stays Ben's. No notice.
+  w.visits = [visit(9, 'S1', 'C05', 'Ben Bravo', { machines: [mline('bobcat', 'BC5', 'snowblower', 'C22', 'Loki Haskins', 40, 9)] })];
+  const calls = await open(page, w);
+  await openCard(page);
+  await page.click('#vc_add_bobcat');
+  await fill(page, 'bobcat', 1, { unit: 'BT13', att: 'bucket', op: 'C23', min: 30 });
+  await page.click('#vc_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(saves(calls)).toHaveLength(1);
+  await expect(page.locator('.vc-guardline')).toHaveCount(0);
+});
+
+test('the Save guard: an edit takes the button back to Save and clears the notice', async ({ page }) => {
+  const w = world();
+  w.visits = [visit(9, 'S1', 'C05', 'Ben Bravo', { machines: [mline('bobcat', 'BC5', 'snowblower', 'C22', 'Loki Haskins', 40, 9)] })];
+  const calls = await open(page, w);
+  await openCard(page);
+  await page.click('#vc_add_bobcat');
+  await fill(page, 'bobcat', 1, { unit: 'BT13', att: 'bucket', op: 'C22', min: 66 });
+  // Each kind of edit, one at a time: the depth box, a line's minutes, an attachment tap, the walk-behind blower tick.
+  const edits = [() => page.fill('#vc_depth', '3'), () => fill(page, 'bobcat', 1, { min: 65 }),
+    () => line(page, 'bobcat', 1).locator('[data-matt="snowblower"]').click(), () => page.locator('[data-eq="blower"]').check()];
+  for (const edit of edits) {
+    await page.click('#vc_save');
+    await expect(page.locator('#vc_save')).toHaveText('Save anyway');
+    await expect(guardText(page)).toHaveCount(1);
+    await edit();
+    await expect(page.locator('#vc_save')).toHaveText('Save');
+    await expect(guardText(page)).toHaveCount(0);
+  }
+  // Still nothing sent: every Save above met the guard first (the blower is ticked with no minutes now, so the next Save is refused).
+  expect(saves(calls)).toHaveLength(0);
+});
+
+test('the Save guard: re-saving an unchanged line that Loki has since logged again raises no notice (paper row 8)', async ({ page }) => {
+  const w = world();
+  // Matt (seq 9): BC5 Loki 80, since 9. Loki (seq 11): BC5 Loki 100, since 11 -> Loki's own counts, Matt's is replaced.
+  // Matt re-saves only to tick the walk-behind blower (20). The server keeps his Loki line's since (9: unchanged), so Loki's 100
+  // still counts and nothing of Loki's card is replaced: no notice, the first Save sends. (A would-be card that stamped the
+  // unchanged line as new, since 12, would claim to replace Loki's line and be wrong.)
+  w.visits = [visit(9, 'S1', 'admin', 'Matthew', { machines: [mline('bobcat', 'BC5', 'snowblower', 'C22', 'Loki Haskins', 80, 9)] }),
+    visit(11, 'S1', 'C22', 'Loki Haskins', { machines: [mline('bobcat', 'BC5', 'snowblower', 'C22', 'Loki Haskins', 100, 11)] })];
+  const calls = await open(page, w);
+  await openCard(page);
+  await page.locator('[data-eq="blower"]').check();
+  await page.fill('[data-eqmin="blower"]', '20');
+  await page.click('#vc_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(saves(calls)).toHaveLength(1);
+  expect(saves(calls)[0].machines).toEqual([{ type: 'bobcat', unit: 'BC5', attachment: 'snowblower', operator_key: 'C22', minutes: 80 }]);
+});
+
+test('the replaced note when the operator logged the line again on their own card', async ({ page }) => {
+  const w = world();
+  // Matt (seq 3): BC5 Loki 100. Loki's own card (seq 9): BC5 Loki 106. Loki's counts; Matt's line is replaced by Loki himself.
+  w.visits = [visit(3, 'S1', 'admin', 'Matthew', { machines: [mline('bobcat', 'BC5', 'snowblower', 'C22', 'Loki Haskins', 100, 3)] }),
+    visit(9, 'S1', 'C22', 'Loki Haskins', { machines: [mline('bobcat', 'BC5', 'snowblower', 'C22', 'Loki Haskins', 106, 9)] })];
+  await open(page, w);
+  await openCard(page);
+  await expect(line(page, 'bobcat', 1).locator('.vc-replaced')).toHaveText('Loki Haskins logged this line again later; that line counts.');
+});
+
+test('the Save guard in Spanish: the notice and Save anyway read Spanish, the names and the machine kept', async ({ page }) => {
+  const w = world();
+  w.visits = [visit(9, 'S1', 'C05', 'Ben Bravo', { machines: [mline('bobcat', 'BC5', 'snowblower', 'C22', 'Loki Haskins', 40, 9)] })];
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await open(page, w);
+  await openCard(page);
+  await page.click('#vc_add_bobcat');
+  await fill(page, 'bobcat', 1, { unit: 'BT13', att: 'bucket', op: 'C22', min: 66 });
+  await page.click('#vc_save');
+  // es.js: "Saving replaces " -> "Al guardar se reemplaza la línea de ", "'s " -> ": ", " Snowblower line for " -> " Soplador de nieve para ",
+  // " (40 min). Add it here too if they ran it." -> " (40 min). Agrégala aquí también si la operó."
+  await expect(guardText(page)).toHaveText(['Al guardar se reemplaza la línea de Ben Bravo: Bobcat BC5 Soplador de nieve para Loki Haskins (40 min). Agrégala aquí también si la operó.']);
+  await expect(page.locator('#vc_save')).toHaveText('Guardar de todos modos');
+  await page.fill('#vc_depth', '2');
+  await expect(page.locator('#vc_save')).toHaveText('Guardar');
+});
+
+test("an operator archived since the card was saved: the unchanged line re-saves, keeping the name it was saved with", async ({ page }) => {
+  const w = world();
+  // Matt's card (seq 1): Bobcat BC5 Bucket, Pat Quit (C04) 55. Pat is archived since. Matt reopens the card and fixes the depth:
+  // the line is the same as on his previous card, so the server accepts it and keeps "Pat Quit" as stamped.
+  w.visits = [visit(1, 'S1', 'admin', 'Matthew', { machines: [mline('bobcat', 'BC5', 'bucket', 'C04', 'Pat Quit', 55, 1)] })];
+  w.crew.find((c) => c.id === 'C04').archived = true;
+  const calls = await open(page, w);
+  await openCard(page);
+  await expect(line(page, 'bobcat', 1).locator('[data-mop]')).toHaveValue('C04');   // shown as saved, though not a pick any more
+  await page.fill('#vc_depth', '4');
+  await page.click('#vc_save');
+  await expect(page.locator('#dlg')).toBeHidden();
+  expect(saves(calls)[0].machines).toEqual([{ type: 'bobcat', unit: 'BC5', attachment: 'bucket', operator_key: 'C04', minutes: 55 }]);
+  expect(w.visits[1].machines).toEqual([{ type: 'bobcat', unit: 'BC5', attachment: 'bucket', operator_key: 'C04', operator_name: 'Pat Quit', minutes: 55, since: 1 }]);
 });

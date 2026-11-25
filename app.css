@@ -247,6 +247,7 @@ body.has-ref.ref-min #mapbox{height:62vh}
 .vc-replaced{margin-top:6px;font-size:14px}
 .vc-logged{margin-top:12px;font-size:14px}
 .vc-logged ul{margin:4px 0 0;padding-left:18px}
+.vc-guardline{margin:8px 0 0;padding:8px 10px;border-radius:8px;background:var(--yellow-bg);color:var(--yellow-ink);border:1px solid var(--yellow-line);font-size:14px;font-weight:600}
 /* Live view and storm controls (Matt and the leads, 10/3/26). */
 :root{--yellow-bg:#fff3bf;--yellow-ink:#5c4400;--yellow-line:#e0b400}
 @media (prefers-color-scheme: dark){:root{--yellow-bg:#3d3300;--yellow-ink:#ffe27a;--yellow-line:#a88700}}

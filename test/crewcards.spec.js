@@ -38,7 +38,8 @@ function world() {
     reply: REPLY(), asks: 0, hold: null, offline: false,
   };
 }
-const WHO = { 'tok-matt': { name: 'Matthew', role: 'admin', crew_id: null }, 'tok-abel': { name: 'Abel Stone', role: 'crew', crew_id: 'C01' } };
+const WHO = { 'tok-matt': { name: 'Matthew', role: 'admin', crew_id: null }, 'tok-abel': { name: 'Abel Stone', role: 'crew', crew_id: 'C01' },
+  'tok-ana': { name: 'Ana Brook', role: 'crew', crew_id: 'C02' }, 'tok-disp': { name: 'Ana Brook', role: 'admin', crew_id: 'C02' } };
 const SELF = ['phone', 'photo_thumb', 'can_drive', 'valid_id', 'on_call', 'cold_rated', 'can_operate', 'seasons', 'gear', 'emergency_name', 'emergency_phone', 'home_area', 'card_line'];
 const selfView = (c) => ({ id: c.id, name: c.name, pending: c.pending === true, ...Object.fromEntries(SELF.map((k) => [k, c[k] === undefined ? null : c[k]])) });
 
@@ -61,6 +62,7 @@ function fakeSnow(state) {
       state.asks++;
       if (state.hold) await state.hold;
       if (state.offline) return 'abort';
+      if (state.fail) return { ok: false, ...state.fail, ...v };
       return { ok: true, ...state.reply, ...v };
     }
     // card_line, as the server's cleanLine / lineProblems: a string, trimmed, blank is null, 40 at most by .length after the trim; a save that
@@ -75,7 +77,10 @@ function fakeSnow(state) {
     };
     if (body.action === 'saveMyCard') {
       state.saves = (state.saves || []).concat([body.card]);
+      if (admin) return { ok: false, code: 'invalid', reason: 'An admin sign-in has no crew card', ...v };   // the server's own refusal (Code.js saveMyCard_)
       if (!own) return { ok: false, code: 'error', reason: 'Not on the crew', ...v };
+      if (body.card.photo_thumb) own.photo_thumb = body.card.photo_thumb;
+      if (body.card.phone !== undefined) own.phone = body.card.phone;
       const bad = setLine(own, body.card.card_line);
       if (bad) return { ok: false, code: 'invalid', reason: bad, ...v };
       return { ok: true, card: selfView(own), ...v };
@@ -496,7 +501,7 @@ test('crew cards: a Spanish phone with no signal and no copy reads the offline s
   const w = world(); w.offline = true;
   await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
   await open(page, w, 'tok-abel');
-  await expect(page.locator('#cc_none')).toHaveText('Sin señal. Las tarjetas de tu cuadrilla vuelven cuando tú vuelvas.');
+  await expect(page.locator('#cc_none')).toHaveText('Sin señal. Las tarjetas de tu cuadrilla vuelven cuando vuelvas.');
 });
 
 test('share my card: a Spanish phone draws the labels in Spanish, the name and the line as typed', async ({ page }) => {
@@ -508,4 +513,122 @@ test('share my card: a Spanish phone draws the labels in Spanish, the name and t
   for (const want of ['Abel Stone', '2 temporadas', 'Plow before sunrise', 'Noches trabajadas', 'Pies² del equipo', 'Shovel Command · Invierno 2026–27'])
     expect(fills, want).toContain(want);
   expect(fills.join(' | ')).not.toContain('Nights worked');
+});
+
+// ---------- Final review fixes (11/24/26) ----------
+// 1. The dispatcher (an admin with a crew id) has no crew card of the self-service kind: the server refuses saveMyCard for an admin, and
+// bootstrap sends no `card`. "Edit your card" opens Matt's roster editor on their own card instead; the save is the crew save.
+test("final review 1: the dispatcher's Edit your card opens the roster editor on their own card and saves through saveCrew", async ({ page }) => {
+  const w = world();
+  await open(page, w, 'tok-disp');
+  await expect(page.locator('.ccard').first().locator('.cc-name').first()).toHaveText('Ana Brook');   // own card first
+  await page.locator('.ccard[data-card="C02"] .cc-top').click();
+  await page.locator('.ccard[data-card="C02"] [data-ccedit]').click();
+  await expect(page.locator('#f_save')).toBeVisible();
+  await expect(page.locator('#s_save')).toHaveCount(0);
+  await expect(page.locator('#f_name')).toHaveValue('Ana Brook');
+  await expect(page.locator('#f_dispatch')).toBeDisabled();   // one's own Dispatcher mark is locked
+  await page.fill('#f_card_line', 'Dispatch from the shop');
+  await page.click('#f_save');
+  await expect(page.locator('#dlg')).toHaveJSProperty('open', false);
+  expect((w.crewSaves || []).length).toBe(1);
+  expect(w.crewSaves[0].id).toBe('C02');
+  expect(w.saves || []).toEqual([]);   // saveMyCard never asked
+  await expect(front(page, 'C02').locator('.cc-line')).toHaveText('Dispatch from the shop');
+});
+
+// 2. A picture added from Edit your card shows on one's own card and in the shared PNG without a reload: faces and phones are drawn from S.crew.
+test('final review 2: a picture added from Edit your card shows on your own card at once', async ({ page }) => {
+  const w = world();
+  await open(page, w, 'tok-ana');
+  await expect(front(page, 'C02').locator('img.av')).toHaveCount(0);
+  await page.locator('.ccard[data-card="C02"] .cc-top').click();
+  await page.locator('[data-ccedit]').click();
+  await expect(page.locator('#s_save')).toBeVisible();
+  await page.setInputFiles('#s_photo_file', { name: 'me.png', mimeType: 'image/png', buffer: Buffer.from(PNG64, 'base64') });
+  await expect(page.locator('#s_photo_msg')).toHaveText('Picture ready. Save to keep it.');
+  await page.fill('#s_phone', '907-555-0199');
+  await page.click('#s_save');
+  await expect(page.locator('#dlg')).toHaveJSProperty('open', false);
+  expect(w.saves.at(-1).photo_thumb).toMatch(/^data:image\//);
+  await page.locator('.ccard[data-card="C02"] .cc-back .cc-name').click();   // back to the front, if the card is still turned over
+  await expect(front(page, 'C02').locator('img.av')).toHaveCount(1);
+  await page.locator('.ccard[data-card="C02"] .cc-top').click();   // the back: the new phone too
+  await expect(page.locator('.ccard[data-card="C02"] a.cc-tel')).toHaveText('907-555-0199');
+});
+
+// 3. iPhone: the share sheet wants the tap's own turn. The picture is built when the card is drawn; the tap calls navigator.share at once.
+const READY_STUB = (mode) => {
+  window.__blobs = 0; window.__shared = []; window.__sync = false; window.__shareSync = []; window.__blobsAtClick = -1; window.__blobsAtShare = -1;
+  const tb = HTMLCanvasElement.prototype.toBlob;
+  HTMLCanvasElement.prototype.toBlob = function () { window.__blobs++; return tb.apply(this, arguments); };
+  document.addEventListener('click', () => { window.__blobsAtClick = window.__blobs; window.__sync = true; setTimeout(() => { window.__sync = false; }, 0); }, true);
+  navigator.canShare = () => true;
+  navigator.share = (d) => {
+    window.__shared.push(d.files.length); window.__shareSync.push(window.__sync); window.__blobsAtShare = window.__blobs;
+    if (mode === 'denied') { const e = new Error('expired'); e.name = 'NotAllowedError'; return Promise.reject(e); }
+    return new Promise((res) => setTimeout(res, 400));
+  };
+};
+test('final review 3: the picture is built before the tap, and the tap hands it to navigator.share in the same turn', async ({ page }) => {
+  await page.addInitScript(READY_STUB, 'ok');
+  await open(page, world(), 'tok-abel');
+  await expect.poll(() => page.evaluate(() => window.__blobs)).toBeGreaterThan(0);   // built with no tap
+  await page.click('[data-ccshare]');
+  await expect.poll(() => page.evaluate(() => window.__shared.length)).toBe(1);
+  expect(await page.evaluate(() => window.__shareSync)).toEqual([true]);
+  expect(await page.evaluate(() => window.__blobsAtShare)).toBe(await page.evaluate(() => window.__blobsAtClick));   // nothing drawn between the tap and the share
+});
+test('final review 3: a share the phone calls expired (NotAllowedError) falls back to the download, no error toast', async ({ page }) => {
+  await page.addInitScript(READY_STUB, 'denied');
+  const errors = await open(page, world(), 'tok-abel');
+  const dl = page.waitForEvent('download');
+  await page.click('[data-ccshare]');
+  expect((await dl).suggestedFilename()).toBe('crew-card.png');
+  await expect(page.locator('#toast')).toBeHidden();
+  expect(errors).toEqual([]);
+});
+test('final review 3: a second tap while a share is open does nothing', async ({ page }) => {
+  await page.addInitScript(READY_STUB, 'ok');
+  await open(page, world(), 'tok-abel');
+  await expect.poll(() => page.evaluate(() => window.__blobs)).toBeGreaterThan(0);
+  await page.evaluate(() => { const b = document.querySelector('[data-ccshare]'); b.click(); b.click(); });
+  await page.waitForTimeout(700);
+  expect(await page.evaluate(() => window.__shared.length)).toBe(1);
+  await expect(page.locator('#toast')).toBeHidden();
+});
+
+// 4. A tall picture is cover-cropped (the centre square), never squashed.
+test('final review 4: a 120x240 picture is drawn from its centre square', async ({ page }) => {
+  const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="240"><rect width="120" height="240" fill="#c33"/></svg>';
+  const w = world();
+  w.crew[0].photo_thumb = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  await page.addInitScript(() => {
+    window.__draws = [];
+    const d = CanvasRenderingContext2D.prototype.drawImage;
+    CanvasRenderingContext2D.prototype.drawImage = function () { window.__draws.push([...arguments].slice(1).map(Number)); return d.apply(this, arguments); };
+  });
+  await page.addInitScript(SHARE_STUB, 'ok');
+  await open(page, w, 'tok-abel');
+  await page.click('[data-ccshare]');
+  await expect.poll(() => page.evaluate(() => window.__shared.length)).toBe(1);
+  const face = (await page.evaluate(() => window.__draws)).filter((a) => a.length === 8).at(-1);   // sx, sy, sw, sh, dx, dy, dw, dh
+  expect(face.slice(0, 4)).toEqual([0, 60, 120, 120]);
+  expect(face[6]).toBe(face[7]);
+});
+
+// 5. Only a network failure says "No signal"; a server's own refusal shows its words.
+test('final review 5: a server error shows its reason, never "No signal"', async ({ page, browser }) => {
+  const w = world();
+  w.fail = { code: 'error', reason: 'The crew sheet is busy. Try again soon.' };
+  await open(page, w, 'tok-abel', { copy: { v: 1, ...REPLY() } });
+  await expect(page.locator('#cc_note')).toHaveText('The crew sheet is busy. Try again soon.');
+  await expect(page.locator('.ccard')).toHaveCount(4);
+  const ctx2 = await browser.newContext();
+  const page2 = await ctx2.newPage();
+  const w2 = world();
+  w2.fail = { code: 'error', reason: 'The crew sheet is busy. Try again soon.' };
+  await open(page2, w2, 'tok-abel');
+  await expect(page2.locator('#cc_none')).toHaveText('The crew sheet is busy. Try again soon.');
+  await ctx2.close();
 });

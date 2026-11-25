@@ -305,7 +305,7 @@ test('crew cards (Matt, 11/24/26): every word of the Crew tab reads in Spanish; 
     'Share my card': 'Compartir mi tarjeta',
     'Edit your card': 'Editar tu tarjeta',
     'Refresh': 'Actualizar',
-    "No signal. Your crew's cards come back when you do.": 'Sin señal. Las tarjetas de tu cuadrilla vuelven cuando tú vuelvas.',
+    "No signal. Your crew's cards come back when you do.": 'Sin señal. Las tarjetas de tu cuadrilla vuelven cuando vuelvas.',
     'No signal. Showing the last copy.': 'Sin señal. Se muestra la última copia.',
     'Could not share the card. Try again.': 'No se pudo compartir la tarjeta. Inténtalo de nuevo.',
     'No phone on file.': 'No hay teléfono registrado.',

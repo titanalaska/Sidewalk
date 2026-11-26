@@ -270,7 +270,9 @@ const LEAVES_THE_APP = {
     'liveRoutes', 'siteIdsOf', 'activity', 'newestPost', 'crewFor', 'crewOf', 'stormSpan', 'postHasCrew', 'sheetsFor', 'minutesOf', 'helpersAt',
     'siteData', 'sheetData', 'esc', 'timeText', 'timesHtml', 'walkLine', 'siteHeading', 'passHeading', 'footer', 'isMulti', 'blocksOf', 'emptyNote',
     'checkLines', 'metaLine', 'plural', 'billingLines', 'sheetBody', 'recordBody', 'sheetHtml', 'fileSafe', 'fileName', 'clockShiftsOf',
-    'shiftBefore', 'onTheClockAtStart', 'clockSheetsFor', 'clockSheetHtml', 'clockFileName', 'fold'],
+    'shiftBefore', 'onTheClockAtStart', 'clockSheetsFor', 'clockSheetHtml', 'clockFileName', 'fold',
+    // the end-of-night table (route sheets, nightsheet-1, shell 84): built only inside sheetBody, never exported to a screen
+    'nes', 'timeCell', 'countCell', 'siteRow'],
   // The handoff PDF and its Print sheets page. NOT heading, siteParts or leftoverParts: the Storm tab's handoff card shows them.
   'lib/handoff.js': ['handoffBody', 'handoffHtml', 'fileName'],
   'lib/btnote.js': '*',    // the Copy for BT text: English always (BuilderTrend)

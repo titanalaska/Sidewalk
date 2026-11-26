@@ -11,7 +11,7 @@ var CACHE_VERSION = 'titan-snow-shell-84';
 // plain background). The aerial TILES are never cached: other origins pass by.
 var SHELL = ['./', 'index.html', 'app.css', 'lib/config.js', 'lib/forms.js', 'lib/api.js', 'lib/geo.js',
   'lib/points.js', 'lib/outlines.js', 'lib/mapview.js', 'lib/mapprint.js', 'lib/bpimport.js', 'lib/mapedit.js', 'lib/time.js', 'lib/board.js', 'lib/boardbatch.js', 'lib/history.js', 'lib/crewstats.js', 'lib/crewstatsui.js', 'lib/crewcards.js', 'lib/crewcardsui.js', 'lib/gear.js',
-  'lib/warnings.js', 'lib/pairing.js', 'lib/clock.js', 'lib/boardui.js', 'lib/rosterui.js', 'lib/shiftlog.js', 'lib/totals.js', 'lib/livesum.js', 'lib/routesheet.js', 'lib/handoff.js', 'lib/btnote.js', 'lib/sitetimes.js', 'lib/sitestatus.js', 'lib/directions.js', 'lib/machinepick.js', 'lib/shiftlogui.js', 'lib/weather.js', 'lib/callout.js', 'lib/routelist.js', 'lib/grouplist.js', 'lib/snowmap.js', 'lib/share.js', 'lib/es.js', 'lib/app.js', 'vendor/maplibre-gl.js', 'vendor/maplibre-gl.css',
+  'lib/warnings.js', 'lib/pairing.js', 'lib/clock.js', 'lib/boardui.js', 'lib/rosterui.js', 'lib/shiftlog.js', 'lib/totals.js', 'lib/livesum.js', 'lib/routesheet.js', 'lib/handoff.js', 'lib/btnote.js', 'lib/sitetimes.js', 'lib/sitestatus.js', 'lib/directions.js', 'lib/machinepick.js', 'lib/shiftlogui.js', 'lib/weather.js', 'lib/callout.js', 'lib/routelist.js', 'lib/grouplist.js', 'lib/snowmap.js', 'lib/share.js', 'lib/es.js', 'lib/typedwords.js', 'lib/estyped.js', 'lib/app.js', 'vendor/maplibre-gl.js', 'vendor/maplibre-gl.css',
   'manifest.json', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png'];
 
 self.addEventListener('install', function (e) {

@@ -262,9 +262,7 @@ const LEAVES_THE_APP = {
 const NOT_YET = {
   'index.html': '*',
   'lib/api.js': ['signIn'],
-  'lib/app.js': ['(top)', 'rosterLabel', 'siteCard', 'archive', 'archivedHtml', 'async', 'checks', 'draw', 'drawPick', 'editSite', 'editWorker', 'markPick', 'openMap', 'openWorker', 'pickListHtml', 'printRouteMaps', 'render', 'renderRoster', 'renderRoutes', 'renderSites', 'restoreRecord', 'rosterListHtml', 'rosterTile', 'shareApp'],
-  'lib/boardbatch.js': ['pickGroups', 'planAdd'],
-  'lib/boardui.js': ['async', 'bulk', 'callout', 'clearAsk', 'clearGo', 'countText', 'onClick', 'openCallout', 'openCard', 'openEntry', 'placeFromRoster', 'post', 'pplAdd', 'pplDraw', 'pplListHtml', 'pplMark', 'renderBoard', 'renderLog', 'shortNightButton', 'undoClear'],
+  'lib/app.js': ['(top)', 'siteCard', 'archive', 'archivedHtml', 'async', 'checks', 'draw', 'drawPick', 'editSite', 'editWorker', 'markPick', 'openMap', 'openWorker', 'pickListHtml', 'printRouteMaps', 'renderRoster', 'renderRoutes', 'renderSites', 'restoreRecord', 'rosterListHtml', 'rosterTile', 'shareApp'],
   'lib/bpimport.js': ['parseExport'],
   'lib/crewcards.js': ['fieldsWord', 'winterWord'],
   'lib/crewcardsui.js': ['fitText', 'headWord', 'pngOf', 'shareCard'],
@@ -275,12 +273,10 @@ const NOT_YET = {
   'lib/mapedit.js': ['addImported', 'away', 'beginDraw', 'drawControls', 'formButtons', 'importBusy', 'onclick', 'previewJob', 'problem', 'readBootprint', 'renderArchived', 'restoreZone', 'saveView', 'showRef', 'start', 'unsavedWork', 'walksAndPiles'],
   'lib/mapprint.js': ['pageHtml'],
   'lib/mapview.js': ['open'],
-  'lib/pairing.js': ['placementLabel'],
   'lib/rosterui.js': ['addCrewButton', 'addToCrew', 'decide', 'waitingHtml'],
   'lib/routelist.js': ['pageHtml'],
   'lib/share.js': ['share'],
   'lib/shiftlog.js': ['checkAgain', 'checkTap', 'curbItems', 'machineProblem', 'undoTarget'],
-  'lib/warnings.js': ['warningsFor'],
   'server/Code.js': '*',
   'server/auth.js': '*',
   'server/roster.js': '*',
@@ -396,6 +392,32 @@ const BUILT = {
   'No snow in the next': ['No snow in the next 12 h', 'Sin nieve en las próximas 12 h'],
   'Sheets:': ['Sheets: 6 saved', 'Hojas: 6 guardadas'],
   'Clean': ['Clean PAC again?', '¿Limpiar PAC de nuevo?'],
+  // Task 5 (11/25/26): the Board, its toasts (names in spans of their own: lib/app.js holdNames) and its warnings.
+  'Trucks for': ['Trucks for Night of 12/4', 'Camionetas de Noche del 12/4'],
+  'Take': ['Take 3 people off 2 routes?', '¿Quitar a 3 personas de 2 rutas?'],
+  'Took': ['Took 3 people off the Board', 'Se quitó a 3 personas del tablero'],
+  'the Board': ['Took 3 people off the Board', 'Se quitó a 3 personas del tablero'],
+  '1 was left as it is.': ['Put 3 back. 1 was left as it is.', 'Se regresaron 3. 1 se quedó como estaba.'],
+  'Put': ['Put 3 back. 1 was left as it is.', 'Se regresaron 3. 1 se quedó como estaba.'],
+  'were left as they are.': ['Put 4 back. 2 were left as they are.', 'Se regresaron 4. 2 se quedaron como estaban.'],
+  'Add ticked (': ['Add ticked (3)', 'Agregar marcados (3)'],
+  'hidden by search': ['2 hidden by search', '2 ocultos por la búsqueda'],
+  'Added': ['Added 3 to', 'Se agregaron 3 a'],
+  'already on a route and': ['. 1 was already on a route and was left. ', '. 1 ya estaba en una ruta y se dejó. '],
+  'Posted: the crew see': ['Posted: the crew see Day of 12/6', 'Publicado: la cuadrilla ve Día del 12/6'],
+  'Callout:': ['Callout: Night of 12/4', 'Llamado: Noche del 12/4'],
+  'Callout saved for': ['Callout saved for Night of 12/4', 'Llamado guardado para Noche del 12/4'],
+  'End': ['End taken back for 2 people', 'Se deshizo el final para 2 personas'],
+  'taken back for': ['End taken back for 2 people', 'Se deshizo el final para 2 personas'],
+  'Short night: on (after': ['Short night: on (after 1:00 AM)', 'Noche corta: activada (después de la 1:00 AM)'],
+  'Short night: on until': ['Short night: on until 9:00 AM', 'Noche corta: activada hasta las 9:00 AM'],
+  'Crew sees': ['Crew sees Night of 12/4, posted 8:05 PM', 'La cuadrilla ve Noche del 12/4, publicado 8:05 PM'],
+  'clearance expired': ['Alex Test: JBER clearance expired 2026-10-20', 'Alex Test: autorización de JBER vencida el 2026-10-20'],
+  'clearance expires': ['Alex Test: JBER clearance expires 2026-12-01', 'Alex Test: la autorización de JBER vence el 2026-12-01'],
+  'rides with': ["Alex Test rides with Sam Sample, who isn't on this route", 'Alex Test viaja con Sam Sample, que no está en esta ruta'],
+  ", who isn't on this route": ["Alex Test rides with Sam Sample, who isn't on this route", 'Alex Test viaja con Sam Sample, que no está en esta ruta'],
+  "leads but can't drive": ["Alex Test leads but can't drive", 'Alex Test es líder pero no puede manejar'],
+  'No confirmed driver (': ['No confirmed driver (2 not set)', 'Sin conductor confirmado (2 sin definir)'],
 };
 
 // Rows whose English is never one literal: the code joins two. The dead-row check wants both halves still in that file.
@@ -531,7 +553,7 @@ test('every left-out entry is real, and every NOT_YET entry still hides a string
 const KEEP_EN = new Set(['Shovel', 'Command', 'Titan', 'Inventory', 'Bobcat', 'Snowrator', 'Sweepster', 'BuilderTrend', 'ANTHC', 'MOA', 'JBER',
   'PIN', 'Esri', 'Google', 'Maxar', 'Earthstar', 'Geographics', 'HERE', 'Garmin', 'Matt', 'JPEG', 'PNG', 'NWS', 'GPS', 'min', 'max',
   'app', 'Anchorage', 'YYYY',
-  'Time', 'Out', 'Daily', 'Log']);   // BuilderTrend's own field names, kept beside the Spanish ("Entrada (Time In)", "Daily Log")   // app: "la app" is Spanish too; Anchorage a place; YYYY a date pattern
+  'Time', 'Out', 'Daily', 'Log', 'Blower']);   // BuilderTrend's own field names, kept beside the Spanish ("Entrada (Time In)", "Daily Log")   // app: "la app" is Spanish too; Anchorage a place; YYYY a date pattern
 function halfSpanish(text) {
   const out = Es.translateString(text);
   if (out === text) return null;

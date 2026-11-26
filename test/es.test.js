@@ -402,7 +402,8 @@ test('machine lines: Pick, Remove, Not sure, Unit:, Minutes: translate only as a
   for (const [en, es] of Object.entries(whole)) assert.equal(Es.translateString(en), es, JSON.stringify(en));
   for (const k of ['Pick', 'Remove', 'Not sure', 'Unit:', 'Minutes:']) assert.equal(Es.ES[k], undefined, k + ' is a rule, not a row');
   // Inside longer English that has no row of its own, the word is left alone (the sentence stays English, never half Spanish).
-  for (const en of ['Pick a worker', 'Pick a shift', 'Remove the photo', 'Not sure yet', 'Unit: BC5', 'Minutes: 5']) {
+  // ('Pick a worker' / 'Pick a shift' left this list: they are whole rows since Spanish everywhere, 11/25/26.)
+  for (const en of ['Remove the photo', 'Not sure yet', 'Unit: BC5', 'Minutes: 5']) {
     assert.equal(Es.translateString(en), en, en);
   }
   // mapedit's type refusal: "Pick" is no longer a row. Spanish everywhere (11/25/26) gave the whole sentence its own row (it read
@@ -575,4 +576,72 @@ test('the leads\' and dispatcher\'s built lines keep their numbers, names and ti
   assert.equal(Es.translateString('3 sites not mapped yet'), '3 sitios sin mapa todavía');
   assert.equal(Es.translateString('1 site not mapped yet'), '1 sitio sin mapa todavía');
   assert.equal(Es.translateString('Callouts (2)'), 'Llamados (2)');
+});
+
+// Spanish everywhere, Task 5: Matt's and the dispatcher's Board, Add people…, Clear, Callout and the gear Log. The tab names
+// and one-word buttons are exact-text rules (a bare "Board" row would bite "Board, not posted yet:"). Names stay as typed.
+test('the Board reads Spanish: tabs, buttons, prompts', () => {
+  const cases = {
+    'Board': 'Tablero', 'Log': 'Registro', 'Roster': 'Personal', 'Post': 'Publicar', 'Callout': 'Llamado', 'Change': 'Cambiar',
+    'Card': 'Tarjeta', 'Unassign': 'Quitar de la ruta', 'Unassigned': 'Sin asignar', 'Unplaced': 'Sin asignar',
+    'Clear Board': 'Vaciar tablero', 'Clear route': 'Vaciar ruta', 'Add people…': 'Agregar personas…',
+    'Place here': 'Poner aquí', 'Place as lead': 'Poner como líder', 'Make lead': 'Hacer líder',
+    'Everyone is placed': 'Todos están asignados', 'Changed since post': 'Cambió desde la publicación',
+    'Short night: off': 'Noche corta: desactivada',
+    'Post to the crew for which shift?': '¿Publicar a la cuadrilla para qué turno?',
+    'Callout: who is going out, for which shift?': 'Llamado: ¿quién sale y para qué turno?',
+    'Nobody is placed on the board.': 'Nadie está asignado en el tablero.',
+    'Log entry': 'Anotación', '+ Entry': '+ Anotación', 'Worker': 'Trabajador', 'Type': 'Tipo', 'Item': 'Artículo', 'Route': 'Ruta', 'Site': 'Sitio',
+    'broken': 'roto', 'left on site': 'dejado en el sitio', 'issued': 'entregado', 'returned': 'devuelto', 'choose…': 'elige…',
+    'Placed': 'Asignado', 'Worked': 'Trabajó', 'Search name': 'Buscar nombre', 'No people match': 'Ninguna persona coincide',
+    'Nobody on this route can drive': 'Nadie en esta ruta puede manejar', 'No lead on this route': 'No hay líder en esta ruta',
+  };
+  for (const [en, es] of Object.entries(cases)) assert.equal(Es.translateString(en), es, en);
+});
+
+test('the Board\'s built lines keep their names, numbers and shifts', () => {
+  assert.equal(Es.translateString('Crew sees Night of 12/4, posted 8:05 PM'), 'La cuadrilla ve Noche del 12/4, publicado 8:05 PM');
+  assert.equal(Es.translateString('Trucks for Night of 12/4'), 'Camionetas de Noche del 12/4');
+  assert.equal(Es.translateString('Cleared 3 people'), 'Se quitaron 3 personas');
+  assert.equal(Es.translateString('Cleared 1 person'), 'Se quitó 1 persona');
+  assert.equal(Es.translateString('Take 3 people off 2 routes?'), '¿Quitar a 3 personas de 2 rutas?');
+  assert.equal(Es.translateString('Take 1 person off'), '¿Quitar a 1 persona de');      // then the route's name (data-no-es) and "?"
+  assert.equal(Es.translateString('Took 3 people off the Board'), 'Se quitó a 3 personas del tablero');
+  assert.equal(Es.translateString('Took 1 person off'), 'Se quitó a 1 persona de');   // then the route's name in its own span (holdNames)
+  assert.equal(Es.translateString('Put 3 back. 1 was left as it is.'), 'Se regresaron 3. 1 se quedó como estaba.');
+  assert.equal(Es.translateString('Put 1 back.'), 'Se regresó 1.');
+  assert.equal(Es.translateString('Put 4 back. 2 were left as they are.'), 'Se regresaron 4. 2 se quedaron como estaban.');
+  assert.equal(Es.translateString('Add ticked (3)'), 'Agregar marcados (3)');
+  assert.equal(Es.translateString('2 hidden by search'), '2 ocultos por la búsqueda');
+  // the Add people toast, cut around its names (route, lead): 'Added 3 to' [Night 2] '. 1 was already on a route and was left. '
+  // [Night 2] ' already had a lead: ' [Sam Sample] ' was added as a member'
+  assert.equal(Es.translateString('Added 3 to'), 'Se agregaron 3 a');
+  assert.equal(Es.translateString('. 1 was already on a route and was left. '), '. 1 ya estaba en una ruta y se dejó. ');
+  assert.equal(Es.translateString(' already had a lead: '), ' ya tenía líder: ');
+  assert.equal(Es.translateString(' was added as a member'), ' se agregó como miembro');
+  // placeFromRoster: [Alex Test] ' taken off the Board' | [Alex Test] ': lead on ' [Night 2] | [Alex Test] ' placed on ' [Night 2]
+  assert.equal(Es.translateString(' taken off the Board'), ' quitado del tablero');
+  assert.equal(Es.translateString(': lead on '), ': líder en ');
+  assert.equal(Es.translateString(' placed on '), ' asignado a ');
+  assert.equal(Es.translateString('Posted: the crew see Day of 12/6'), 'Publicado: la cuadrilla ve Día del 12/6');
+  assert.equal(Es.translateString('Callout: Night of 12/4'), 'Llamado: Noche del 12/4');
+  assert.equal(Es.translateString('Callout saved for Night of 12/4'), 'Llamado guardado para Noche del 12/4');
+  assert.equal(Es.translateString('Short night: on (after 1:00 AM)'), 'Noche corta: activada (después de la 1:00 AM)');
+  assert.equal(Es.translateString('Short night: on until 9:00 AM'), 'Noche corta: activada hasta las 9:00 AM');
+  assert.equal(Es.translateString('3 nights · 1 day'), '3 noches · 1 día');
+  assert.equal(Es.translateString('Night 2 · lead'), 'Night 2 · líder');
+  assert.equal(Es.translateString('Not saved: Unknown worker C05'), 'No se guardó: Trabajador desconocido C05');
+  // the warnings: one node each, a person's name inside
+  assert.equal(Es.translateString('Alex Test: JBER clearance expired 2026-10-20'), 'Alex Test: autorización de JBER vencida el 2026-10-20');
+  assert.equal(Es.translateString('Alex Test: no JBER clearance'), 'Alex Test: sin autorización de JBER');
+  assert.equal(Es.translateString('Alex Test: JBER clearance expires 2026-12-01'), 'Alex Test: la autorización de JBER vence el 2026-12-01');
+  assert.equal(Es.translateString("Alex Test rides with Sam Sample, who isn't on this route"), 'Alex Test viaja con Sam Sample, que no está en esta ruta');
+  assert.equal(Es.translateString('Alex Test: not cold-rated'), 'Alex Test: no apto para frío');
+  assert.equal(Es.translateString('Alex Test: gear needs issuing'), 'Alex Test: hay que entregarle equipo');
+  assert.equal(Es.translateString('Alex Test: no valid ID for a cleared site'), 'Alex Test: sin ID vigente para un sitio con autorización');
+  assert.equal(Es.translateString('Alex Test: placed but not on call'), 'Alex Test: asignado pero no disponible');
+  assert.equal(Es.translateString('Alex Test: Valley, short night (under 8 hours)'), 'Alex Test: El Valle, noche corta (menos de 8 horas)');
+  assert.equal(Es.translateString('Alex Test and Sam Sample: keep apart'), 'Alex Test y Sam Sample: mantener separados');
+  assert.equal(Es.translateString("Alex Test leads but can't drive"), 'Alex Test es líder pero no puede manejar');
+  assert.equal(Es.translateString('No confirmed driver (2 not set)'), 'Sin conductor confirmado (2 sin definir)');
 });

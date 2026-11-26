@@ -12553,3 +12553,29 @@ test('print language: Print crew times on an ES phone stays English (Ship 2 give
   await expect(page.locator('#printsheets table.times thead')).toContainText('Name');
   await expect(page.locator('#printbar [data-printlang]')).toHaveCount(0);
 });
+
+// ---------- Spanish everywhere, Task 5: Matt's Board on a Spanish phone (11/25/26) ----------
+// stormWorld by hand, with names that hold row words, so a name that slipped out of data-no-es shows: route R1 "Done Route"
+// ("Done" is a row: Listo), site S1 "Map Site" ("Map" is a row: Mapa). The Board lists both; the people's chips are as typed.
+test('Spanish: the Board reads Spanish; route, site and people names stay as typed', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  const w = stormWorld();
+  w.routes = w.routes.map((r) => (r.id === 'R1' ? { ...r, name: 'Done Route' } : r));
+  w.sites = w.sites.map((s) => (s.id === 'S1' ? { ...s, name: 'Map Site' } : s));
+  await open(page, { token: 'tok-matt', snow: fakeSnow(w), clockAt: STORM_CLOCK });
+  await expect(page.locator('nav [data-tab="board"]')).toHaveText('Tablero');
+  await page.click('nav [data-tab="board"]');
+  await expect(page.locator('#post')).toHaveText('Publicar');
+  await expect(page.locator('#callout')).toHaveText('Llamado');
+  await expect(page.locator('#truckchange')).toHaveText('Cambiar');
+  const r1 = page.locator('.board-route[data-route="R1"]');
+  await expect(r1.locator('.route-badge')).toHaveText('Done Route');
+  await expect(r1.locator('.sites')).toHaveText('Map Site');
+  await expect(r1.locator('[data-addpeople]')).toHaveText('Agregar personas…');
+  await expect(page.locator('main')).toContainText('Sin asignar');
+  // every chip's name is the person's, as typed
+  const names = await page.locator('.chip').allInnerTexts();
+  for (const n of names) expect(n).not.toMatch(/Líder Test|Listo|Mapa/);
+  await expect(page.locator('main')).not.toContainText('Listo Route');
+  await expect(page.locator('main')).not.toContainText('Mapa Site');
+});

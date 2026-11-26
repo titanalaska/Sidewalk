@@ -28,7 +28,7 @@ test('a short key never bites into a longer word: Back vs Backend', () => {
 
 test('leading and trailing spaces survive ("Tonight: " before a bold name)', () => {
   assert.equal(Es.translateString('Tonight: '), 'Esta noche: ');
-  assert.equal(Es.translateString(' · admin'), ' · admin'); // a role tag, not a row: unchanged, space and all
+  assert.equal(Es.translateString(' · admin'), ' · administrador'); // the header's role tag translates since the final review (I1); the name beside it is its own data-no-es span
 });
 
 test('number rules: the weather hint and the curb items', () => {
@@ -490,8 +490,10 @@ test('half Spanish: the built lines keep their names and numbers', () => {
   assert.equal(Es.translateString('3 are still on the clock. Tap End shift first, or their End has to be typed with Set shift.'),
     '3 personas siguen en turno. Toca Terminar turno primero, o su salida se tiene que escribir con Poner turno.');
   // lib/shiftlogui.js confirmAgain: the walk count and the pass numbers; a site's name is kept as typed
-  assert.equal(Es.translateString('Every walk at PAC goes back to not done for pass 2. Pass 1 stays on the record.'),
-    'Cada recorrido en PAC vuelve a Pendiente para la pasada 2. La pasada 1 se queda en el registro.');
+  // cut around the site's name since the final review (I1): 'Every walk at' [PAC] ' goes back to … record.'
+  assert.equal(Es.translateString('Every walk at'), 'Cada recorrido en');
+  assert.equal(Es.translateString(' goes back to not done for pass 2. Pass 1 stays on the record.'),
+    ' vuelve a Pendiente para la pasada 2. La pasada 1 se queda en el registro.');
   assert.equal(Es.translateString("Copy for BT first if pass 1 isn't posted yet."), 'Usa Copiar para BT primero si la pasada 1 todavía no está publicada.');
   // lib/mapedit.js unsavedWork: corners counted
   assert.equal(Es.translateString('Save or Cancel this zone first. It has 1 corners that are not saved.'), 'Guarda o cancela esta zona primero. Tiene 1 esquina sin guardar.');

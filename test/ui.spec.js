@@ -8373,10 +8373,11 @@ test('Spanish: data-no-es holds for a text node set later and for attributes und
   await page.click('#langWrap [data-lang="es"]');                              // the full-body path
   expect(await page.evaluate(() => [document.getElementById('probe_img').alt, document.getElementById('probe_img').title, document.getElementById('probe_out').alt]))
     .toEqual(['Lead', 'Valley', 'Líder']);
-  await page.evaluate(() => { document.getElementById('who').textContent = 'Valley Lead'; });   // the observer path, a new Text node
-  await expect(page.locator('#who')).toHaveText('Valley Lead');
-  await page.evaluate(() => { document.getElementById('who').firstChild.nodeValue = 'Map Start'; }); // characterData
-  await expect(page.locator('#who')).toHaveText('Map Start');
+  // (#who's name is its own data-no-es span since the final review's I1, 11/25/26: the role tag beside it translates)
+  await page.evaluate(() => { document.querySelector('#who [data-no-es]').textContent = 'Valley Lead'; });   // the observer path, a new Text node
+  await expect(page.locator('#who [data-no-es]')).toHaveText('Valley Lead');
+  await page.evaluate(() => { document.querySelector('#who [data-no-es]').firstChild.nodeValue = 'Map Start'; }); // characterData
+  await expect(page.locator('#who [data-no-es]')).toHaveText('Map Start');
 });
 
 test("Spanish: a lead's storm controls are not half-translated; the card's Start and Finish are", async ({ page }) => {
@@ -12668,7 +12669,13 @@ async function englishLeft(page, sel = 'body') {
     // a text box holds what a person typed (the engine never touches a textarea either)
     const held = (el) => !el || !!el.closest('[data-no-es], script, style, textarea, [hidden]');
     const shown = (el) => { const st = getComputedStyle(el); return st.display !== 'none' && st.visibility !== 'hidden' && el.getClientRects().length > 0; };
-    const check = (text, where) => words(text).forEach((w) => { if (!spanish.has(w) && !keep.has(w)) out.add(w + ' @ ' + where); });
+    // English two-letter words no Spanish line holds (a heading's "· by" once slipped past the 3-letter rule: final review I1)
+    const EN2 = new Set(['by', 'of', 'on', 'at', 'to', 'in', 'is', 'or', 'if', 'it', 'an', 'as', 'up', 'be', 'do', 'go', 'so', 'us', 'we']);
+    const check = (text, where) => {
+      words(text).forEach((w) => { if (!spanish.has(w) && !keep.has(w)) out.add(w + ' @ ' + where); });
+      // whole words with accents (\b is ASCII only: it found "as" inside "así")
+      (String(text).match(/[A-Za-zÁÉÍÓÚÑÜáéíóúñü]+/g) || []).forEach((w) => { if (w.length === 2 && EN2.has(w)) out.add(w + ' @ ' + where); });
+    };
     const root = document.querySelector(sel);
     const tw = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     let n;
@@ -12783,4 +12790,45 @@ test('Spanish screens: Print route lists in Spanish has no English left on its p
   await openStorm(page, rlWorld(), { token: 'tok-matt' });
   await page.click('#printRouteLists');
   expect(await englishLeft(page, '#printview')).toEqual([]);
+});
+
+// Final review I1 / I2 (11/25/26): the screens the first set did not open, each with a site renamed "Map Site" ("Map" is a row) and
+// typed words that hold row words, on a phone set to ES. Every name and typed word as typed; every other word Spanish.
+test('Spanish screens: the handoff card has no English left; site and people names as typed', async ({ page }) => {
+  await esOn(page);
+  const w = handoffWorld();
+  w.sites = w.sites.map((s) => (s.id === 'S1' ? { ...s, name: 'Map Site' } : s));
+  w.storms = [START_ROW, { ...HANDOFF_ROW, at: at('07:10'), by_name: 'Alex Test' }];
+  await openStorm(page, w, { token: 'tok-matt', clockAt: HO_DAY });
+  await expect(card(page)).toBeVisible();
+  expect(await englishLeft(page, '#handoff')).toEqual([]);
+  await expect(card(page)).not.toContainText('Mapa Site');
+});
+
+test('Spanish screens: the Callouts box and the Clean again confirm have no English left', async ({ page }) => {
+  await esOn(page);
+  await nws(page, { grid: GRID_30MM });
+  const w = calloutWorld(1);
+  w.sites = w.sites.map((s) => (s.id === 'S1' ? { ...s, name: 'Map Site' } : s));
+  await openStorm(page, w, { token: 'tok-matt' });
+  const box = page.locator('#callouts');
+  await expect(box.locator('[data-callout="S1"]')).toContainText('Map Site');
+  expect(await englishLeft(page, '#callouts')).toEqual([]);
+  await box.locator('[data-again="S1"]').click();
+  await expect(page.locator('#dlg')).toBeVisible();
+  await expect(page.locator('#dlg h2')).toHaveText('¿Limpiar Map Site de nuevo?');
+  expect(await englishLeft(page, '#dlg')).toEqual([]);
+});
+
+test('Spanish screens: the live view\'s site totals have no English left; names and typed materials as typed', async ({ page }) => {
+  await esOn(page);
+  const w = esWorld();
+  await openStorm(page, w, { token: 'tok-matt' });
+  w.visits = [visitRow(1, 'S1', 'C03', 'Jordan Demo', { depth_in: 3.5, materials_used: 'Done salt', equipment: { blower: 30, snowrator: '', bobcat: '', sweepster: '' } }),
+    visitRow(2, 'S1', 'C01', 'Alex Test', { depth_in: 2, materials_used: 'sand', equipment: { blower: 15, snowrator: '', bobcat: 45, sweepster: '' } })];
+  await pollNow(page);
+  const totals = page.locator('[data-livesite="S1"] .live-totals');
+  await expect(totals).toContainText('Done salt');
+  await expect(totals).toContainText('Jordan Demo 3.5 pulg');
+  expect(await englishLeft(page, '[data-livesite="S1"]')).toEqual([]);
 });

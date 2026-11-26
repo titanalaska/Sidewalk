@@ -268,10 +268,8 @@ const LEAVES_THE_APP = {
 const NOT_YET = {
   'index.html': '*',
   'lib/api.js': ['signIn'],
-  'lib/app.js': ['archive', 'archivedHtml', 'draw', 'drawPick', 'editSite', 'markPick', 'openMap', 'pickListHtml', 'printRouteMaps', 'renderRoutes', 'renderSites', 'restoreRecord', 'shareApp'],
+  'lib/app.js': ['openMap', 'printRouteMaps', 'shareApp'],
   'lib/bpimport.js': ['parseExport'],
-  'lib/forms.js': ['parseClearances'],
-  'lib/machinepick.js': ['unitChoices'],
   'lib/mapedit.js': ['addImported', 'away', 'beginDraw', 'drawControls', 'formButtons', 'importBusy', 'onclick', 'previewJob', 'problem', 'readBootprint', 'renderArchived', 'restoreZone', 'saveView', 'showRef', 'start', 'unsavedWork', 'walksAndPiles'],
   'lib/mapprint.js': ['pageHtml'],
   'lib/mapview.js': ['open'],
@@ -405,7 +403,15 @@ const BUILT = {
   'Stats ·': ['Stats · Winter 2026-27', 'Estadísticas · Invierno 2026-27'],
   'Waiting for approval (': ['Waiting for approval (1)', 'Esperando aprobación (1)'],
   'They': ['They can sign in now', 'Ya puede iniciar sesión'],
-  'Can operate lists': ['Can operate lists blower, sweepster, bobcat, snowrator or shovel', 'Puede operar solo: soplador, sweepster, bobcat, snowrator o pala'],  // Task 5 (11/25/26): the Board, its toasts (names in spans of their own: lib/app.js holdNames) and its warnings.
+  'Can operate lists': ['Can operate lists blower, sweepster, bobcat, snowrator or shovel', 'Puede operar solo: soplador, sweepster, bobcat, snowrator o pala'],
+  // Task 7 (11/25/26): Sites and Routes.
+  'ticked, not added yet': ['3 ticked, not added yet', '3 marcados, sin agregar todavía'],
+  'the customer button': ['2 hidden by the customer button', '2 ocultos por el botón del cliente'],
+  'hidden by': ['2 hidden by search and the customer button', '2 ocultos por la búsqueda y el botón del cliente'],
+  'Archived (': ['Archived (4)', 'Archivados (4)'],
+  'site is missing': ['line 2: site is missing', 'línea 2: falta el sitio'],
+  'dates must be YYYY-MM-DD': ['line 4: dates must be YYYY-MM-DD', 'línea 4: las fechas deben ser AAAA-MM-DD'],
+  '(this site)': ['BC5 (this site)', 'BC5 (este sitio)'],  // Task 5 (11/25/26): the Board, its toasts (names in spans of their own: lib/app.js holdNames) and its warnings.
   'Trucks for': ['Trucks for Night of 12/4', 'Camionetas de Noche del 12/4'],
   'Take': ['Take 3 people off 2 routes?', '¿Quitar a 3 personas de 2 rutas?'],
   'Took': ['Took 3 people off the Board', 'Se quitó a 3 personas del tablero'],
@@ -568,7 +574,7 @@ test('every left-out entry is real, and every NOT_YET entry still hides a string
 const KEEP_EN = new Set(['Shovel', 'Command', 'Titan', 'Inventory', 'Bobcat', 'Snowrator', 'Sweepster', 'BuilderTrend', 'ANTHC', 'MOA', 'JBER',
   'PIN', 'Esri', 'Google', 'Maxar', 'Earthstar', 'Geographics', 'HERE', 'Garmin', 'Matt', 'JPEG', 'PNG', 'NWS', 'GPS', 'min', 'max',
   'app', 'Anchorage', 'YYYY',
-  'Time', 'Out', 'Daily', 'Log', 'Blower']);   // BuilderTrend's own field names, kept beside the Spanish ("Entrada (Time In)", "Daily Log")   // app: "la app" is Spanish too; Anchorage a place; YYYY a date pattern
+  'Time', 'Out', 'Daily', 'Log', 'Blower', 'IceMelt']);   // BuilderTrend's own field names, kept beside the Spanish ("Entrada (Time In)", "Daily Log")   // app: "la app" is Spanish too; Anchorage a place; YYYY a date pattern
 function halfSpanish(text) {
   const out = Es.translateString(text);
   if (out === text) return null;

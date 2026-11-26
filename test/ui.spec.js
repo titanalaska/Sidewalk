@@ -12605,3 +12605,20 @@ test('Spanish: the Roster and a worker card read Spanish; names, traits and clea
   await expect(card).not.toContainText('Hola');
   await expect(card).not.toContainText('Listo');
 });
+
+// ---------- Spanish everywhere, Task 7: Matt's route editor on a Spanish phone (11/25/26) ----------
+// stormWorld by hand: R1 renamed "Done Route" and its site S1 renamed "Map Site" (row words: Listo, Mapa). The editor's words read
+// Spanish; the route's name in the heading and the site's name in its list are as typed.
+test('Spanish: the route editor reads Spanish; the route and site names stay as typed', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  const w = stormWorld();
+  w.routes = w.routes.map((r) => (r.id === 'R1' ? { ...r, name: 'Done Route' } : r));
+  w.sites = w.sites.map((s) => (s.id === 'S1' ? { ...s, name: 'Map Site' } : s));
+  await routeEditorOf(page, w, { pick: false });
+  const dlg = page.locator('#dlgIn');
+  await expect(dlg.locator('h2')).toHaveText('Editar Done Route');
+  await expect(dlg.locator('#r_pick')).toHaveText('Agregar sitios…');
+  await expect(dlg.locator('ol.sitelist')).toContainText('Map Site');
+  await expect(dlg.locator('ol.sitelist')).not.toContainText('Mapa');
+  await expect(dlg.locator('[data-up="0"]')).toHaveAttribute('aria-label', 'Subir');
+});

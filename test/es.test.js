@@ -146,7 +146,8 @@ test('the Sites tab: the search box, the All button, the Clear button and the em
 test('the Sites tab: All and Clear change only as a whole text node, never inside longer English', () => {
   assert.equal(Es.ES['All'], undefined);
   assert.equal(Es.ES['Clear'], undefined);
-  for (const keep of ['Clear all snow', 'All sites', 'Clear ticks', 'All clear', 'Not all done', 'Clear the dock', 'All day']) {
+  // ('Clear ticks' left this list: since Spanish everywhere, 11/25/26, it is the Add sites… button with a whole row of its own.)
+  for (const keep of ['Clear all snow', 'All sites', 'Clear the ticks', 'All clear', 'Not all done', 'Clear the dock', 'All day']) {
     assert.equal(Es.translateString(keep), keep, keep);
   }
 });
@@ -677,4 +678,32 @@ test('the Roster\'s built lines keep their numbers and names', () => {
   assert.equal(Es.translateString(' is on the crew'), ' ya está en la cuadrilla');
   assert.equal(Es.translateString(' · lead'), ' · líder');                               // a route's name before it, in its own span
   assert.equal(Es.translateString('blower, bobcat, shovel'), 'soplador, bobcat, pala');
+});
+
+// Spanish everywhere, Task 7: Matt's Sites and Routes tabs, the site and route editors, Add sites…, Archived / Restore. Draft, tú.
+test('Sites, Routes and their editors read Spanish', () => {
+  const cases = {
+    'Add site': 'Agregar sitio', 'Add route': 'Agregar ruta', 'Add sites…': 'Agregar sitios…', 'Add sites': 'Agregar sitios',
+    'Address': 'Dirección', 'Archived': 'Archivado', 'Restored': 'Restaurado', 'Restore': 'Restaurar',
+    'Materials needed (shown to the crew on the map)': 'Materiales que se necesitan (la cuadrilla los ve en el mapa)',
+    'e.g. 2-4 bags IceMelt': 'p. ej. 2-4 bolsas de IceMelt',
+    'Curbs for the crew': 'Bordillos para la cuadrilla',
+    "Off: the curbs stay on your map, the crew doesn't see them": 'No: los bordillos siguen en tu mapa, la cuadrilla no los ve',
+    'Callout depth (inches), blank = no nudge': 'Profundidad de llamado (pulgadas), en blanco = sin aviso',
+    'Day rank (1 = first on day shift), blank = by choice': 'Orden de día (1 = primero en el turno de día), en blanco = a elección',
+    'Move up': 'Subir', 'Move down': 'Bajar', 'Tick all': 'Marcar todos', 'Untick all': 'Desmarcar todos', 'Clear ticks': 'Borrar marcas',
+    'Every site is already on this route.': 'Todos los sitios ya están en esta ruta.',
+  };
+  for (const [en, es] of Object.entries(cases)) assert.equal(Es.translateString(en), es, en);
+});
+
+test('Sites and Routes: the built lines keep their numbers', () => {
+  assert.equal(Es.translateString('3 ticked, not added yet'), '3 marcados, sin agregar todavía');
+  assert.equal(Es.translateString('5 added'), '5 agregados');
+  assert.equal(Es.translateString('2 hidden by the customer button'), '2 ocultos por el botón del cliente');
+  assert.equal(Es.translateString('2 hidden by search and the customer button'), '2 ocultos por la búsqueda y el botón del cliente');
+  assert.equal(Es.translateString('Archived (4)'), 'Archivados (4)');
+  assert.equal(Es.translateString('1 site'), '1 sitio');
+  assert.equal(Es.translateString('7 sites'), '7 sitios');
+  assert.equal(Es.translateString('line 2: site is missing · line 4: dates must be YYYY-MM-DD'), 'línea 2: falta el sitio · línea 4: las fechas deben ser AAAA-MM-DD');
 });

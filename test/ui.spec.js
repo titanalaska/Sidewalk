@@ -12970,8 +12970,9 @@ test('Spanish screens: the live view\'s site totals have no English left; names 
 
 test('typed words: the Storm tab marks the zone names and the crew Problem note; never a site or route name', async ({ page }) => {
   // stormWorld by hand: R1 "N1" = S1 "PAC": Z1 "Main entry" (sidewalk), Z2 "Heated walk" (heated), Z3 "Ski trail" (no_touch: never
-  // a walk). The Log holds a Problem on Z1 with the note "Ice by the door". Matt opens R1. In page order: Main entry's name, its
-  // last line's note (a crew note: data-typed="crew"), Heated walk's name. Every mark is data-no-es.
+  // a walk). The Log holds a Problem on Z1 with the note "Ice by the door". Matt opens R1. A site's walks are drawn by name
+  // (CrewShiftLog.walksFor sorts byName: "Heated walk" < "Main entry"), so in page order: Heated walk's name, Main entry's name,
+  // then Main entry's last line's note (a crew note: data-typed="crew"). Every mark is data-no-es.
   const w = stormWorld();
   w.log = [logRow(1, 'S1', 'Z1', 'problem', 'Jordan Demo', { note: 'Ice by the door' })];
   await openStorm(page, w, { token: 'tok-matt' });
@@ -12979,7 +12980,7 @@ test('typed words: the Storm tab marks the zone names and the crew Problem note;
   const card = page.locator('[data-shiftsite="S1"]');
   await expect(card).toContainText('Ice by the door');
   const marks = await card.locator('[data-typed]').evaluateAll((els) => els.map((e) => [e.textContent, e.getAttribute('data-typed'), e.hasAttribute('data-no-es')]));
-  expect(marks).toEqual([['Main entry', '', true], ['Ice by the door', 'crew', true], ['Heated walk', '', true]]);
+  expect(marks).toEqual([['Heated walk', '', true], ['Main entry', '', true], ['Ice by the door', 'crew', true]]);
   const all = await page.locator('main [data-typed]').allTextContents();
   for (const name of ['PAC', 'N1', 'Jordan Demo']) expect(all).not.toContain(name);
 });
@@ -12998,21 +12999,21 @@ test('typed words: a Spanish phone shows the Spanish it holds for a zone name on
   // This phone holds "Main entry" -> "Entrada principal"; "Heated walk" is not held: it is asked for (and the fake refuses it, so
   // it stays as typed). "Main entry" is asked too, once this session (final review C1: the tab's word reaches a phone that holds
   // the line); the fake refuses it, and a refused held line keeps its Spanish (the fix pass's ruling). Nothing else typed is on
-  // the card.
+  // the card. Walks are drawn by their typed name (walksFor byName): Heated walk, then Main entry, whatever either shows.
   await esOn(page);
   await page.addInitScript(() => localStorage.setItem('snow-es-typed', JSON.stringify({ es: { 'Main entry': 'Entrada principal' }, en: {} })));
   const w = stormWorld();
   await openStorm(page, w, { token: 'tok-matt' });
   await openRoute(page, 'R1');
   const names = page.locator('[data-shiftsite="S1"] .walk-name [data-typed]');
-  await expect(names).toHaveText(['Entrada principal', 'Heated walk']);
+  await expect(names).toHaveText(['Heated walk', 'Entrada principal']);
   await page.clock.runFor(600);
   await expect.poll(() => [].concat(...(w.translateAsks || []).map((b) => b.texts))).toEqual(expect.arrayContaining(['Heated walk', 'Main entry']));
   await expect.poll(() => page.evaluate(() => window.SnowEsTyped.pending())).toEqual({ queued: 0, inflight: 0 });
   const asked = [].concat(...w.translateAsks.map((b) => b.texts));
   expect(asked.filter((t) => t === 'Main entry')).toHaveLength(1);
   expect(w.translateAsks.every((b) => b.lang === 'es')).toBe(true);
-  await expect(names).toHaveText(['Entrada principal', 'Heated walk']);
+  await expect(names).toHaveText(['Heated walk', 'Entrada principal']);
 });
 
 test('typed words: a zone name holding " / " (Matt\'s two languages) is never asked for', async ({ page }) => {
@@ -13039,7 +13040,7 @@ test('typed words: an English phone asks for a crew Problem note in English, nev
   await expect(page.locator('[data-shiftsite="S1"] [data-typed="crew"]')).toHaveText('Ice at the door');
   const asked = w.translateAsks.map((b) => [b.lang, b.texts]);
   expect(asked).toEqual([['en', ['Hielo en la puerta']]]);
-  await expect(page.locator('[data-shiftsite="S1"] .walk-name [data-typed]')).toHaveText(['Main entry', 'Heated walk']);
+  await expect(page.locator('[data-shiftsite="S1"] .walk-name [data-typed]')).toHaveText(['Heated walk', 'Main entry']);
 });
 
 test('typed words: an EN phone prints the route lists in Espanol: the held Spanish for typed lines, English where none is held, never blank', async ({ page }) => {

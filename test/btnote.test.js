@@ -400,3 +400,42 @@ test('btNote after the switch uses storm rules', () => {
   assert.equal(cnNote('S2', log, cnStorms('switched')), 'Cleared: West walk. Not done: East walk.');
   assert.equal(cnNote('S1', log, cnStorms('switched')), 'Not done: Front walk, Ramp.');
 });
+
+// The Site card's end-of-night boxes (Matt, 11/25/26): one line after Depth, built from CrewShiftLog.cardSums (never re-added here).
+// Worked on paper: C01 says 2 bags, 1 bucket, Shoveled yes; C03 says 1 bag, Shoveled no. Bags 2 + 1 = 3 x 50 lb = 150 lb;
+// buckets 1 x 75 lb = 75 lb; any yes -> "Shoveled."
+test('btnote: the site\'s bags, buckets and Shoveled with pounds', () => {
+  const o = base();
+  o.visits = [card(1, 'C01', { depth_in: 3, shoveled: true, ice_melt_bags: 2, sand_buckets: 1 }),
+    card(2, 'C03', { shoveled: false, ice_melt_bags: 1, sand_buckets: '' })];
+  const lines = N.btNote(o, 'night-2026-12-04').text.split('\n');
+  assert.ok(lines.includes('Ice melt: 3 bags (150 lb). Sand: 1 bucket (75 lb). Shoveled.'), lines.join(' | '));
+  assert.equal(lines.indexOf('Ice melt: 3 bags (150 lb). Sand: 1 bucket (75 lb). Shoveled.'), lines.indexOf('Depth: 3"') + 1, 'right after Depth');
+});
+
+test('btnote: one bag is "1 bag (50 lb)"; a typed 0 is an answer; only No answers say "Not shoveled."', () => {
+  const o = base();
+  o.visits = [card(1, 'C01', { shoveled: false, ice_melt_bags: 1 })];
+  let lines = N.btNote(o, 'night-2026-12-04').text.split('\n');
+  assert.ok(lines.includes('Ice melt: 1 bag (50 lb). Not shoveled.'), lines.join(' | '));
+  // A typed 0 bags: 0 x 50 = 0 lb, and plural.
+  o.visits = [card(1, 'C01', { ice_melt_bags: 0, sand_buckets: 2 })];
+  lines = N.btNote(o, 'night-2026-12-04').text.split('\n');
+  assert.ok(lines.includes('Ice melt: 0 bags (0 lb). Sand: 2 buckets (150 lb).'), lines.join(' | '));
+});
+
+test('btnote: no answers and no counts means no such line', () => {
+  const o = base();
+  o.visits = [card(1, 'C01', { depth_in: 2, shoveled: '', ice_melt_bags: '', sand_buckets: '' }), card(2, 'C03', { depth_in: 1 })];
+  const n = N.btNote(o, 'night-2026-12-04').text;
+  assert.ok(!/Ice melt|Sand:|hoveled/.test(n), n);
+});
+
+test('btnote: with two passes in the shift the line ends with the same tag as Depth (R15)', () => {
+  // Same two-pass log as the Matt 10/4/26 test above: the tag is " (this shift, all passes)".
+  const o = base();
+  o.log = [row(1, 'Z1', 'cleared'), row(4, '*', 'again'), row(6, 'Z1', 'cleared')];
+  o.visits = [card(1, 'C01', { depth_in: '3', ice_melt_bags: 2 })];
+  const lines = N.btNote(o, 'night-2026-12-04').text.split('\n');
+  assert.ok(lines.includes('Ice melt: 2 bags (100 lb). (this shift, all passes)'), lines.join(' | '));
+});

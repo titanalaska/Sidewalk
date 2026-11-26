@@ -345,3 +345,54 @@ test('the fake mirrors the server: a key left out keeps the saver\'s own previou
   expect((await post({ action: 'saveVisit', site_id: 'S1', sand_buckets: -1 })).reason).toBe('Buckets must be a whole number, zero or more');
   expect(calls.length).toBeGreaterThan(0);
 });
+
+// The Storm tab's per-site totals (Matt, 11/25/26): each person's bags, buckets and Shoveled under the site, after Depth and before
+// Materials. Worked on paper: Alex's card says 2 bags, Shoveled No; Bea's says 1 bag, 1 bucket, Shoveled Yes; Cy's says nothing.
+// Card order is the order visitTotals gives (newest first by seq? no: see the first assertion, which reads the page, not the code).
+// Ice melt: only Alex and Bea; Sand: only Bea; Shoveled: Alex No, Bea Yes. Cy is in none of them.
+function threeCards() {
+  const w = world();
+  w.visits = [
+    visit(1, { by_key: 'k-alex', by_name: 'Alex Test', depth_in: 3, shoveled: false, ice_melt_bags: 2, sand_buckets: '' }),
+    visit(2, { by_key: 'k-bea', by_name: 'Bea Demo', depth_in: 4, shoveled: true, ice_melt_bags: 1, sand_buckets: 1, materials_used: 'salt' }),
+    visit(3, { by_key: 'k-cy', by_name: 'Cy Sample', shoveled: '', ice_melt_bags: '', sand_buckets: '' }),
+  ];
+  return w;
+}
+// The totals sit under each site on the LIVE view; open() leaves us inside the route, so go back first.
+const totals = async (page) => { await page.locator('#liveBack').click(); return page.locator('[data-livesite="S1"] .live-totals'); };
+
+test('storm tab: each person\'s bags, buckets and Shoveled sit under the site, after Depth and before Materials', async ({ page }) => {
+  await open(page, threeCards());
+  const rows = await (await totals(page)).locator('> div').allInnerTexts();
+  const flat = rows.map((r) => r.replace(/\s+/g, ' ').trim());
+  const i = (p) => flat.findIndex((r) => r.startsWith(p));
+  expect(flat[i('Ice melt:')]).toBe('Ice melt: Alex Test 2 bags, Bea Demo 1 bag');
+  expect(flat[i('Sand:')]).toBe('Sand: Bea Demo 1 bucket');
+  expect(flat[i('Shoveled:')]).toBe('Shoveled: Alex Test No, Bea Demo Yes');
+  expect(i('Depth:')).toBeGreaterThanOrEqual(0);
+  expect(i('Depth:')).toBeLessThan(i('Ice melt:'));
+  expect(i('Ice melt:')).toBeLessThan(i('Sand:'));
+  expect(i('Sand:')).toBeLessThan(i('Shoveled:'));
+  expect(i('Shoveled:')).toBeLessThan(i('Materials:'));
+});
+
+test('storm tab: a typed 0 shows as "0 bags"; a blank is left out; nobody entered anything means no new line', async ({ page }) => {
+  const w = world();
+  w.visits = [visit(1, { by_key: 'k-alex', by_name: 'Alex Test', ice_melt_bags: 0, sand_buckets: '', shoveled: '' }),
+    visit(2, { by_key: 'k-cy', by_name: 'Cy Sample', depth_in: 2, ice_melt_bags: '', sand_buckets: '', shoveled: '' })];
+  await open(page, w);
+  const text = (await (await totals(page)).innerText()).replace(/\s+/g, ' ');
+  expect(text).toContain('Ice melt: Alex Test 0 bags');
+  expect(text).not.toContain('Cy Sample 0');
+  expect(text).not.toContain('Sand:');
+  expect(text).not.toContain('Shoveled:');
+});
+
+test('storm tab: in Spanish the new lines read bolsas / cubetas / Sí, the names are never translated', async ({ page }) => {
+  await open(page, threeCards(), 'es');
+  const flat = (await (await totals(page)).locator('> div').allInnerTexts()).map((r) => r.replace(/\s+/g, ' ').trim());
+  expect(flat).toContain('Derretidor de hielo: Alex Test 2 bolsas, Bea Demo 1 bolsa');
+  expect(flat).toContain('Arena: Bea Demo 1 cubeta');
+  expect(flat).toContain('Paleado: Alex Test No, Bea Demo Sí');
+});

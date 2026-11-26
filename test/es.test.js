@@ -820,3 +820,20 @@ test('end-of-night sheet headings read in Spanish', () => {
     Shoveled: 'Paleado', 'Ice melt (bags)': 'Derretidor de hielo (bolsas)', 'Sand (buckets)': 'Arena (cubetas)', '#': '#' };
   for (const [en, es] of Object.entries(rows)) assert.equal(Es.translateString(en), es, en);
 });
+
+// The Storm tab's per-person lines (11/25/26), worked by hand: "Ice melt:" and "Sand:" are prefix rows (the names after them sit under
+// data-no-es, each count is its own text node), the counts are whole-text-node rules with the singular, "Shoveled:" already reads
+// through the 'Shoveled' row, Yes is the existing rule and No stays No. A bare 'bags' / 'bucket' row would eat typed text, so none exists.
+test('storm tab lines: Ice melt:, Sand:, N bags / buckets and the singulars read in Spanish', () => {
+  const cases = { 'Ice melt:': 'Derretidor de hielo:', 'Sand:': 'Arena:', 'Shoveled:': 'Paleado:',
+    '2 bags': '2 bolsas', '1 bag': '1 bolsa', '0 bags': '0 bolsas', '3 buckets': '3 cubetas', '1 bucket': '1 cubeta', 'Yes': 'Sí', 'No': 'No' };
+  for (const [en, es] of Object.entries(cases)) assert.equal(Es.translateString(en), es, en);
+  // Whole text nodes only: typed words and longer English pass through.
+  assert.equal(Es.translateString('2 bags of salt'), '2 bags of salt');
+  assert.equal(Es.translateString('Bring 2 bags'), 'Bring 2 bags');
+  assert.ok(!('bags' in Es.ES) && !('bag' in Es.ES) && !('bucket' in Es.ES) && !('buckets' in Es.ES));
+  // The older rows around them are undisturbed.
+  assert.equal(Es.translateString('Sand only, no salt:'), 'Solo arena, sin sal:');
+  assert.equal(Es.translateString('Ice melt (bags)'), 'Derretidor de hielo (bolsas)');
+  assert.equal(Es.translateString('Sand (buckets)'), 'Arena (cubetas)');
+});

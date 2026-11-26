@@ -61,7 +61,6 @@ test('new concrete: the walk line, the button, the route-list tag, the legend ro
   const cases = {
     'Sand only, no salt': 'Solo arena, sin sal',
     'Sanded': 'Con arena',
-    '(sand only, no salt)': '(solo arena, sin sal)',
     'New concrete: sand only, no salt': 'Concreto nuevo: solo arena, sin sal',
     "It's still snowing: sanded anyway": 'Sigue nevando: con arena de todos modos',
     "It's still snowing: treated anyway": 'Sigue nevando: tratado de todos modos',

@@ -1,0 +1,531 @@
+// The Spanish dictionary against the code, both ways (Spanish everywhere, Matt 11/25/26: "Full blown everything when
+// you click on it"). Ported from Plow Command's test/es-coverage.test.js (its tokenizer and splitter unchanged).
+//
+//   1. Every English string the app renders reads Spanish on a phone set to ES: it is a row (a key in ES), matches an
+//      ES_RULES pattern, is a piece of a phrase the code builds (BUILT below, with a worked example the engine must
+//      translate), or is made only of rows and punctuation. That holds for EVERY screen: the crew's, the leads', the
+//      dispatcher's and Matt's (his 10/9/26 "crew screens only" is replaced). The server's refusal words count too: the
+//      phone shows them after "Not saved:" (read from SNOW_SERVER_REPO, default ../snow-app-script; a missing Code.js
+//      FAILS the file, it never skips).
+//   2. Every row is still rendered. A key no lib/*.js string or index.html text holds any more is a dead row.
+//
+// Two lists leave strings out, each entry with its reason:
+//   LEAVES_THE_APP: the words that only reach a Drive PDF or the Copy for BT text (English always, by the spec). Listed BY
+//     FUNCTION, because the same files also feed screens (the Storm tab's handoff card shows lib/handoff.js heading,
+//     siteParts and leftoverParts).
+//   NOT_YET: the screens still owed their rows while the build is under way. Each area task deletes its entries; the last
+//     one asserts NOT_YET is empty. An entry that hides nothing fails, so the list can only shrink honestly.
+// Spec: claudes room/Snow/Sidewalk specs + ledgers/2026-11-25-spanish-everywhere-design.md
+const test = require('node:test');
+const assert = require('node:assert');
+const fs = require('node:fs');
+const path = require('node:path');
+const Es = require('../lib/es.js');
+
+const ROOT = path.join(__dirname, '..');
+const LIB = path.join(ROOT, 'lib');
+
+// ---------------------------------------------------------------- the tokenizer
+// Enough JavaScript for these files: // and /* */ comments, '...' and "..." strings, template literals (their ${}
+// parts skipped), regex literals (told from division by the token before the slash), identifiers, numbers, punctuation.
+// It also remembers, for each string, the named functions around it and whether it sits inside console.*(...) or
+// new Error(...). It reports a bracket imbalance at the end of a file, which is how a wrong regex-or-division call
+// would show itself.
+function tokenize(src, label) {
+  const toks = [];
+  let i = 0, line = 1, parenDepth = 0, pending = null, lastIdent = '', lastPunct = '';
+  const n = src.length;
+  const braces = [];            // one entry per open {: the name of the function it is the body of, or null
+  const calls = [];             // open ( that belong to console.x( or new Error(: their paren depth
+  let callArm = null;           // set while reading `console . x` or `new Error`, until its ( arrives
+  const regexOk = () => {
+    const t = toks[toks.length - 1];
+    if (!t) return true;
+    if (t.type === 'str' || t.type === 'tpl' || t.type === 'num' || t.type === 're') return false;
+    if (t.type === 'id') return /^(return|typeof|case|in|of|delete|void|throw|new|else|do)$/.test(t.value);
+    return !/^[)\]}]$/.test(t.value);
+  };
+  const fnNames = () => braces.filter(Boolean);
+  while (i < n) {
+    const c = src[i];
+    if (c === '\n') { line++; i++; continue; }
+    if (/\s/.test(c)) { i++; continue; }
+    if (c === '/' && src[i + 1] === '/') { while (i < n && src[i] !== '\n') i++; continue; }
+    if (c === '/' && src[i + 1] === '*') {
+      const e = src.indexOf('*/', i + 2);
+      line += (src.slice(i, e + 2).match(/\n/g) || []).length; i = e + 2; continue;
+    }
+    if (c === '"' || c === "'") {
+      let j = i + 1;
+      while (j < n && src[j] !== c) { if (src[j] === '\\') j++; j++; }
+      const lit = src.slice(i, j + 1);
+      let value;
+      try { value = (new Function('return ' + lit))(); } catch (e) { throw new Error(label + ':' + line + ' the tokenizer lost its place at ' + lit.slice(0, 50)); }
+      toks.push({ type: 'str', value, line, fns: fnNames(), quiet: calls.length > 0 });
+      i = j + 1; continue;
+    }
+    if (c === '`') {
+      let j = i + 1, depth = 0, raw = '';
+      while (j < n && !(src[j] === '`' && depth === 0)) {
+        if (src[j] === '\\') { raw += src[j] + src[j + 1]; j += 2; continue; }
+        if (src[j] === '$' && src[j + 1] === '{') { depth++; j += 2; continue; }
+        if (src[j] === '}' && depth > 0) { depth--; j++; continue; }
+        if (depth === 0) raw += src[j];
+        j++;
+      }
+      toks.push({ type: 'tpl', value: raw, line, fns: fnNames(), quiet: calls.length > 0 });
+      i = j + 1; continue;
+    }
+    if (c === '/' && regexOk()) {
+      let j = i + 1, cls = false;
+      while (j < n && (src[j] !== '/' || cls)) {
+        if (src[j] === '\\') j++; else if (src[j] === '[') cls = true; else if (src[j] === ']') cls = false;
+        j++;
+      }
+      j++; while (/[a-z]/.test(src[j] || '')) j++;
+      toks.push({ type: 're', value: src.slice(i, j), line }); i = j; continue;
+    }
+    if (/[A-Za-z_$]/.test(c)) {
+      let j = i; while (j < n && /[\w$]/.test(src[j])) j++;
+      const w = src.slice(i, j), prev = toks[toks.length - 1], prev2 = toks[toks.length - 2];
+      if (w === 'function') {
+        const m = /^\s*([A-Za-z_$][\w$]*)/.exec(src.slice(j, j + 80));
+        pending = { name: m ? m[1] : (lastIdent && (lastPunct === ':' || lastPunct === '=') ? lastIdent : '(anon)'), depth: undefined, closed: false };
+      }
+      if (w === 'Error' && prev && prev.type === 'id' && prev.value === 'new') callArm = true;
+      if (prev && prev.type === 'p' && prev.value === '.' && prev2 && prev2.type === 'id' && prev2.value === 'console') callArm = true;
+      toks.push({ type: 'id', value: w, line }); lastIdent = w; i = j; continue;
+    }
+    if (/[0-9]/.test(c)) { let j = i; while (j < n && /[\w.]/.test(src[j])) j++; toks.push({ type: 'num', value: src.slice(i, j), line }); i = j; continue; }
+    if (c === '(') {
+      if (pending && pending.depth === undefined) pending.depth = parenDepth;
+      if (callArm) { calls.push(parenDepth); callArm = null; }
+      parenDepth++;
+    } else if (c === ')') {
+      parenDepth--;
+      if (pending && pending.depth === parenDepth) pending.closed = true;
+      if (calls.length && calls[calls.length - 1] === parenDepth) calls.pop();
+    } else if (c === '{') {
+      if (pending && pending.closed) { braces.push(pending.name); pending = null; } else braces.push(null);
+    } else if (c === '}') braces.pop();
+    if (c !== '.' && c !== '(') callArm = null; // `console.x` / `new Error` must be followed by its ( with nothing between
+    lastPunct = c;
+    toks.push({ type: 'p', value: c, line }); i++;
+  }
+  if (parenDepth !== 0 || braces.length !== 0) throw new Error(label + ': brackets do not balance after tokenizing (paren ' + parenDepth + ', brace ' + braces.length + '): a regex literal was read as division, or the other way round');
+  return toks;
+}
+
+// The strings of a file, 'a' + 'b' joined into one, each with its line, the named functions around it, and
+// quiet = inside console.*( or new Error(.
+function stringsOf(src, label) {
+  const toks = tokenize(src, label), out = [];
+  const isStr = (t) => t && (t.type === 'str' || t.type === 'tpl');
+  const plus = (t) => t && t.type === 'p' && t.value === '+';
+  for (let i = 0; i < toks.length; i++) {
+    if (!isStr(toks[i])) continue;
+    if (plus(toks[i - 1]) && isStr(toks[i - 2])) continue; // the middle of a chain already taken
+    let v = toks[i].value, j = i;
+    while (plus(toks[j + 1]) && isStr(toks[j + 2])) { v += toks[j + 2].value; j += 2; }
+    out.push({ value: v, line: toks[i].line, fns: toks[i].fns, quiet: toks[i].quiet });
+  }
+  return out;
+}
+
+function decode(s) {
+  return s.replace(/&nbsp;/g, ' ').replace(/&middot;/g, '·').replace(/&times;/g, '×').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+}
+const squash = (s) => decode(s).replace(/\s+/g, ' ').trim();
+
+// The text a string will put on the screen, piece by piece: the text between its tags, and the four translated
+// attributes. A piece that opens or closes mid-tag (the string is one slice of a longer concatenation) is trimmed
+// to its text. Text right after a tag that carries data-no-es, up to the next tag, is a person's and is dropped.
+function textPieces(v) {
+  const out = [];
+  const attrRe = /\b(?:placeholder|aria-label|title|alt)="([^"]*)"/g;
+  let m;
+  while ((m = attrRe.exec(v))) out.push(m[1]);
+  // The end of a tag a variable cut off leads the string: `">`, ` disabled>`, `class="x">`, or the bare `>` itself.
+  const LEAD = /^(?:(?:"|\s|[\w-]+=)[^<>]*)?>/;
+  if (!/<[A-Za-z\/!]/.test(v) && !LEAD.test(v)) {
+    // no tag in it: plain text, or the tail of an attribute value that a variable cut off (' minutes" placeholder="min"')
+    const tail = /^([^"<>]*)"\s*(?:[\w-]+=|\/?>|$)/.exec(v);
+    return out.concat([tail ? tail[1] : v]).map(squash).filter(Boolean);
+  }
+  // mark every tag, remembering which ones carry data-no-es
+  let t = v.replace(LEAD, (s) =>'\u0001' + (/data-no-es/.test(s) ? 'N' : 'Y'));
+  t = t.replace(/<[^>]*>?/g, (s) => '\u0001' + (/data-no-es/.test(s) ? 'N' : 'Y'));
+  const parts = t.split('\u0001');
+  parts.forEach((p, k) => {
+    if (k === 0) { if (p) out.push(p); return; }
+    const flag = p[0]; p = p.slice(1);
+    if (flag === 'N') return;
+    if (p) out.push(p);
+  });
+  return out.map(squash).filter(Boolean);
+}
+
+const wordsIn = (p) => p.split(' ').filter((w) => /[A-Za-z]/.test(w));
+// Prose, not code: no brackets, equals, angle marks, backslashes, pipes, underscores; no CSS "prop:value".
+const isProse = (p) => !/[{}\[\]<>=\\|_$@]/.test(p) && !/\b[a-z-]{3,}:[a-z0-9#(]/.test(p) && !/^[;:.#]/.test(p) && p !== 'use strict';
+
+// ---------------------------------------------------------------- what is read
+function libFiles() { return fs.readdirSync(LIB).filter((f) => f.endsWith('.js') && f !== 'es.js').sort(); }
+const SOURCES = {};
+libFiles().forEach((f) => { SOURCES['lib/' + f] = stringsOf(fs.readFileSync(path.join(LIB, f), 'utf8'), 'lib/' + f); });
+
+// index.html: the markup's own text and its translated attributes (its scripts are external files).
+function indexPieces() {
+  const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8').replace(/<script[\s\S]*?<\/script>/g, '').replace(/<title>[\s\S]*?<\/title>/, '');
+  return textPieces(html);
+}
+
+// Every candidate: { file, line, fns, text } for the pieces of two or more words that read as prose.
+function candidates() {
+  const out = [];
+  Object.keys(SOURCES).forEach((file) => {
+    SOURCES[file].forEach((s) => {
+      if (s.quiet) return;
+      textPieces(s.value).forEach((p) => { if (wordsIn(p).length >= 2 && isProse(p)) out.push({ file, line: s.line, fns: s.fns.filter((x) => x !== '(anon)'), text: p }); });
+    });
+  });
+  indexPieces().forEach((p) => { if (wordsIn(p).length >= 2 && isProse(p)) out.push({ file: 'index.html', line: 0, fns: [], text: p }); });
+  return out;
+}
+
+// The one-word text nodes (Save, Cancel, Undo, Plowed...): a capitalised piece of a single word. Two-word candidates are the
+// sentences; these are the buttons, labels and states, which the crew read just as much and which a missing row leaves English.
+function oneWordNodes() {
+  const out = [], take = (file, line, fns, p) => {
+    if (wordsIn(p).length === 1 && /^[^A-Za-z]*[A-Z]/.test(p) && isProse(p)) out.push({ file, line, fns: fns.filter((x) => x !== '(anon)'), text: p });
+  };
+  Object.keys(SOURCES).forEach((file) => SOURCES[file].forEach((s) => { if (!s.quiet) textPieces(s.value).forEach((p) => take(file, s.line, s.fns, p)); }));
+  indexPieces().forEach((p) => take('index.html', 0, [], p));
+  return out;
+}
+
+// ---------------------------------------------------------------- the server's refusal words
+// The phone shows a refused save's reason after "Not saved:", so the server's own words are screen words. They are read
+// from the snow-app-script checkout: every *.js the phone does not carry itself (the shared files are already read above
+// as lib/*.js), seed files aside. A missing Code.js fails the whole file: it never quietly skips.
+const SERVER = process.env.SNOW_SERVER_REPO || path.join(ROOT, '..', 'snow-app-script');
+if (!fs.existsSync(path.join(SERVER, 'Code.js'))) {
+  throw new Error('es-coverage: no Code.js in ' + SERVER + ': set SNOW_SERVER_REPO to the snow-app-script checkout');
+}
+const SERVER_SKIP = { 'seed-data.js': 'customer seed data, never shown', 'seed.js': 'the one-off seeding job' };
+function serverFiles() {
+  const phone = new Set(fs.readdirSync(LIB));
+  return fs.readdirSync(SERVER).filter((f) => f.endsWith('.js') && !phone.has(f) && !SERVER_SKIP[f]).sort();
+}
+// The literal pieces of every refusal: invalid_('...'), reason: '...', errs.push('...'). A variable that cuts a message
+// leaves its literal pieces standing alone ('Your line is ' + LINE_MAX + ' characters at most' -> 'Your line is',
+// 'characters at most'). EVERY prose string of a server-only file counts: refusals come as invalid_('...'), as
+// reason: '...', and as validators' returned arrays (roster.js lineErrs), so no call shape is trusted. The few that never
+// reach a phone (a Drive folder's name, a log line) are named in NOT_SHOWN with the reason.
+const SERVER_SOURCES = {};
+serverFiles().forEach((f) => { SERVER_SOURCES['server/' + f] = stringsOf(fs.readFileSync(path.join(SERVER, f), 'utf8'), 'server/' + f); });
+const NOT_SHOWN = {
+  'px Arial, sans-serif': 'a canvas font (lib/mapprint.js drawNumbers, drawNorth), never shown',
+  'Snow Route Sheets': 'the Drive folder\'s name (Code.js SHEETS_FOLDER)',
+  'Crew times': 'the head of a Crew times PDF\'s file name in Drive',
+  'Crew times (worked out).pdf': 'a Drive file name',
+  'Crew times (could not be worked out).pdf': 'a Drive file name',
+};
+function serverCandidates() {
+  const out = [];
+  Object.keys(SERVER_SOURCES).forEach((file) => SERVER_SOURCES[file].forEach((s) => {
+    if (s.quiet) return;
+    textPieces(s.value).forEach((p) => { if (wordsIn(p).length >= 2 && isProse(p)) out.push({ file, line: s.line, fns: [], text: p }); });
+  }));
+  return out;
+}
+const allCandidates = () => candidates().concat(serverCandidates()).filter((c) => !NOT_SHOWN[c.text]);
+
+// ---------------------------------------------------------------- what is left out, and why
+// Words that only ever reach something that LEAVES the app: English always, by the spec ("Print sheets and the Drive PDFs
+// stay English"; "Copy for BT stays English"). By function: the same files feed screens too. '*' = the whole file.
+const LEAVES_THE_APP = {
+  // Every string here is a Drive PDF's, or a Print sheets / Print crew times page's (those pages sit under data-no-es:
+  // the English record). The screens call only the data builders and clock(), whose AM / PM are ONE_WORD_ENGLISH.
+  // Ship 2 (Task 15) takes clockSheetData / clockSheetBody out of here when Print crew times gets its Espanol button.
+  'lib/routesheet.js': '*',
+  // The handoff PDF and its Print sheets page. NOT heading, siteParts or leftoverParts: the Storm tab's handoff card shows them.
+  'lib/handoff.js': ['handoffBody', 'handoffHtml', 'fileName'],
+  'lib/btnote.js': '*',    // the Copy for BT text: English always (BuilderTrend)
+  'lib/share.js': ['message'], // the text message the Share button sends; its toast and dialog live in lib/app.js
+};
+
+// The screens still owed their rows (the area tasks delete their entries; Task 9 asserts this is empty). '*' = the whole file.
+const NOT_YET = {
+  'index.html': '*',
+  'lib/api.js': ['signIn'],
+  'lib/app.js': ['(top)', 'rosterLabel', 'siteCard', 'archive', 'archivedHtml', 'async', 'checks', 'draw', 'drawPick', 'editSite', 'editWorker', 'markPick', 'openMap', 'openWorker', 'pickListHtml', 'printRouteMaps', 'render', 'renderRoster', 'renderRoutes', 'renderSites', 'restoreRecord', 'rosterListHtml', 'rosterTile', 'shareApp', 'showMapPrint'],
+  'lib/boardbatch.js': ['pickGroups', 'planAdd'],
+  'lib/boardui.js': ['async', 'bulk', 'callout', 'chip', 'clearAsk', 'clearGo', 'countText', 'onClick', 'openCallout', 'openCard', 'openEntry', 'placeFromRoster', 'post', 'pplAdd', 'pplDraw', 'pplListHtml', 'pplMark', 'renderBoard', 'renderLog', 'shortNightButton', 'undoClear'],
+  'lib/bpimport.js': ['parseExport'],
+  'lib/crewcards.js': ['fieldsWord', 'winterWord'],
+  'lib/crewcardsui.js': ['fitText', 'headWord', 'pngOf', 'shareCard'],
+  'lib/crewstats.js': ['cardLines'],
+  'lib/crewstatsui.js': ['html', 'load'],
+  'lib/forms.js': ['parseClearances'],
+  'lib/handoff.js': ['heading', 'leftoverParts', 'siteParts'],
+  'lib/machinepick.js': ['unitChoices'],
+  'lib/mapedit.js': ['(top)', 'addImported', 'archiveZone', 'away', 'beginDraw', 'drawControls', 'formButtons', 'importBusy', 'onclick', 'previewJob', 'problem', 'readBootprint', 'renderArchived', 'restoreZone', 'saveView', 'saveZone', 'showRef', 'start', 'unsavedWork', 'walksAndPiles'],
+  'lib/mapprint.js': ['pageHtml'],
+  'lib/mapview.js': ['open', 'sheetHtml'],
+  'lib/pairing.js': ['placementLabel'],
+  'lib/rosterui.js': ['addCrewButton', 'addToCrew', 'decide', 'waitingHtml'],
+  'lib/routelist.js': ['pageHtml'],
+  'lib/share.js': ['share'],
+  'lib/shiftlog.js': ['zoneName', 'checkAgain', 'checkTap', 'curbItems', 'machineProblem', 'undoTarget'],
+  'lib/shiftlogui.js': ['(top)', 'liveRouteHtml', 'afterSiteReply', 'bigToggleHtml', 'calloutsHtml', 'confirmAgain', 'confirmDepth', 'confirmHandoff', 'confirmStorm', 'controlsHtml', 'dayRouteHtml', 'draw', 'handOffHtml', 'handoffCardHtml', 'handoffStatus', 'livesumHtml', 'manual', 'oldHtml', 'onBoard', 'onclick', 'openBt', 'openPrint', 'openRouteLists', 'openSetTimes', 'outlookHtml', 'passHtml', 'retrySheets', 'run', 'saveCard', 'saveDialog', 'saveTruck', 'sheetsStatus', 'siteHtml', 'siteLineHtml', 'snowMapHtml', 'truckHtml', 'warnHtml'],
+  'lib/sitestatus.js': ['of'],
+  'lib/snowmap.js': ['open'],
+  'lib/time.js': ['shiftLabel'],
+  'lib/totals.js': ['(top)', 'line', 'walkParts'],
+  'lib/warnings.js': ['warningsFor'],
+  'lib/weather.js': ['hint'],
+  'server/Code.js': '*',
+  'server/auth.js': '*',
+  'server/roster.js': '*',
+};
+
+// One-word text nodes that are not translated, each with its reason.
+const ONE_WORD_ENGLISH = {
+  // initialisms, names and letters that read the same in Spanish
+  PIN: 'the sign-in label: PIN is the word in Spanish too',
+  EN: 'the language buttons (index.html): the codes name the languages',
+  ES: 'the language buttons (index.html)',
+  AM: 'the clock\'s own suffix, kept in the Spanish lines ("Nieve hasta las 10 AM")',
+  PM: 'the clock\'s own suffix',
+  Anchorage: 'a place name (the Home area); Valley has a row (El Valle) because it is also a word',
+  Bobcat: 'a machine\'s brand name (spec: proper nouns stay)',
+  Snowrator: 'a machine\'s brand name',
+  Sweepster: 'a machine\'s brand name',
+  N: 'the north arrow on a printed map: Norte is N too',
+  V: 'the Board chip for a Valley worker: Valle is V too',
+  // never on a screen
+  POST: 'the HTTP method (lib/api.js)',
+  'Content-Type': 'an HTTP header name (lib/api.js)',
+  Enter: 'a keyboard key name compared in a keydown handler',
+  AbortError: 'a DOMException name compared when Share is cancelled',
+  NotAllowedError: 'a DOMException name compared when Share is refused',
+  NFD: 'the Unicode form name passed to normalize() (lib/grouplist.js)',
+  T: 'the ISO date format\'s separator',
+  Z: 'the ISO time zone suffix',
+  'B-': 'the batch id prefix (newBatchId), never shown',
+  C: 'the worker id prefix (forms.js nextWorkerId), never shown',
+  Feature: 'GeoJSON type names the map is fed',
+  FeatureCollection: 'GeoJSON type name',
+  Polygon: 'GeoJSON type name',
+  LineString: 'GeoJSON type name',
+};
+
+// A phrase BUILT at run time from pieces that carry no row of their own: [an example of the finished line, its Spanish].
+const BUILT = {
+};
+
+// Rows whose English is never one literal: the code joins two. The dead-row check wants both halves still in that file.
+const BUILT_ROWS = {
+  // lib/shiftlogui.js warnHtml: "It's still snowing: " + ('sanded' | 'treated') + ' anyway'
+  "It's still snowing: treated anyway": { file: 'lib/shiftlogui.js', head: "It's still snowing:", tail: 'treated' },
+  "It's still snowing: sanded anyway": { file: 'lib/shiftlogui.js', head: "It's still snowing:", tail: 'sanded' },
+  // lib/boardui.js: 'Undo ' + o.undo, the kind 'start' | 'end' (clockTap's own literals)
+  'Undo start': { file: 'lib/boardui.js', head: 'Undo', tail: 'start' },
+  'Undo end': { file: 'lib/boardui.js', head: 'Undo', tail: 'end' },
+  // lib/shiftlogui.js: o.failWord + ' not saved: ' + reason, failWord 'Times' (Set times) | 'Shift' (Set shift)
+  'Times not saved': { file: 'lib/shiftlogui.js', head: 'Times', tail: 'not saved:' },
+  'Shift not saved': { file: 'lib/shiftlogui.js', head: 'Shift', tail: 'not saved:' },
+  // snow-app-script roster.js lineErrs: 'Your line is ' + LINE_MAX + ' characters at most' (LINE_MAX = 40)
+  'Your line is 40 characters at most': { file: 'server/roster.js', head: 'Your line is', tail: 'characters at most' },
+};
+
+// ---------------------------------------------------------------- the checks
+// An entry is '*' (the whole file) or a list of function names; '(top)' names the strings that sit in no named function.
+function listed(map, c) {
+  const e = map[c.file];
+  if (!e) return false;
+  return e === '*' || c.fns.some((f) => e.indexOf(f) !== -1) || (c.fns.length === 0 && e.indexOf('(top)') !== -1);
+}
+const leaves = (c) => listed(LEAVES_THE_APP, c);
+const notYet = (c) => listed(NOT_YET, c);
+function isOut(c) { return leaves(c) || notYet(c); }
+
+// The engine's own matching: every row, longest first, whole words. A piece whose letters all sit inside matched rows
+// reads fully Spanish ("Site card:" is the row "Site card" and a colon).
+const ROW_RE = new RegExp(Object.keys(Es.ES).sort((a, b) => b.length - a.length).map((k) =>
+  (/^[A-Za-z0-9]/.test(k) ? '\\b' : '') + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + (/[A-Za-z0-9]$/.test(k) ? '\\b' : '')).join('|'), 'g');
+function fullyKeyed(text) { return !/[A-Za-z]/.test(text.replace(ROW_RE, ' ')); }
+function covered(text) {
+  if (Object.prototype.hasOwnProperty.call(Es.ES, text)) return true;
+  if (Es.ES_RULES.some((r) => r[0].test(text))) return true;
+  if (fullyKeyed(text)) return true;
+  const b = BUILT[text];
+  return !!b && Es.translateString(b[0]) === b[1];
+}
+const where = (c) => c.file + ':' + c.line + (c.fns.length ? ' [' + c.fns[c.fns.length - 1] + ']' : '') + ' ' + JSON.stringify(c.text);
+
+test('every English string a screen renders (or the server refuses with) has a row or a rule', () => {
+  const missing = [], seen = new Set();
+  allCandidates().filter((c) => !isOut(c)).forEach((c) => {
+    if (covered(c.text)) return;
+    const k = c.file + '|' + c.text;
+    if (seen.has(k)) return;
+    seen.add(k); missing.push(c);
+  });
+  assert.deepEqual(missing.map(where), [], missing.length + ' English string(s) a phone set to ES would show in English.\n'
+    + 'Add a row or a rule to lib/es.js (tú, the live vocabulary; a name is never translated).\n  '
+    + missing.map(where).join('\n  '));
+});
+
+const trimEnds = (x) => x.replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, '');
+// The rows no code renders any more (es.js itself holds every key, so it is not read). The server's refusal words count as
+// rendered. A one-word row has to be a whole text node by itself.
+function deadRows() {
+  const pieces = [];
+  Object.keys(SOURCES).forEach((file) => SOURCES[file].forEach((s) => { if (!s.quiet) textPieces(s.value).forEach((p) => pieces.push(p)); }));
+  Object.keys(SERVER_SOURCES).forEach((file) => SERVER_SOURCES[file].forEach((s) => textPieces(s.value).forEach((p) => pieces.push(p))));
+  indexPieces().forEach((p) => pieces.push(p));
+  const heard = pieces.join('\n');
+  return Object.keys(Es.ES).filter((k) => {
+    if (BUILT_ROWS[k]) {
+      const b = BUILT_ROWS[k], file = SOURCES[b.file] || SERVER_SOURCES[b.file] || [];
+      const has = (w) => file.some((s) => !s.quiet && textPieces(s.value).some((q) => trimEnds(q) === trimEnds(w)));
+      return !(has(b.head) && has(b.tail));
+    }
+    if (wordsIn(k).length >= 2) {
+      const re = new RegExp((/^[A-Za-z0-9]/.test(k) ? '\\b' : '') + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + (/[A-Za-z0-9]$/.test(k) ? '\\b' : ''));
+      return !re.test(heard);
+    }
+    return !pieces.some((q) => trimEnds(q) === trimEnds(k));
+  });
+}
+
+test('every row is still rendered: no dead row', () => {
+  const dead = deadRows();
+  assert.deepEqual(dead, [], dead.length + ' row(s) in lib/es.js translate English that nothing renders any more. Delete them.\n  '
+    + dead.map((k) => JSON.stringify(k)).join('\n  '));
+});
+
+test('every capitalised one-word text node is a row, a rule or named; every one-word row is rendered', () => {
+  const missing = [], seen = new Set();
+  oneWordNodes().filter((c) => !isOut(c)).forEach((c) => {
+    if (covered(c.text) || ONE_WORD_ENGLISH[c.text]) return;
+    const k = c.file + '|' + c.text;
+    if (seen.has(k)) return;
+    seen.add(k); missing.push(c);
+  });
+  assert.deepEqual(missing.map(where), [], missing.length + ' one-word text node(s) have no row and no rule.\n'
+    + 'Add an exact-text rule (/^Word$/) or a row to lib/es.js, or name the word in ONE_WORD_ENGLISH with the reason.\n  ' + missing.map(where).join('\n  '));
+  const deadOne = deadRows().filter((k) => wordsIn(k).length < 2);
+  assert.deepEqual(deadOne, [], deadOne.length + ' one-word row(s) are no whole text node anywhere:\n  ' + deadOne.map((k) => JSON.stringify(k)).join('\n  '));
+  const stale = Object.keys(ONE_WORD_ENGLISH).filter((t) => !oneWordNodes().some((c) => c.text === t && !leaves(c) && !covered(c.text)));
+  assert.deepEqual(stale, [], 'ONE_WORD_ENGLISH names words that are not (or no longer) an untranslated node: ' + stale.join(', '));
+});
+
+test('every left-out entry is real, and every NOT_YET entry still hides a string with no row', () => {
+  const all = allCandidates(), ones = oneWordNodes(), problems = [];
+  const open = all.concat(ones).filter((c) => !covered(c.text) && !ONE_WORD_ENGLISH[c.text]);
+  const need = (ok, msg) => { if (!ok) problems.push(msg); };
+  const fileOf = (f) => (f.indexOf('server/') === 0 ? path.join(SERVER, f.slice(7)) : path.join(ROOT, f));
+  Object.keys(LEAVES_THE_APP).forEach((f) => {
+    need(fs.existsSync(fileOf(f)), 'LEAVES_THE_APP names a file that is gone: ' + f);
+    const e = LEAVES_THE_APP[f];
+    if (e !== '*' && fs.existsSync(fileOf(f))) {
+      const src = fs.readFileSync(fileOf(f), 'utf8');
+      e.forEach((fn) => need(new RegExp('function ' + fn + '\\s*\\(').test(src), 'LEAVES_THE_APP names a function ' + f + ' does not have: ' + fn));
+    }
+  });
+  Object.keys(NOT_YET).forEach((f) => {
+    need(fs.existsSync(fileOf(f)), 'NOT_YET names a file that is gone: ' + f);
+    const e = NOT_YET[f];
+    if (e === '*') need(open.some((c) => c.file === f && !leaves(c)), 'NOT_YET hides nothing in ' + f + ': delete the entry');
+    else e.forEach((fn) => need(open.some((c) => c.file === f && !leaves(c) && (fn === '(top)' ? c.fns.length === 0 : c.fns.indexOf(fn) !== -1)),
+      'NOT_YET hides nothing in ' + f + ' ' + fn + ': delete it'));
+  });
+  assert.deepEqual(problems, [], problems.length + ' left-out entr' + (problems.length === 1 ? 'y is' : 'ies are') + ' wrong:\n  ' + problems.join('\n  '));
+  Object.keys(BUILT).forEach((t) => {
+    assert.ok(all.some((c) => c.text === t) || ones.some((c) => c.text === t), 'BUILT names a piece no source holds: ' + t);
+    assert.equal(Es.translateString(BUILT[t][0]), BUILT[t][1], 'BUILT example for ' + t);
+    assert.notEqual(BUILT[t][1], BUILT[t][0]);
+  });
+});
+
+test('the server scan fails the file, never skips, when SNOW_SERVER_REPO holds no Code.js', () => {
+  const { spawnSync } = require('node:child_process');
+  const os = require('node:os');
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'es-cov-'));
+  // NODE_TEST_CONTEXT is the runner's own mark for its child processes: left in, the nested run reports to this one and exits 0.
+  const env = Object.assign({}, process.env, { SNOW_SERVER_REPO: empty });
+  delete env.NODE_TEST_CONTEXT;
+  const r = spawnSync(process.execPath, ['--test', __filename], { env, encoding: 'utf8' });
+  fs.rmdirSync(empty);
+  assert.notEqual(r.status, 0, 'the run passed with no server checkout');
+  assert.match(r.stdout + r.stderr, /no Code\.js in/);
+});
+
+test('the server scan reads every refusal shape: invalid_, reason:, a validator\'s returned array', () => {
+  assert.ok(Object.keys(SERVER_SOURCES).indexOf('server/Code.js') !== -1, 'Code.js is read');
+  assert.ok(Object.keys(SERVER_SOURCES).indexOf('server/routesheet.js') === -1, 'a shared file is read once, as lib/routesheet.js');
+  const texts = serverCandidates().map((c) => c.text);
+  assert.ok(texts.indexOf('Only Matt can do that.') !== -1, 'reason: in auth (Code.js)');
+  assert.ok(texts.indexOf('Busy, try again.') !== -1, 'reason: in locked_ (Code.js)');
+  // roster.js lineErrs: ['Your line is ' + LINE_MAX + ' characters at most'], a returned array: both pieces are found
+  assert.ok(texts.indexOf('Your line is') !== -1 && texts.indexOf('characters at most') !== -1, 'a validator\'s returned array (roster.js)');
+  Object.keys(NOT_SHOWN).forEach((t) => assert.ok(candidates().concat(serverCandidates()).some((c) => c.text === t), 'NOT_SHOWN names a string no file holds: ' + t));
+});
+
+// The tokenizer and the splitter, on made-up source: they are the instrument, so they get their own proof (Plow's, unchanged).
+test('the extractor: joins chains, splits tags, keeps attributes, skips code and a person\'s words', () => {
+  const src = [
+    "var a = 'Hello there ' + 'friend';",
+    "// 'not in a comment here'",
+    "/* 'nor here' */",
+    "var re = /it's \"quoted\" here/g, d = 10 / 2;",
+    "console.log('console words are not shown');",
+    "throw new Error('error words are not shown');",
+    "x.innerHTML = '<p class=\"muted\">Shoveled today</p><input placeholder=\"Your name here\"><span data-no-es>Jordan Test</span> and more';",
+    "function outer() { return function inner() { return 'Inside two functions'; }; }",
+    "y.innerHTML = '<button id=\"h\"' + (busy ? ' disabled aria-busy=\"true\"' : '') + '>Hand off now</button></div>';",
+    "z.innerHTML = '<button id=\"k\" class=\"x' + '\" disabled' + '>Keep going</button>';",
+  ].join('\n');
+  const s = stringsOf(src, 'fixture');
+  const texts = s.filter((x) => !x.quiet).map((x) => x.value);
+  assert.ok(texts.indexOf('Hello there friend') !== -1, 'a + b is one string');
+  assert.equal(texts.some((t) => /comment|nor here/.test(t)), false, 'comments are not strings');
+  assert.equal(texts.some((t) => /quoted/.test(t)), false, 'a regex literal is not a string');
+  assert.equal(s.filter((x) => x.quiet).length, 2, 'console.* and new Error( arguments are quiet');
+  const html = s.filter((x) => /Shoveled today/.test(x.value))[0].value;
+  assert.deepEqual(textPieces(html), ['Your name here', 'Shoveled today', 'and more'], 'text between tags, the placeholder, and nothing from data-no-es');
+  const inner = s.filter((x) => x.value === 'Inside two functions')[0];
+  assert.deepEqual(inner.fns, ['outer', 'inner'], 'named functions around a string');
+  assert.deepEqual(textPieces('">Save the day</b> now'), ['Save the day', 'now']);
+  const bare = s.filter((x) => /^>Hand off now/.test(x.value))[0];
+  assert.ok(bare, 'the fixture string that begins with > is there');
+  assert.deepEqual(textPieces(bare.value), ['Hand off now'], 'a leading > closes a tag; the text after it is the text');
+  assert.deepEqual(textPieces(s.filter((x) => /Keep going/.test(x.value))[0].value), ['Keep going'], 'a chain that spans a whole tag is one string');
+  assert.deepEqual(textPieces('5 > 3 and more'), ['5 > 3 and more'], 'a > inside running text is left alone');
+  assert.throws(() => tokenize("var x = (1;", 'broken'), /balance/);
+});
+
+test('the extractor reads every lib file and finds the words the crew read', () => {
+  assert.ok(Object.keys(SOURCES).length >= 30, 'lib/*.js are read');
+  const all = candidates().map((c) => c.text);
+  for (const sample of ["Pick your name, then your PIN. If you use Titan Inventory, it's the same PIN.", 'No sites on this route.', 'Aerial photo unavailable. The zones below are still right.']) {
+    assert.ok(all.indexOf(sample) !== -1, 'the extractor found: ' + sample);
+  }
+});
+
+// The judge has to be able to say no. Worked by hand against the rows: "Site card:" is the row "Site card" and a colon;
+// "Save the day now" holds the row "Save" and the English words "the day now".
+test('covered(): a whole row, a rule, a string made only of rows and punctuation pass; a half-covered or unknown one fails', () => {
+  assert.equal(covered('Sign in'), true);                            // a row
+  assert.equal(covered('Snow until 10 AM'), true);                   // a rule
+  assert.equal(covered('Site card:'), true);                         // "Site card" + a colon
+  assert.equal(covered('Save the day now'), false);                  // "Save" is a row; the rest is English
+  assert.equal(covered('Some invented sentence here'), false);
+  assert.equal(leaves({ file: 'lib/btnote.js', fns: ['btNote'], text: 'Treated while still snowing.' }), true);   // Copy for BT
+  assert.equal(leaves({ file: 'lib/handoff.js', fns: ['handoffBody'], text: 'Left by night' }), true);           // the PDF
+  assert.equal(leaves({ file: 'lib/handoff.js', fns: ['siteParts'], text: 'Left by night' }), false);            // the card
+});

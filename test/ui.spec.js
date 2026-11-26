@@ -9049,6 +9049,20 @@ test("print sheets: a 12-site route's table prints on at most 2 Letter portrait 
   await expect(row.locator('td.eq')).toContainText('Alex Test 45');
   await expect(row.locator('td.sitecell')).toContainText('Helped by:');
   await expect(row.locator('td.sitecell')).toContainText('Black ice under the awning');
+  // Headings wrap only at spaces: in print layout (Letter, 0.5 in margins = 720 px wide) every word of every th fits its cell's content
+  // width, so none is split mid-word (with the old 4 % Done and 6 % Shoveled, "Done" and "Shoveled" did not fit).
+  await page.setViewportSize({ width: 720, height: 900 });
+  await page.emulateMedia({ media: 'print' });
+  const split = await page.evaluate(() => [...document.querySelectorAll('#printsheets table.rs th')].flatMap((th) => {
+    const cs = getComputedStyle(th), avail = th.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const out = [], w = document.createTreeWalker(th, NodeFilter.SHOW_TEXT);
+    for (let n = w.nextNode(); n; n = w.nextNode()) for (const m of n.data.matchAll(/\S+/g)) {
+      const r = document.createRange(); r.setStart(n, m.index); r.setEnd(n, m.index + m[0].length);
+      if (r.getBoundingClientRect().width > avail + 0.5) out.push(m[0] + ' ' + Math.round(r.getBoundingClientRect().width) + ' > ' + Math.round(avail));
+    }
+    return out;
+  }));
+  expect(split).toEqual([]);
   const { pages, boxes } = await routeListsPdf(page);
   // MEASURED 11/25/26: 2 pages. Before the column widths moved onto the headings (classes, since the app's own bare th rule beat a
   // colgroup) the ten columns printed equal and the same route took 6 pages. The spec's limit is 2; content is not shrunk to pass.
@@ -9178,6 +9192,7 @@ test('route lists: in Spanish a 12-site route still prints on two landscape page
   for (const b of boxes) expect(b).toEqual([792, 612]);
   await page.emulateMedia({ media: 'print' });
   const split = await lists.nth(0).locator('.rl-pick').evaluateAll((ss) => ss.filter((s) => s.getClientRects().length > 1).map((s) => s.textContent));
+  console.log('DBG2', JSON.stringify(await page.evaluate(() => { const th = document.querySelectorAll('#printsheets table.rs th')[1]; const cs = getComputedStyle(th); const r = document.createRange(); r.selectNodeContents(th); return [th.textContent, th.clientWidth, cs.paddingLeft, cs.overflowWrap, r.getBoundingClientRect().width, r.getClientRects().length]; })), await page.evaluate(() => [...document.querySelectorAll('#printsheets table.rs th')].map((t) => t.clientWidth)));
   expect(split).toEqual([]);
 });
 

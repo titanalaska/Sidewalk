@@ -405,9 +405,10 @@ test('machine lines: Pick, Remove, Not sure, Unit:, Minutes: translate only as a
   for (const en of ['Pick a worker', 'Pick a shift', 'Remove the photo', 'Not sure yet', 'Unit: BC5', 'Minutes: 5']) {
     assert.equal(Es.translateString(en), en, en);
   }
-  // mapedit's type refusal: its other words have rows (Banqueta, Depósito de nieve, No tocar), but "Pick" is no longer one.
+  // mapedit's type refusal: "Pick" is no longer a row. Spanish everywhere (11/25/26) gave the whole sentence its own row (it read
+  // half Spanish, "Pick a type: Banqueta, Hand, Heated, ..."): the row wins, and the bare-word rule never bites it.
   const type = Es.translateString('Pick a type: Sidewalk, Hand, Heated, Snow storage or Do not touch.');
-  assert.ok(type.startsWith('Pick a type: '), type);
+  assert.equal(type, 'Elige un tipo: Banqueta, A mano, Con calefacción, Depósito de nieve o No tocar.');
   assert.ok(!/Elegir/.test(type), type);
   // The longer rows that begin with these words still win.
   assert.equal(Es.translateString('Pick a route'), 'Elige una ruta');
@@ -448,4 +449,57 @@ test('machine lines: the new bare words never bite longer English or the old car
   assert.equal(Es.translateString('Minutes must be a whole number, zero or more'), 'Los minutos deben ser un número entero, cero o más');
   assert.equal(Es.translateString('Blower'), 'Blower', 'no bare Blower row');
   assert.ok(!('Equipment (minutes)' in Es.ES) && !('Blower' in Es.ES));
+});
+
+// Spanish everywhere (Matt 11/25/26), Task 3: the lines that came out HALF Spanish ("Guardar zone", "Vive en the El Valle").
+// Each gets its whole phrase as a row, or a rule that keeps the name or number it carries. Worked by hand, tú:
+//   "Save zone"           -> "Guardar zona"   (the row "Save" alone gave "Guardar zone")
+//   "Lives in the Valley" -> "Vive en el Valle" (the rows "Lives in" + "Valley" gave "Vive en the El Valle")
+//   built lines: the dictionary runs first, so a rule matches what it leaves ("pass" is already "pasada").
+test('half Spanish: the whole phrase wins over its short rows', () => {
+  const cases = {
+    'Print map': 'Imprimir mapa',
+    'Save zone': 'Guardar zona',
+    'Save view': 'Guardar vista',
+    'Lives in the Valley': 'Vive en el Valle',
+    'Some fields not set': 'Algunos datos sin definir',
+    'Gear on hand': 'Equipo a la mano',
+    'Photo ready. Save to keep it.': 'Foto lista. Guarda para conservarla.',
+    'Seasons must be a whole number': 'Las temporadas deben ser un número entero',
+    'Zone saved': 'Zona guardada',
+    'Print sheets': 'Imprimir hojas',
+    "Tonight's outlook": 'Pronóstico de esta noche',
+    'Close the storm?': '¿Cerrar la tormenta?',
+    'Busy, try again.': 'Ocupado, inténtalo de nuevo.',
+    'Session expired. Sign in again.': 'La sesión expiró. Inicia sesión de nuevo.',
+  };
+  for (const [en, es] of Object.entries(cases)) assert.equal(Es.translateString(en), es, en);
+});
+
+test('half Spanish: the built lines keep their names and numbers', () => {
+  // lib/app.js printRouteMaps: plural(missing, 'map') + " couldn't be made..." ; 1 is singular, 2 plural
+  assert.equal(Es.translateString("1 map couldn't be made on this phone (no signal?). Their zone lists still print."),
+    '1 mapa no se pudo hacer en este teléfono (¿sin señal?). Su lista de zonas sí se imprime.');
+  assert.equal(Es.translateString("2 maps couldn't be made on this phone (no signal?). Their zone lists still print."),
+    '2 mapas no se pudieron hacer en este teléfono (¿sin señal?). Sus listas de zonas sí se imprimen.');
+  // lib/boardui.js clearAsk: p.onClock + ' is' | ' are' + ' still on the clock. ...'
+  assert.equal(Es.translateString('1 is still on the clock. Tap End shift first, or their End has to be typed with Set shift.'),
+    '1 persona sigue en turno. Toca Terminar turno primero, o su salida se tiene que escribir con Poner turno.');
+  assert.equal(Es.translateString('3 are still on the clock. Tap End shift first, or their End has to be typed with Set shift.'),
+    '3 personas siguen en turno. Toca Terminar turno primero, o su salida se tiene que escribir con Poner turno.');
+  // lib/shiftlogui.js confirmAgain: the walk count and the pass numbers; a site's name is kept as typed
+  assert.equal(Es.translateString('Every walk at PAC goes back to not done for pass 2. Pass 1 stays on the record.'),
+    'Cada recorrido en PAC vuelve a Pendiente para la pasada 2. La pasada 1 se queda en el registro.');
+  assert.equal(Es.translateString("Copy for BT first if pass 1 isn't posted yet."), 'Usa Copiar para BT primero si la pasada 1 todavía no está publicada.');
+  // lib/mapedit.js unsavedWork: corners counted
+  assert.equal(Es.translateString('Save or Cancel this zone first. It has 1 corners that are not saved.'), 'Guarda o cancela esta zona primero. Tiene 1 esquina sin guardar.');
+  assert.equal(Es.translateString('Save or Cancel this zone first. It has 5 corners that are not saved.'), 'Guarda o cancela esta zona primero. Tiene 5 esquinas sin guardar.');
+  // lib/shiftlogui.js run: a site's name, or "this site" when the phone has none
+  assert.equal(Es.translateString('Not saved: the map for PAC has changed. Mark the walk again.'), 'No se guardó: el mapa de PAC cambió. Marca el recorrido de nuevo.');
+  assert.equal(Es.translateString('Not saved: the map for this site has changed. Mark the walk again.'), 'No se guardó: el mapa de este sitio cambió. Marca el recorrido de nuevo.');
+  // lib/shiftlogui.js onBoard: names as typed, "(lead)" in Spanish
+  assert.equal(Es.translateString('Board, not posted yet: Alex Test (lead), Sam Sample'), 'Tablero, todavía no publicado: Alex Test (líder), Sam Sample');
+  // the server's messages, joined by "; " after "Not saved:" (the numbers are its constants)
+  assert.equal(Es.translateString('Not saved: Emergency contact name is 40 characters at most; Can drive must be yes, no or not set'),
+    'No se guardó: El nombre del contacto de emergencia puede tener 40 caracteres como máximo; Puede manejar debe ser sí, no o sin definir');
 });

@@ -260,9 +260,9 @@ const LEAVES_THE_APP = {
 const NOT_YET = {
   'index.html': '*',
   'lib/api.js': ['signIn'],
-  'lib/app.js': ['(top)', 'rosterLabel', 'siteCard', 'archive', 'archivedHtml', 'async', 'checks', 'draw', 'drawPick', 'editSite', 'editWorker', 'markPick', 'openMap', 'openWorker', 'pickListHtml', 'printRouteMaps', 'render', 'renderRoster', 'renderRoutes', 'renderSites', 'restoreRecord', 'rosterListHtml', 'rosterTile', 'shareApp', 'showMapPrint'],
+  'lib/app.js': ['(top)', 'rosterLabel', 'siteCard', 'archive', 'archivedHtml', 'async', 'checks', 'draw', 'drawPick', 'editSite', 'editWorker', 'markPick', 'openMap', 'openWorker', 'pickListHtml', 'printRouteMaps', 'render', 'renderRoster', 'renderRoutes', 'renderSites', 'restoreRecord', 'rosterListHtml', 'rosterTile', 'shareApp'],
   'lib/boardbatch.js': ['pickGroups', 'planAdd'],
-  'lib/boardui.js': ['async', 'bulk', 'callout', 'chip', 'clearAsk', 'clearGo', 'countText', 'onClick', 'openCallout', 'openCard', 'openEntry', 'placeFromRoster', 'post', 'pplAdd', 'pplDraw', 'pplListHtml', 'pplMark', 'renderBoard', 'renderLog', 'shortNightButton', 'undoClear'],
+  'lib/boardui.js': ['async', 'bulk', 'callout', 'clearAsk', 'clearGo', 'countText', 'onClick', 'openCallout', 'openCard', 'openEntry', 'placeFromRoster', 'post', 'pplAdd', 'pplDraw', 'pplListHtml', 'pplMark', 'renderBoard', 'renderLog', 'shortNightButton', 'undoClear'],
   'lib/bpimport.js': ['parseExport'],
   'lib/crewcards.js': ['fieldsWord', 'winterWord'],
   'lib/crewcardsui.js': ['fitText', 'headWord', 'pngOf', 'shareCard'],
@@ -271,7 +271,7 @@ const NOT_YET = {
   'lib/forms.js': ['parseClearances'],
   'lib/handoff.js': ['heading', 'leftoverParts', 'siteParts'],
   'lib/machinepick.js': ['unitChoices'],
-  'lib/mapedit.js': ['(top)', 'addImported', 'archiveZone', 'away', 'beginDraw', 'drawControls', 'formButtons', 'importBusy', 'onclick', 'previewJob', 'problem', 'readBootprint', 'renderArchived', 'restoreZone', 'saveView', 'saveZone', 'showRef', 'start', 'unsavedWork', 'walksAndPiles'],
+  'lib/mapedit.js': ['(top)', 'addImported', 'away', 'beginDraw', 'drawControls', 'formButtons', 'importBusy', 'onclick', 'previewJob', 'problem', 'readBootprint', 'renderArchived', 'restoreZone', 'saveView', 'showRef', 'start', 'unsavedWork', 'walksAndPiles'],
   'lib/mapprint.js': ['pageHtml'],
   'lib/mapview.js': ['open', 'sheetHtml'],
   'lib/pairing.js': ['placementLabel'],
@@ -279,7 +279,7 @@ const NOT_YET = {
   'lib/routelist.js': ['pageHtml'],
   'lib/share.js': ['share'],
   'lib/shiftlog.js': ['zoneName', 'checkAgain', 'checkTap', 'curbItems', 'machineProblem', 'undoTarget'],
-  'lib/shiftlogui.js': ['(top)', 'liveRouteHtml', 'afterSiteReply', 'bigToggleHtml', 'calloutsHtml', 'confirmAgain', 'confirmDepth', 'confirmHandoff', 'confirmStorm', 'controlsHtml', 'dayRouteHtml', 'draw', 'handOffHtml', 'handoffCardHtml', 'handoffStatus', 'livesumHtml', 'manual', 'oldHtml', 'onBoard', 'onclick', 'openBt', 'openPrint', 'openRouteLists', 'openSetTimes', 'outlookHtml', 'passHtml', 'retrySheets', 'run', 'saveCard', 'saveDialog', 'saveTruck', 'sheetsStatus', 'siteHtml', 'siteLineHtml', 'snowMapHtml', 'truckHtml', 'warnHtml'],
+  'lib/shiftlogui.js': ['(top)', 'liveRouteHtml', 'afterSiteReply', 'bigToggleHtml', 'calloutsHtml', 'confirmAgain', 'confirmDepth', 'confirmHandoff', 'confirmStorm', 'controlsHtml', 'draw', 'handOffHtml', 'handoffCardHtml', 'handoffStatus', 'livesumHtml', 'manual', 'oldHtml', 'onclick', 'openBt', 'openPrint', 'openSetTimes', 'outlookHtml', 'retrySheets', 'run', 'saveCard', 'saveDialog', 'saveTruck', 'sheetsStatus', 'siteHtml', 'siteLineHtml', 'snowMapHtml', 'truckHtml', 'warnHtml'],
   'lib/sitestatus.js': ['of'],
   'lib/snowmap.js': ['open'],
   'lib/time.js': ['shiftLabel'],
@@ -326,6 +326,26 @@ const ONE_WORD_ENGLISH = {
 
 // A phrase BUILT at run time from pieces that carry no row of their own: [an example of the finished line, its Spanish].
 const BUILT = {
+  // Task 3 (11/25/26): the half-Spanish lines' pieces, each with the line the code builds and the Spanish the rules make of it.
+  "couldn't be made on this phone (no signal?). Their zone lists still print.": ["2 maps couldn't be made on this phone (no signal?). Their zone lists still print.",
+    '2 mapas no se pudieron hacer en este teléfono (¿sin señal?). Sus listas de zonas sí se imprimen.'],
+  'still on the clock. Tap End shift first, or their End has to be typed with Set shift.': ['3 are still on the clock. Tap End shift first, or their End has to be typed with Set shift.',
+    '3 personas siguen en turno. Toca Terminar turno primero, o su salida se tiene que escribir con Poner turno.'],
+  'with no End shift)': ['10:30 (2 nights with no End shift)', '10:30 (2 noches sin Terminar turno)'],
+  'cleared must be yes or no': ['line 3: cleared must be yes or no', 'línea 3: autorizado debe ser sí o no'],
+  'Save or Cancel this zone first. It has': ['Save or Cancel this zone first. It has 5 corners that are not saved.', 'Guarda o cancela esta zona primero. Tiene 5 esquinas sin guardar.'],
+  'Storm · became a storm': ['Storm · became a storm 2:14 AM by Ben Test', 'Tormenta · se volvió tormenta 2:14 AM por Ben Test'],
+  'goes back to not done for pass': ['Every walk at PAC goes back to not done for pass 2. Pass 1 stays on the record.',
+    'Cada recorrido en PAC vuelve a Pendiente para la pasada 2. La pasada 1 se queda en el registro.'],
+  'Copy for BT first if pass': ["Copy for BT first if pass 1 isn't posted yet.", 'Usa Copiar para BT primero si la pasada 1 todavía no está publicada.'],
+  "isn't posted yet.": ["Copy for BT first if pass 1 isn't posted yet.", 'Usa Copiar para BT primero si la pasada 1 todavía no está publicada.'],
+  'Board, not posted yet:': ['Board, not posted yet: Alex Test (lead), Sam Sample', 'Tablero, todavía no publicado: Alex Test (líder), Sam Sample'],
+  'No forecast for': ['No forecast for 3 sites.', 'Sin pronóstico para 3 sitios.'],
+  'Not saved: the map for': ['Not saved: the map for PAC has changed. Mark the walk again.', 'No se guardó: el mapa de PAC cambió. Marca el recorrido de nuevo.'],
+  'clearance not set': ['Alex Test: JBER clearance not set', 'Alex Test: autorización de JBER sin definir'],
+  'Emergency contact name is': ['Emergency contact name is 40 characters at most', 'El nombre del contacto de emergencia puede tener 40 caracteres como máximo'],
+  'Emergency contact phone is': ['Emergency contact phone is 20 characters at most', 'El teléfono del contacto de emergencia puede tener 20 caracteres como máximo'],
+  'must be yes, no or not set': ['Can drive must be yes, no or not set', 'Puede manejar debe ser sí, no o sin definir'],
 };
 
 // Rows whose English is never one literal: the code joins two. The dead-row check wants both halves still in that file.
@@ -452,6 +472,39 @@ test('every left-out entry is real, and every NOT_YET entry still hides a string
     assert.equal(Es.translateString(BUILT[t][0]), BUILT[t][1], 'BUILT example for ' + t);
     assert.notEqual(BUILT[t][1], BUILT[t][0]);
   });
+});
+
+// Half Spanish reads worse than English ("Guardar zone", "Vive en the El Valle": the spec's first anti-goal). A piece the
+// engine changes at all must come out with no English word of 3+ letters left in it, except the proper nouns the spec keeps
+// (Shovel Command, Titan, Bobcat...). This runs over EVERY piece but the ones that leave the app, NOT_YET or not (Task 3's
+// ruling): a half piece is fixed by a row for the whole phrase or a rule, never by deleting the short row other screens need.
+const KEEP_EN = new Set(['Shovel', 'Command', 'Titan', 'Inventory', 'Bobcat', 'Snowrator', 'Sweepster', 'BuilderTrend', 'ANTHC', 'MOA', 'JBER',
+  'PIN', 'Esri', 'Google', 'Maxar', 'Earthstar', 'Geographics', 'HERE', 'Garmin', 'Matt', 'JPEG', 'PNG', 'NWS', 'GPS', 'min', 'max',
+  'app', 'Anchorage', 'YYYY']);   // app: "la app" is Spanish too; Anchorage a place; YYYY a date pattern
+function halfSpanish(text) {
+  const out = Es.translateString(text);
+  if (out === text) return null;
+  const inWords = new Set(text.match(/[A-Za-z]{3,}/g) || []);
+  const left = (out.match(/[A-Za-z]{3,}/g) || []).filter((w) => inWords.has(w) && !KEEP_EN.has(w));
+  return left.length ? { out, left } : null;
+}
+test('no piece comes out half Spanish', () => {
+  const half = [], seen = new Set();
+  allCandidates().filter((c) => !leaves(c)).forEach((c) => {
+    if (BUILT[c.text]) return;   // judged by its worked example
+    const h = halfSpanish(c.text);
+    if (!h || seen.has(c.text)) return;
+    seen.add(c.text);
+    half.push(where(c) + ' -> ' + JSON.stringify(h.out) + ' (English left: ' + h.left.join(', ') + ')');
+  });
+  assert.deepEqual(half, [], half.length + ' piece(s) come out half Spanish. Give the whole phrase its own row or rule.\n  ' + half.join('\n  '));
+});
+test('halfSpanish(): the judge says no to a half line and yes to a whole one', () => {
+  // Worked by hand against the rows: "Save" is a row, "the day now" is not; "Compartir Shovel Command" keeps a proper noun.
+  assert.deepEqual(halfSpanish('Save the day now'), { out: 'Guardar the day now', left: ['the', 'day', 'now'] });
+  assert.equal(halfSpanish('Sign in'), null);                 // whole: Iniciar sesión
+  assert.equal(halfSpanish('Pumpkin spice'), null);           // untouched English: the missing-row check's job, not this one's
+  assert.equal(halfSpanish('Share Shovel Command'), null);    // Compartir Shovel Command: proper nouns stay
 });
 
 test('the server scan fails the file, never skips, when SNOW_SERVER_REPO holds no Code.js', () => {

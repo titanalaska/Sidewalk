@@ -7730,8 +7730,8 @@ test.describe('bottom tabs:', () => {
     expect((await barOf(page)).map((t) => t[1])).toEqual(['Tormenta', 'Rutas', 'Sitios', 'Cuadrilla']);
     await crewBtn(page).click();
     await expect(sw(page, 'crew')).toHaveText('Tarjetas');
-    // Board, Roster and Log are Matt's words and stay English (es.js), until the Spanish-everywhere work says otherwise.
-    expect((await switchOf(page)).map((t) => t[1])).toEqual(['Board', 'Roster', 'Tarjetas', 'Log']);
+    // Board, Roster and Log read Spanish since Spanish everywhere (Matt, 11/25/26: "everything"): exact-text rules in es.js.
+    expect((await switchOf(page)).map((t) => t[1])).toEqual(['Tablero', 'Personal', 'Tarjetas', 'Registro']);
   });
 
   test('bottom tabs: the count on a Spanish phone', async ({ page }) => {
@@ -7890,7 +7890,8 @@ test.describe('bottom tabs:', () => {
       });
       const bar = await placeOf('#tabs [data-tab="board"]'), roster = await placeOf('#crewsw [data-tab="roster"]');
       expect(bar).toEqual(lang === 'es' ? { word: 'Cuadrilla', inside: true, place: 'under' } : { word: 'Crew', inside: true, place: 'beside' });
-      expect(roster).toEqual({ word: 'Roster', inside: true, place: 'under' }); // ~47 + 26 of 63 px: under, in both languages
+      // (Spanish everywhere: the ES switch says Personal, ~56 px, wider than Roster's ~47: under all the more)
+      expect(roster).toEqual({ word: lang === 'es' ? 'Personal' : 'Roster', inside: true, place: 'under' }); // ~47 + 26 of 63 px: under, in both languages
     });
   }
 });
@@ -12564,8 +12565,10 @@ test('Spanish: the Board reads Spanish; route, site and people names stay as typ
   w.routes = w.routes.map((r) => (r.id === 'R1' ? { ...r, name: 'Done Route' } : r));
   w.sites = w.sites.map((s) => (s.id === 'S1' ? { ...s, name: 'Map Site' } : s));
   await open(page, { token: 'tok-matt', snow: fakeSnow(w), clockAt: STORM_CLOCK });
-  await expect(page.locator('nav [data-tab="board"]')).toHaveText('Tablero');
-  await page.click('nav [data-tab="board"]');
+  // (bottom tabs, live 11/25/26: the admins' bar ends with Crew, which opens the Board; the switch on top names Tablero / Personal / Registro)
+  await expect(page.locator('#tabs [data-tab="board"]')).toContainText('Cuadrilla');
+  await toScreen(page, 'board');
+  await expect(page.locator('#crewsw [data-tab="board"]')).toHaveText('Tablero');
   await expect(page.locator('#post')).toHaveText('Publicar');
   await expect(page.locator('#callout')).toHaveText('Llamado');
   await expect(page.locator('#truckchange')).toHaveText('Cambiar');
@@ -12589,8 +12592,8 @@ test('Spanish: the Roster and a worker card read Spanish; names, traits and clea
   const w = stormWorld();
   w.crew = w.crew.map((c) => (c.id === 'C01' ? { ...c, name: 'Map Done', traits: 'Done fast', rides_with: 'C03' } : c.id === 'C03' ? { ...c, name: 'Hi Back' } : c));
   await open(page, { token: 'tok-matt', snow: fakeSnow(w), clockAt: STORM_CLOCK });
-  await expect(page.locator('nav [data-tab="roster"]')).toContainText('Personal');
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
+  await expect(page.locator('#crewsw [data-tab="roster"]')).toContainText('Personal');
   await expect(page.locator('#addWorker')).toHaveText('Agregar trabajador');
   await expect(page.locator('#roster_q')).toHaveAttribute('placeholder', 'Buscar en la cuadrilla');
   await expect(page.locator('main')).toContainText('Map Done');
@@ -12749,7 +12752,7 @@ test('Spanish screens: the Board, Add people… and the Clear confirm have no En
 test('Spanish screens: the Roster, a worker card and the worker editor have no English left', async ({ page }) => {
   await esOn(page);
   await open(page, { token: 'tok-matt', snow: fakeSnow(esWorld()), clockAt: STORM_CLOCK });
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   expect(await englishLeft(page)).toEqual([]);
   await page.click('[data-open="C01"]');
   expect(await englishLeft(page, '#dlg')).toEqual([]);

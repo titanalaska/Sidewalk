@@ -104,7 +104,7 @@ test('final review: the rows and rules the crew screens were still missing', () 
     '— 1 night · 2 days': '— 1 noche · 2 días',
     'Start': 'Inicio',           // the card's times line is exactly this text node
     '· Finish': '· Fin',
-    'Start storm': 'Start storm', // a lead's control: NOT a row, never "Inicio storm" (spec: leads' screens stay)
+    'Start storm': 'Empezar tormenta', // a whole row since Matt's 'everything' (11/25/26); never "Inicio storm" (no bare Start row)
     'not set': 'sin definir',
     'none': 'ninguno',
     'own': 'propio',
@@ -502,4 +502,77 @@ test('half Spanish: the built lines keep their names and numbers', () => {
   // the server's messages, joined by "; " after "Not saved:" (the numbers are its constants)
   assert.equal(Es.translateString('Not saved: Emergency contact name is 40 characters at most; Can drive must be yes, no or not set'),
     'No se guardó: El nombre del contacto de emergencia puede tener 40 caracteres como máximo; Puede manejar debe ser sí, no o sin definir');
+});
+
+// Spanish everywhere, Task 4: the leads' and the dispatcher's Storm tab. "Start storm" was English on purpose (the 10/9/26
+// "crew screens only" ruling; the pin at the top of this file); Matt's "everything" (11/25/26) turns it Spanish. Never a bare
+// "Start" row: the controls are whole rows. Worked by hand, tú, Mexican Spanish (camioneta, banqueta).
+test('storm controls and their confirms read Spanish (Matt 11/25/26: everything)', () => {
+  const cases = {
+    'Start storm': 'Empezar tormenta',
+    'Start check night': 'Empezar noche de revisión',
+    'Reopen storm': 'Reabrir tormenta',
+    'Make it a storm': 'Convertir en tormenta',
+    'Night shift on': 'Turno de noche activado',
+    'Start a new storm?': '¿Empezar una tormenta nueva?',
+    'Every walk goes back to not done. Nothing already logged is deleted.': 'Cada recorrido vuelve a Pendiente. No se borra nada de lo ya registrado.',
+    'Yes, start storm': 'Sí, empezar tormenta',
+    'Are you sure?': '¿Estás seguro?',
+    'Hand off now': 'Entregar ahora',
+    'Hand off to day now?': '¿Entregar al turno de día ahora?',
+    'Truck saved': 'Camioneta guardada',
+    'Truck:': 'Camioneta:',
+    'Truck': 'Camioneta',
+    '‹ Live view': '‹ Vista en vivo',
+    'Check outlook': 'Revisar pronóstico',
+    'New snow': 'Nieve nueva',
+    'Heated': 'Con calefacción',   // whole text nodes only (exact rules)
+    'Hand': 'A mano',
+    'Curbs': 'Bordillos',
+    'Heated walk': 'Heated walk',  // a longer line is left alone
+    'Hand 300': 'A mano 300',      // the walk-totals rule, unchanged
+  };
+  for (const [en, es] of Object.entries(cases)) assert.equal(Es.translateString(en), es, en);
+});
+
+test('the leads\' and dispatcher\'s built lines keep their numbers, names and times', () => {
+  // the live summary: one node, parts joined by " · " (lib/shiftlogui.js livesumHtml)
+  assert.equal(Es.translateString('No storm open · 12 sites on 3 routes'), 'No hay tormenta abierta · 12 sitios en 3 rutas');
+  assert.equal(Es.translateString('3 of 12 sites done, 1 touched · 2 problems · 1 callout · last tap 2:14 AM · 1 of 3 routes started'),
+    '3 de 12 sitios listos, 1 tocado · 2 problemas · 1 llamado · último toque 2:14 AM · 1 de 3 rutas empezadas');
+  assert.equal(Es.translateString('4 of 9 sites checked · 0 problems · no taps yet · 0 of 3 routes started'),
+    '4 de 9 sitios revisados · 0 problemas · sin toques todavía · 0 de 3 rutas empezadas');
+  // the outlook (by = hourLabel(9) = "9 AM")
+  assert.equal(Es.translateString('Forecast snow at every site from now to 9 AM, against its callout depth.'),
+    'Pronóstico de nieve en cada sitio desde ahora hasta las 9 AM, comparado con su profundidad de llamado.');
+  assert.equal(Es.translateString('Up to 3" by 9 AM · snow from 2:14 AM'), 'Hasta 3" para las 9 AM · nieve desde las 2:14 AM');
+  assert.equal(Es.translateString('Up to 0.5" by 9 AM · snow now'), 'Hasta 0.5" para las 9 AM · nieve ahora');
+  assert.equal(Es.translateString('No snow expected by 9 AM.'), 'No se espera nieve para las 9 AM.');
+  assert.equal(Es.translateString('as of 2:14 AM'), 'a las 2:14 AM');
+  assert.equal(Es.translateString('Would reach callout depth (2)'), 'Llegarían a su profundidad de llamado (2)');
+  assert.equal(Es.translateString('· ~3" · callout 2"'), '· ~3" · llamado 2"');
+  assert.equal(Es.translateString('1 site has no callout depth set.'), '1 sitio no tiene profundidad de llamado.');
+  assert.equal(Es.translateString('5 sites have no callout depth set.'), '5 sitios no tienen profundidad de llamado.');
+  // the handoff card: the heading, and a site's parts after its name (one node, " · " joined)
+  assert.equal(Es.translateString('Handoff from Night of 12/4 · 8:00 AM · by Alex Test'), 'Entrega de la noche del 12/4 · 8:00 AM · por Alex Test');
+  assert.equal(Es.translateString('Handoff from Day of 12/6 · 6:00 PM'), 'Entrega del día del 12/6 · 6:00 PM');
+  assert.equal(Es.translateString(' · Sidewalks done, 3 of 5 walks · Started by Alex Test 2:14 AM · Done 3:00 AM'),
+    ' · Banquetas listas, 3 de 5 recorridos · Empezado por Alex Test 2:14 AM · Listo 3:00 AM');
+  assert.equal(Es.translateString(' · 2 of 4 walks · Night: 1 of 4 walks'), ' · 2 de 4 recorridos · Noche: 1 de 4 recorridos');
+  assert.equal(Es.translateString(' · Not started · Started 1:05 AM'), ' · Sin empezar · Empezado 1:05 AM');
+  assert.equal(Es.translateString('Left by night (3)'), 'Lo que dejó la noche (3)');
+  // the sheets' status lines
+  assert.equal(Es.translateString('Sheets: 2 not saved'), 'Hojas: 2 sin guardar');
+  assert.equal(Es.translateString('Sheets: 3 of 5 saved · making…'), 'Hojas: 3 de 5 guardadas · haciéndose…');
+  assert.equal(Es.translateString('Sheets: 6 saved'), 'Hojas: 6 guardadas');
+  assert.equal(Es.translateString('Handoff sheets: 1 not saved'), 'Hojas de entrega: 1 sin guardar');
+  assert.equal(Es.translateString('Night sheets saved at handoff 8:00 AM (4)'), 'Hojas de la noche guardadas en la entrega 8:00 AM (4)');
+  assert.equal(Es.translateString("2 day handoff sheets couldn't be built on this phone."), 'No se pudieron armar 2 hojas de entrega del día en este teléfono.');
+  // dialogs with a site's name inside one node
+  assert.equal(Es.translateString('New snow at PAC'), 'Nieve nueva en PAC');
+  assert.equal(Es.translateString('Clean PAC again?'), '¿Limpiar PAC de nuevo?');
+  // the snow map
+  assert.equal(Es.translateString('3 sites not mapped yet'), '3 sitios sin mapa todavía');
+  assert.equal(Es.translateString('1 site not mapped yet'), '1 sitio sin mapa todavía');
+  assert.equal(Es.translateString('Callouts (2)'), 'Llamados (2)');
 });

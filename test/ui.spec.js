@@ -7764,6 +7764,53 @@ test.describe('bottom tabs:', () => {
     await expect(page.locator('#post')).toBeVisible(); // still on the Board
   });
 
+  test('bottom tabs: on a Spanish phone a request that lands while Matt is on the Board reads Cuadrilla with its count', async ({ page }) => {
+    // markCounts rewrites the bar's Crew in place; on a Spanish phone the page's observer must still turn it into Cuadrilla.
+    // (The Approve path in "the count on a Spanish phone" redraws through render() and never reaches markCounts.)
+    await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+    const list = PROFILES.filter((p) => p.status !== 'pending').map((p) => ({ ...p }));
+    await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: invWithRequests(list) });
+    await crewBtn(page).click();
+    await expect(page.locator('#post')).toBeVisible();
+    await expect(crewBtn(page)).toHaveText('Cuadrilla');
+    list.push({ id: 12, name: 'Newbie Nate', status: 'pending', hasPin: true }); // worked by hand: 0 + Nate = 1
+    await pollNow(page);
+    await expect(crewBtn(page)).toHaveText('Cuadrilla1');
+    await expect(sw(page, 'roster').locator('.tabcount')).toHaveText('1');
+  });
+
+  test('bottom tabs: Crew shows the top of the Board, with the switch on screen, even from far down a long page', async ({ page }) => {
+    // The switch sits at the top of the page, not in the fixed bar: a Crew tap that kept the old scroll left it off screen,
+    // so Roster and Log took a scroll before the tap. A short screen makes the Board scroll.
+    await page.setViewportSize({ width: 320, height: 400 });
+    await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: invWithRequests([]) });
+    await crewBtn(page).click();
+    await expect(page.locator('#post')).toBeVisible();
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(100);
+    await crewBtn(page).click();
+    await expect(page.locator('#post')).toBeVisible();
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    await expect(sw(page, 'roster')).toBeInViewport();
+  });
+
+  test('bottom tabs: a phone whose page has no switch box (an old index.html beside a new app.js) still signs in and draws', async ({ page }) => {
+    // The shell can pair an index.html from before this change with the new app.js. A missing #crewsw must never stop
+    // render(): that is the page that sits on "Loading…" forever (CLAUDE.md). Here the box is taken out as it is parsed.
+    const errors = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.addInitScript(() => new MutationObserver(() => { const e = document.getElementById('crewsw'); if (e) e.remove(); })
+      .observe(document, { childList: true, subtree: true }));
+    await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: invWithRequests([]) });
+    await expect(page.locator('#tabs button')).toHaveCount(4);
+    await expect(page.locator('.route-card[data-route="R1"]')).toBeVisible(); // Matt opens on Routes
+    await crewBtn(page).click();
+    await expect(page.locator('#post')).toBeVisible();
+    await page.click('#signout');
+    await expect(page.locator('#signin')).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
   // ---- every tab's words fit at 320 px (the narrowest phone in use), every role, EN and ES ----
   // A button's word is its first text node. The Range's box is the word's full width even when CSS paints it as "Rout…"
   // (an ellipsis is paint only: scrollWidth said "Routes" fit while the screen showed "Rout…"). One line per word that

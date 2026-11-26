@@ -240,6 +240,10 @@ const NOT_SHOWN = {
   '400 22px system-ui, sans-serif': 'a canvas font (lib/crewcardsui.js)',
   'Shovel Command ·': 'the app\'s name on the shared crew-card picture (canvas); the winter word after it goes through say()',
   'Snow Route Sheets': 'the Drive folder\'s name (Code.js SHEETS_FOLDER)',
+  // Spanish everywhere, Ship 2: translate's refusals (Code.js translate_). lib/estyped.js never shows a server reason: a failed ask
+  // stays quiet and the English stays on screen.
+  'Pick es or en': 'translate\'s refusal of a bad language; never shown (lib/estyped.js asks quietly)',
+  'Too many lines at once': 'translate\'s refusal above 50 lines; never shown (lib/estyped.js sends at most CrewTyped.BATCH)',
   'Crew times': 'the head of a Crew times PDF\'s file name in Drive',
   'Crew times (worked out).pdf': 'a Drive file name',
   'Crew times (could not be worked out).pdf': 'a Drive file name',

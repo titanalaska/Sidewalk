@@ -12996,7 +12996,9 @@ test('typed words: "Whole site" is the app\'s own words: never marked, and Spani
 
 test('typed words: a Spanish phone shows the Spanish it holds for a zone name on the Storm tab, and asks for the rest', async ({ page }) => {
   // This phone holds "Main entry" -> "Entrada principal"; "Heated walk" is not held: it is asked for (and the fake refuses it, so
-  // it stays as typed). Nothing else typed is on the card.
+  // it stays as typed). "Main entry" is asked too, once this session (final review C1: the tab's word reaches a phone that holds
+  // the line); the fake refuses it, and a refused held line keeps its Spanish (the fix pass's ruling). Nothing else typed is on
+  // the card.
   await esOn(page);
   await page.addInitScript(() => localStorage.setItem('snow-es-typed', JSON.stringify({ es: { 'Main entry': 'Entrada principal' }, en: {} })));
   const w = stormWorld();
@@ -13005,11 +13007,12 @@ test('typed words: a Spanish phone shows the Spanish it holds for a zone name on
   const names = page.locator('[data-shiftsite="S1"] .walk-name [data-typed]');
   await expect(names).toHaveText(['Entrada principal', 'Heated walk']);
   await page.clock.runFor(600);
-  await expect.poll(() => (w.translateAsks || []).length).toBeGreaterThan(0);
+  await expect.poll(() => [].concat(...(w.translateAsks || []).map((b) => b.texts))).toEqual(expect.arrayContaining(['Heated walk', 'Main entry']));
+  await expect.poll(() => page.evaluate(() => window.SnowEsTyped.pending())).toEqual({ queued: 0, inflight: 0 });
   const asked = [].concat(...w.translateAsks.map((b) => b.texts));
-  expect(asked).toContain('Heated walk');
-  expect(asked).not.toContain('Main entry');
+  expect(asked.filter((t) => t === 'Main entry')).toHaveLength(1);
   expect(w.translateAsks.every((b) => b.lang === 'es')).toBe(true);
+  await expect(names).toHaveText(['Entrada principal', 'Heated walk']);
 });
 
 test('typed words: a zone name holding " / " (Matt\'s two languages) is never asked for', async ({ page }) => {
@@ -13079,6 +13082,7 @@ test('typed words: the map page marks the materials and the notes, never the add
   const w = mapWorld();
   w.sites = w.sites.map((s) => (s.id === 'S1' ? { ...s, notes: 'Gate code 4512', address: '3 Test Way' } : s));
   await adminMap(page, w);
+  await expect(page.locator('#mapsite')).toContainText('Gate code 4512');
   const marks = await page.locator('#mapsite [data-typed]').evaluateAll((els) => els.map((e) => [e.textContent, e.hasAttribute('data-no-es')]));
   expect(marks).toEqual([['4-5 bags IceMelt', true], ['Gate code 4512', true]]);
 });
@@ -13099,6 +13103,7 @@ test('typed words: the live view\'s Problems list marks the zone name and the cr
   const w = stormWorld();
   w.log = [logRow(1, 'S1', 'Z1', 'problem', 'Jordan Demo', { note: 'Ice by the door' })];
   await openStorm(page, w, { token: 'tok-matt' });
+  await expect(page.locator('#problems')).toContainText('Ice by the door');
   const marks = await page.locator('#problems [data-typed]').evaluateAll((els) => els.map((e) => [e.textContent, e.getAttribute('data-typed')]));
   expect(marks).toEqual([['Main entry', ''], ['Ice by the door', 'crew']]);
 });

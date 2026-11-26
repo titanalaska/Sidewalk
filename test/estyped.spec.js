@@ -138,9 +138,10 @@ test('typed words: a line Matt fixed by hand in the Translations tab reaches a p
 
 test('typed words: a blank answer never blanks the English, and a blank kept value is not shown', async ({ page }) => {
   // final review M2: a cell cleared to spaces. The kept copy holds 'Old note' -> '   ' (dropped on read); Google answers '  '.
+  // 'Sidewalk north' is held as in every test, so the sign-in fill asks nothing and the one call is this test's.
   const w = world();
   w.answer = () => '  ';
-  await open(page, w, { held: { es: { 'Old note': '   ' }, en: {} } });
+  await open(page, w, { held: { es: { 'Sidewalk north': 'Banqueta norte', 'Old note': '   ' }, en: {} } });
   await addTyped(page, [['a', 'Old note'], ['b', 'Salt the ramp']]);
   await expect(page.locator('#a')).toHaveText('Old note');
   await page.clock.runFor(500);
@@ -281,7 +282,9 @@ test('typed words: an edited note shows the new English, then asks for it; the o
   await expect(page.locator('#a')).toHaveText('New note');
   await page.clock.runFor(500);
   await expect(page.locator('#a')).toHaveText('[ES] New note');
-  expect(w.calls.map((c) => c.texts)).toEqual([['New note']]);
+  // one call, in the order the lines were shown: 'Old note' (held, shown for a moment: the session's one check of it, final
+  // review C1) then 'New note' (a miss). The answer for 'Old note' never reaches #a: it now holds 'New note'.
+  expect(w.calls.map((c) => c.texts)).toEqual([['Old note', 'New note']]);
 });
 
 test('typed words: an English phone leaves a zone name alone and asks for a crew Problem note in English', async ({ page }) => {
@@ -318,12 +321,18 @@ test('typed words: EN puts every typed element back to its English; ES shows the
   await open(page, w);
   await addTyped(page, [['z', 'Sidewalk north']]);
   await expect(page.locator('#z')).toHaveText('Banqueta norte');
+  // first the session's one check of the held line (final review C1): one call, then nothing out
+  await page.clock.runFor(500);
+  await expect.poll(() => w.calls.length).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.SnowEsTyped.pending().inflight)).toBe(0);
   await page.click('#langWrap [data-lang="en"]');
   await expect(page.locator('#z')).toHaveText('Sidewalk north');
   await expect(page.locator('#z')).not.toHaveAttribute('data-typed-shown', '');
   await page.click('#langWrap [data-lang="es"]');
   await expect(page.locator('#z')).toHaveText('Banqueta norte');
-  expect(w.calls.length).toBe(0);
+  // the flips themselves ask nothing
+  await page.clock.runFor(1000);
+  expect(w.calls.length).toBe(1);
 });
 
 test('typed words: an answer is kept on the phone, and sign-out wipes it', async ({ page }) => {

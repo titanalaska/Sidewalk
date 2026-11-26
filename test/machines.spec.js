@@ -88,9 +88,20 @@ function fakeSnow(state) {
         if (at < 0) return refuse('invalid', "That person isn't on the roster");
         used[at] = true; hl.operator_name = prevLines[at].operator_name || hl.operator_name;
       }
+      // The three end-of-night keys (snow-app-script saveVisit_, nightsheet): shoveled true / false / null / "" (anything else
+      // "Shoveled must be yes or no"); bags and buckets whole numbers zero or more, as numbers or digits as text (else "Bags ..." /
+      // "Buckets ..."); a key LEFT OUT keeps the saver's previous card's answer, a key sent as blank clears it.
+      const blankV = (x) => x === undefined || x === null || (typeof x === 'string' && !x.trim());
+      const wholeV = (x) => { let k; if (typeof x === 'number') k = x; else if (typeof x === 'string' && /^\d+(\.\d+)?$/.test(x.trim())) k = Number(x.trim()); else return null; return isFinite(k) && k >= 0 && Math.floor(k) === k ? k : null; };
+      if (body.shoveled !== undefined && !(body.shoveled === true || body.shoveled === false || body.shoveled === null || body.shoveled === '')) return refuse('invalid', 'Shoveled must be yes or no');
+      let bagsV = body.ice_melt_bags, bucketsV = body.sand_buckets;
+      if (bagsV !== undefined && !blankV(bagsV) && (bagsV = wholeV(bagsV)) === null) return refuse('invalid', 'Bags must be a whole number, zero or more');
+      if (bucketsV !== undefined && !blankV(bucketsV) && (bucketsV = wholeV(bucketsV)) === null) return refuse('invalid', 'Buckets must be a whole number, zero or more');
+      const keepV = (x, k) => (x === undefined ? (prev && prev[k] !== undefined ? prev[k] : '') : (blankV(x) ? '' : x));
+      const three = { shoveled: keepV(body.shoveled, 'shoveled'), ice_melt_bags: keepV(bagsV, 'ice_melt_bags'), sand_buckets: keepV(bucketsV, 'sand_buckets') };
       const n = state.visits.reduce((m, r) => Math.max(m, Number(r.seq) || 0), 0) + 1;
       const row = { id: 'V-' + n, seq: n, storm_id: 'ST-1', shift_id: SHIFT, site_id: body.site_id, by_key: 'admin', by_name: 'Matthew', at: STAMP,
-        depth_in: body.depth_in === undefined ? '' : body.depth_in, materials_used: body.materials_used || '',
+        depth_in: body.depth_in === undefined ? '' : body.depth_in, materials_used: body.materials_used || '', ...three,
         equipment: { blower: '', snowrator: '', bobcat: '', sweepster: '', ...(body.equipment || {}) }, machines: SL.stampMachines(prev, lines) };
       state.visits.push(row);
       return { ok: true, record: row, ...v };
@@ -590,4 +601,23 @@ test("an operator archived since the card was saved: the unchanged line re-saves
   await expect(page.locator('#dlg')).toBeHidden();
   expect(saves(calls)[0].machines).toEqual([{ type: 'bobcat', unit: 'BC5', attachment: 'bucket', operator_key: 'C04', minutes: 55 }]);
   expect(w.visits[1].machines).toEqual([{ type: 'bobcat', unit: 'BC5', attachment: 'bucket', operator_key: 'C04', operator_name: 'Pat Quit', minutes: 55, since: 1 }]);
+});
+
+// The fake's three end-of-night keys mirror the server (nightsheet, S2): left out keeps the saver's previous answer, '' clears it,
+// and a bad value is refused in the server's words. Worked on paper: the seeded card says true / 2 / 1.
+test('the fake: shoveled, bags and buckets left out are kept, sent empty are cleared, bad values are refused', async ({ page }) => {
+  const w = world();
+  w.visits = [visit(2, 'S1', 'admin', 'Matthew', { shoveled: true, ice_melt_bags: 2, sand_buckets: 1 })];
+  await open(page, w);
+  const post = (body) => page.evaluate(async (b) => {
+    const r = await fetch('https://script.google.com/macros/s/AKfycbwc7dcfmJFa1TAspzBZVprJRwBNvCP6q2bqOH5uoS_hU6ScZOnr9Kn/exec', { method: 'POST', body: JSON.stringify(b) });
+    return r.json();
+  }, { token: 'tok-matt', ...body });
+  let r = await post({ action: 'saveVisit', site_id: 'S1', depth_in: 4 });
+  expect([r.record.shoveled, r.record.ice_melt_bags, r.record.sand_buckets]).toEqual([true, 2, 1]);
+  r = await post({ action: 'saveVisit', site_id: 'S1', shoveled: '', ice_melt_bags: '' });
+  expect([r.record.shoveled, r.record.ice_melt_bags, r.record.sand_buckets]).toEqual(['', '', 1]);
+  expect((await post({ action: 'saveVisit', site_id: 'S1', shoveled: 'yes' })).reason).toBe('Shoveled must be yes or no');
+  expect((await post({ action: 'saveVisit', site_id: 'S1', ice_melt_bags: 2.5 })).reason).toBe('Bags must be a whole number, zero or more');
+  expect((await post({ action: 'saveVisit', site_id: 'S1', sand_buckets: -1 })).reason).toBe('Buckets must be a whole number, zero or more');
 });

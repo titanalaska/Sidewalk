@@ -446,6 +446,22 @@ test('machine lines: the Save guard notice, Save anyway, and the self-replaced n
   assert.equal(Es.translateString('Save'), 'Guardar');   // the plain button is unchanged
 });
 
+// The Site card's end-of-night boxes (11/25/26), worked by hand: Yes is a whole-text-node rule (a bare row would turn "Yes, hand off"
+// into "Sí, hand off"), No reads the same in Spanish, and the three server refusals shown on the card are rows.
+test('Site card boxes: Yes, No and the three refusals read in Spanish', () => {
+  assert.equal(Es.translateString('Yes'), 'Sí');
+  assert.equal(Es.translateString('No'), 'No');
+  assert.equal(Es.translateString('Yes, hand off'), 'Yes, hand off', 'the bare Yes never bites a longer phrase');
+  assert.equal(Es.translateString('Yes, clean again'), 'Sí, limpiar de nuevo');
+  const cases = {
+    'Shoveled must be yes or no': 'Paleado debe ser sí o no',
+    'Bags must be a whole number, zero or more': 'Las bolsas deben ser un número entero, cero o más',
+    'Buckets must be a whole number, zero or more': 'Las cubetas deben ser un número entero, cero o más',
+    'Shoveled': 'Paleado', 'Ice melt (bags)': 'Derretidor de hielo (bolsas)', 'Sand (buckets)': 'Arena (cubetas)',
+  };
+  for (const [en, es] of Object.entries(cases)) assert.equal(Es.translateString(en), es, en);
+});
+
 test('machine lines: the new bare words never bite longer English or the old card words', () => {
   assert.equal(Es.translateString('Pick a route'), 'Elige una ruta');
   assert.equal(Es.translateString('Minutes must be a whole number, zero or more'), 'Los minutos deben ser un número entero, cero o más');

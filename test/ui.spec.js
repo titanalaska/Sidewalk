@@ -484,9 +484,20 @@ function fakeSnow(state, opts = {}) {
           if (at < 0) return refuse('invalid', "That person isn't on the roster");
           usedPrev[at] = true; hl.operator_name = prevLines[at].operator_name || hl.operator_name;
         }
+        // The three end-of-night keys (snow-app-script saveVisit_, nightsheet): shoveled true / false / null / "" (anything else
+        // "Shoveled must be yes or no"); bags and buckets whole numbers zero or more, as numbers or digits as text (else "Bags ..." /
+        // "Buckets ..."); a key LEFT OUT keeps the saver's previous card's answer, a key sent as blank clears it.
+        const blankV = (x) => x === undefined || x === null || (typeof x === 'string' && !x.trim());
+        const wholeV = (x) => { let k; if (typeof x === 'number') k = x; else if (typeof x === 'string' && /^\d+(\.\d+)?$/.test(x.trim())) k = Number(x.trim()); else return null; return isFinite(k) && k >= 0 && Math.floor(k) === k ? k : null; };
+        if (body.shoveled !== undefined && !(body.shoveled === true || body.shoveled === false || body.shoveled === null || body.shoveled === '')) return refuse('invalid', 'Shoveled must be yes or no');
+        let bagsV = body.ice_melt_bags, bucketsV = body.sand_buckets;
+        if (bagsV !== undefined && !blankV(bagsV) && (bagsV = wholeV(bagsV)) === null) return refuse('invalid', 'Bags must be a whole number, zero or more');
+        if (bucketsV !== undefined && !blankV(bucketsV) && (bucketsV = wholeV(bucketsV)) === null) return refuse('invalid', 'Buckets must be a whole number, zero or more');
+        const keepV = (x, k) => (x === undefined ? (prev && prev[k] !== undefined ? prev[k] : '') : (blankV(x) ? '' : x));
+        const three = { shoveled: keepV(body.shoveled, 'shoveled'), ice_melt_bags: keepV(bagsV, 'ice_melt_bags'), sand_buckets: keepV(bucketsV, 'sand_buckets') };
         // by_key is the crew id, or 'admin' for Matt (who is not on the roster): the server's rule.
         const row = { id: 'V-' + n, seq: n, storm_id: storm.storm_id, shift_id: 'night-2026-10-02', site_id: body.site_id, by_key: mine, by_name: me.name, at: stamp,
-          depth_in: body.depth_in === undefined ? '' : body.depth_in, materials_used: body.materials_used || '', equipment: eq,
+          depth_in: body.depth_in === undefined ? '' : body.depth_in, materials_used: body.materials_used || '', ...three, equipment: eq,
           machines: SL.stampMachines(prev, lines.map((l) => ({ type: l.type, unit: l.unit, attachment: l.type === 'snowrator' ? '' : l.attachment,
             operator_key: l.operator_key, operator_name: l.operator_name, minutes: l.minutes }))) };
         state.visits.push(row);

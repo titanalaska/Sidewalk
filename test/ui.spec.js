@@ -9050,12 +9050,9 @@ test("print sheets: a 12-site route's table prints on at most 2 Letter portrait 
   await expect(row.locator('td.sitecell')).toContainText('Helped by:');
   await expect(row.locator('td.sitecell')).toContainText('Black ice under the awning');
   const { pages, boxes } = await routeListsPdf(page);
-  // MEASURED 11/25/26: 6 pages, NOT the spec's 2. The shared routesheet.js CSS (server-owned) gives the ten columns no widths, so
-  // table-layout: fixed makes them equal (72 px each) and the Site cell is squeezed to 72 px. The same route with widths on the
-  // headings (#,Done,Site,In,Out,Snow,Shoveled,Ice melt,Sand,Equipment = 3,4,40,7,7,5,6,7,7,14 %) prints on 2 pages (checked by
-  // injecting that style). This pin is the measured count so it moves when the CSS does: once the server's CSS has widths, change it
-  // to toBeLessThanOrEqual(2). Content is not shrunk to pass.
-  expect(pages).toBe(6);
+  // MEASURED 11/25/26: 2 pages. Before the column widths moved onto the headings (classes, since the app's own bare th rule beat a
+  // colgroup) the ten columns printed equal and the same route took 6 pages. The spec's limit is 2; content is not shrunk to pass.
+  expect(pages).toBeLessThanOrEqual(2);
   expect(boxes.length).toBe(pages);
   for (const b of boxes) expect(b).toEqual([612, 792]);   // Letter portrait in points
 });

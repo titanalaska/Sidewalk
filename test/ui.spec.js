@@ -12738,7 +12738,9 @@ test('Spanish: the map editor reads Spanish (its bar, the floating buttons, the 
 // "Alex Test", "Sam Sample", "Jordan Demo"), and so does any line the scanner could not see.
 const ALLOW_EN = ['Shovel', 'Command', 'Titan', 'Inventory', 'Bobcat', 'Snowrator', 'Sweepster', 'BuilderTrend', 'ANTHC', 'MOA', 'JBER',
   'PIN', 'Esri', 'Google', 'Maxar', 'Earthstar', 'Geographics', 'HERE', 'Garmin', 'Matt', 'MapLibre', 'OpenStreetMap', 'English', 'Español',
-  'Daily', 'Log', 'Time', 'Out', 'Bootprint', 'IceMelt', 'Blower', 'Anchorage', 'Municipality', 'bobcat', 'snowrator', 'sweepster'];
+  'Daily', 'Log', 'Time', 'Out', 'Bootprint', 'IceMelt', 'Blower', 'Anchorage', 'Municipality', 'bobcat', 'snowrator', 'sweepster',
+  // "min" reads the same in Spanish (Equipo (min)); the end-of-night sheet's 'Equipment (min)' row made it an English key word too
+  'min'];
 // The fixture's people (test/fixture.js): inside an ATTRIBUTE a name cannot be marked (a chip's "Call <name>"), so there only.
 const PEOPLE_WORDS = ['Alex', 'Test', 'Sam', 'Sample', 'Jordan', 'Demo', 'Matthew', 'Pending', 'Pat'];
 async function englishLeft(page, sel = 'body') {

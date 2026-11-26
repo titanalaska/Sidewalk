@@ -419,13 +419,15 @@ test('storm tab: in Spanish the crew\'s typed Materials text is never translated
   expect(flat.join(' | ')).not.toContain('Derretidor');
 });
 
-// A person named "Crew" (a translatable word) keeps the name in the Depth line too: "Profundidad: Crew 2 in".
+// A person named "Crew" (a translatable word) keeps the name in the Depth line too. Worked on paper: the name sits under
+// data-no-es and stays "Crew"; the value "2 in" is its own text node, which Spanish ship 1's unit rule reads as "2 pulg"
+// (the same rule live's "Jordan Demo 3.5 pulg" pins): "Profundidad: Crew 2 pulg".
 test('storm tab: in Spanish a name in the Depth line is never translated', async ({ page }) => {
   const w = world();
   w.visits = [visit(1, { by_key: 'k-crew', by_name: 'Crew', depth_in: 2 })];
   await open(page, w, 'es');
   const flat = (await (await totals(page)).locator('> div').allInnerTexts()).map((r) => r.replace(/\s+/g, ' ').trim());
-  expect(flat).toContain('Profundidad: Crew 2 in');
+  expect(flat).toContain('Profundidad: Crew 2 pulg');
 });
 
 test('storm tab: in English the Depth and Materials lines read exactly as before', async ({ page }) => {

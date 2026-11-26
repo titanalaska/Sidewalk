@@ -766,3 +766,31 @@ test('the server\'s refusals read Spanish, one by one and joined', () => {
   assert.equal(Es.translateString('Not saved: A Snowrator has no attachment'), 'No se guardó: Un Snowrator no lleva aditamento');
   assert.equal(Es.translateString('Link copied. Paste it in a text.'), 'Enlace copiado. Pégalo en un mensaje.');
 });
+
+// Final review I3 (11/25/26): the rule pass got shortcuts (an exact-text rule is an equality test; the others are skipped when one
+// combined test finds nothing). The output must be byte for byte what running every rule in turn gives. The oracle below IS the old
+// pass (the dictionary alternation, then each rule in order), copied here so the test does not trust the code it checks.
+test('the fast rule pass gives exactly what running every rule in turn gives', () => {
+  const keys = Object.keys(Es.ES).sort((a, b) => b.length - a.length);
+  const esc = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const dict = new RegExp(keys.map((k) => (/^[A-Za-z0-9]/.test(k) ? '\\b' : '') + esc(k) + (/[A-Za-z0-9]$/.test(k) ? '\\b' : '')).join('|'), 'g');
+  function slow(v) {
+    let s = String(v).replace(/\s+/g, ' ');
+    const lead = /^\s/.test(v) ? ' ' : '', trail = /\s$/.test(v) ? ' ' : '';
+    s = s.trim();
+    if (!s) return v;
+    let out = s.replace(dict, (m) => Es.ES[m]);
+    Es.ES_RULES.forEach((r) => { out = out.replace(r[0], r[1]); });
+    return out === s ? v : lead + out + trail;
+  }
+  const corpus = [];
+  keys.forEach((k) => corpus.push(k, ' ' + k + ' ', k + ':', 'Not saved: ' + k, k + '; ' + k));
+  ['Board', 'Hand', 'Hand 300', 'Heated walk', 'Sidewalk 1,200 sq ft', 'Curbs', 'Curbs: clear 4 ft back (about 1,200 ft)', 'Show 9 walks · 3 done',
+    '3 of 12 sites done, 1 touched · 2 problems · last tap 2:14 AM · 1 of 3 routes started', 'Up to 3" by 9 AM · snow from 2:14 AM',
+    'Handoff from Night of 12/4 · 8:00 AM · by Alex Test', 'Wrong PIN. 3 tries left.', 'Night of 12/4', 'Took 3 people off', 'Left out: 2 lots (the plow crew\'s), 1 cut-out',
+    'Not saved: Name is required; Customer must be short text, like ANTHC', 'Pumpkin spice', 'Alex Test', 'PAC', '—', '12:05 AM', 'blower, bobcat, shovel']
+    .forEach((x) => corpus.push(x));
+  const diff = corpus.filter((s) => Es.translateString(s) !== slow(s)).map((s) => JSON.stringify(s) + ' -> ' + JSON.stringify(Es.translateString(s)) + ' vs ' + JSON.stringify(slow(s)));
+  assert.deepEqual(diff, [], diff.length + ' line(s) differ from the rule-by-rule pass');
+  assert.ok(corpus.length > 3000, 'a corpus that covers every row');
+});

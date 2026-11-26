@@ -796,3 +796,11 @@ test('the fast rule pass gives exactly what running every rule in turn gives', (
   assert.deepEqual(diff, [], diff.length + ' line(s) differ from the rule-by-rule pass');
   assert.ok(corpus.length > 3000, 'a corpus that covers every row');
 });
+
+// The end-of-night sheet's ten headings (Matt, 11/25/26), worked by hand: "#" has no words; Done, In, Out, Shoveled and the two materials
+// headings were already rows or rules; the three new rows are whole phrases (tú vocabulary, crew read owed).
+test('end-of-night sheet headings read in Spanish', () => {
+  const rows = { 'Site and notes': 'Sitio y notas', 'Snow (in)': 'Nieve (pulg)', 'Equipment (min)': 'Equipo (min)', Done: 'Listo', In: 'Entrada', Out: 'Salida',
+    Shoveled: 'Paleado', 'Ice melt (bags)': 'Derretidor de hielo (bolsas)', 'Sand (buckets)': 'Arena (cubetas)', '#': '#' };
+  for (const [en, es] of Object.entries(rows)) assert.equal(Es.translateString(en), es, en);
+});

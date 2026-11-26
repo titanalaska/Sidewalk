@@ -290,6 +290,7 @@ const ONE_WORD_ENGLISH = {
   Storage: 'lib/totals.js line(): exported, but no screen draws it (walk totals, 11/23/26, left storage off the line)',
   'No-touch': 'lib/totals.js line(): never drawn, as Storage',
   V: 'the Board chip for a Valley worker: Valle is V too',
+  No: 'the Site card\'s Shoveled answer and the Storm tab\'s per-person Shoveled line (end-of-night sheet, 11/25/26): No is the Spanish word too',
   // never on a screen
   POST: 'the HTTP method (lib/api.js)',
   'Content-Type': 'an HTTP header name (lib/api.js)',
@@ -298,6 +299,7 @@ const ONE_WORD_ENGLISH = {
   NotAllowedError: 'a DOMException name compared when Share is refused',
   NFD: 'the Unicode form name passed to normalize() (lib/grouplist.js)',
   T: 'the ISO date format\'s separator',
+  Y: 'the Site card\'s stored Shoveled answer (lib/shiftlog.js cardSums, lib/shiftlogui.js totalsHtml compare it): a data value, never shown',
   Z: 'the ISO time zone suffix',
   'B-': 'the batch id prefix (newBatchId), never shown',
   C: 'the worker id prefix (forms.js nextWorkerId), never shown',

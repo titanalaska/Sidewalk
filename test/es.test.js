@@ -446,12 +446,13 @@ test('machine lines: the Save guard notice, Save anyway, and the self-replaced n
   assert.equal(Es.translateString('Save'), 'Guardar');   // the plain button is unchanged
 });
 
-// The Site card's end-of-night boxes (11/25/26), worked by hand: Yes is a whole-text-node rule (a bare row would turn "Yes, hand off"
-// into "Sí, hand off"), No reads the same in Spanish, and the three server refusals shown on the card are rows.
+// The Site card's end-of-night boxes (11/25/26), worked by hand: Yes is a whole-text-node rule (a bare row would turn "Yes, please"
+// into "Sí, please"), No reads the same in Spanish, and the three server refusals shown on the card are rows.
 test('Site card boxes: Yes, No and the three refusals read in Spanish', () => {
   assert.equal(Es.translateString('Yes'), 'Sí');
   assert.equal(Es.translateString('No'), 'No');
-  assert.equal(Es.translateString('Yes, hand off'), 'Yes, hand off', 'the bare Yes never bites a longer phrase');
+  assert.equal(Es.translateString('Yes, hand off'), 'Sí, entregar', 'its own phrase row (Spanish ship 1), never a half "Sí, hand off"');
+  assert.equal(Es.translateString('Yes, please'), 'Yes, please', 'the bare Yes never bites a longer phrase');
   assert.equal(Es.translateString('Yes, clean again'), 'Sí, limpiar de nuevo');
   const cases = {
     'Shoveled must be yes or no': 'Paleado debe ser sí o no',

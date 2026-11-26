@@ -322,7 +322,6 @@ const BUILT = {
     'Cada recorrido en PAC vuelve a Pendiente para la pasada 2. La pasada 1 se queda en el registro.'],
   'Copy for BT first if pass': ["Copy for BT first if pass 1 isn't posted yet.", 'Usa Copiar para BT primero si la pasada 1 todavía no está publicada.'],
   "isn't posted yet.": ["Copy for BT first if pass 1 isn't posted yet.", 'Usa Copiar para BT primero si la pasada 1 todavía no está publicada.'],
-  'Board, not posted yet:': ['Board, not posted yet: Alex Test (lead), Sam Sample', 'Tablero, todavía no publicado: Alex Test (líder), Sam Sample'],
   'No forecast for': ['No forecast for 3 sites.', 'Sin pronóstico para 3 sitios.'],
   'Not saved: the map for': ['Not saved: the map for PAC has changed. Mark the walk again.', 'No se guardó: el mapa de PAC cambió. Marca el recorrido de nuevo.'],
   'clearance not set': ['Alex Test: JBER clearance not set', 'Alex Test: autorización de JBER sin definir'],
@@ -485,6 +484,12 @@ const BUILT_ROWS = {
   'They can sign in now': { file: 'lib/rosterui.js', head: 'They', tail: 'can sign in now' },
 };
 
+// Rows for words a vendor file puts on the screen (MapLibre's controls set them as title / aria-label): alive while that file holds them.
+const VENDOR_ROWS = {
+  'Zoom in': 'vendor/maplibre-gl.js', 'Zoom out': 'vendor/maplibre-gl.js', 'Reset bearing to north': 'vendor/maplibre-gl.js',
+  'Map marker': 'vendor/maplibre-gl.js', 'Toggle attribution': 'vendor/maplibre-gl.js', 'Close popup': 'vendor/maplibre-gl.js',
+};
+
 // ---------------------------------------------------------------- the checks
 // An entry is '*' (the whole file) or a list of function names; '(top)' names the strings that sit in no named function.
 function listed(map, c) {
@@ -534,6 +539,7 @@ function deadRows() {
   indexPieces().forEach((p) => pieces.push(p));
   const heard = pieces.join('\n');
   return Object.keys(Es.ES).filter((k) => {
+    if (VENDOR_ROWS[k]) return !fs.readFileSync(path.join(ROOT, VENDOR_ROWS[k]), 'utf8').includes('"' + k + '"');
     if (BUILT_ROWS[k]) {
       const b = BUILT_ROWS[k], file = SOURCES[b.file] || SERVER_SOURCES[b.file] || [];
       const has = (w) => file.some((s) => !s.quiet && textPieces(s.value).some((q) => trimEnds(q) === trimEnds(w)));

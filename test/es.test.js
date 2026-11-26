@@ -499,8 +499,10 @@ test('half Spanish: the built lines keep their names and numbers', () => {
   // lib/shiftlogui.js run: a site's name, or "this site" when the phone has none
   assert.equal(Es.translateString('Not saved: the map for PAC has changed. Mark the walk again.'), 'No se guardó: el mapa de PAC cambió. Marca el recorrido de nuevo.');
   assert.equal(Es.translateString('Not saved: the map for this site has changed. Mark the walk again.'), 'No se guardó: el mapa de este sitio cambió. Marca el recorrido de nuevo.');
-  // lib/shiftlogui.js onBoard: names as typed, "(lead)" in Spanish
-  assert.equal(Es.translateString('Board, not posted yet: Alex Test (lead), Sam Sample'), 'Tablero, todavía no publicado: Alex Test (líder), Sam Sample');
+  // lib/shiftlogui.js onBoard: 'Board, not posted yet: ' + [Alex Test] ' (lead), ' + [Sam Sample], each name its own span (whoHtml)
+  assert.equal(Es.translateString('Board, not posted yet: '), 'Tablero, todavía no publicado: ');
+  assert.equal(Es.translateString(' (lead), '), ' (líder), ');
+  assert.equal(Es.translateString(' (lead)'), ' (líder)');
   // the server's messages, joined by "; " after "Not saved:" (the numbers are its constants)
   assert.equal(Es.translateString('Not saved: Emergency contact name is 40 characters at most; Can drive must be yes, no or not set'),
     'No se guardó: El nombre del contacto de emergencia puede tener 40 caracteres como máximo; Puede manejar debe ser sí, no o sin definir');

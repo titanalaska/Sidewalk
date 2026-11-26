@@ -12639,3 +12639,148 @@ test('Spanish: the map editor reads Spanish (its bar, the floating buttons, the 
   await expect(page.locator('#z_save')).toHaveText('Guardar zona');
   await expect(page.locator('#z_name')).toHaveAttribute('placeholder', 'Entrada principal');
 });
+
+// ---------- Spanish screens (Spanish everywhere, Task 9, 11/25/26): what the code actually put on the page ----------
+// The coverage test (test/es-coverage.test.js) reads the code; this reads the screen. Each screen opens on a phone set to ES
+// and every visible text node and translated attribute OUTSIDE data-no-es is read: a word of 3+ letters that is not Spanish
+// fails. "Spanish" = a word of a row's Spanish or of a rule's replacement text, minus any word an English row key also uses
+// (so a rule that mentions 'Night' to match it does not make 'Night' Spanish). Proper nouns and the app's kept words are
+// ALLOW_EN. A name or a person's words that slipped out of data-no-es shows up here as English (the fixture's people are
+// "Alex Test", "Sam Sample", "Jordan Demo"), and so does any line the scanner could not see.
+const ALLOW_EN = ['Shovel', 'Command', 'Titan', 'Inventory', 'Bobcat', 'Snowrator', 'Sweepster', 'BuilderTrend', 'ANTHC', 'MOA', 'JBER',
+  'PIN', 'Esri', 'Google', 'Maxar', 'Earthstar', 'Geographics', 'HERE', 'Garmin', 'Matt', 'MapLibre', 'OpenStreetMap', 'English', 'Español',
+  'Daily', 'Log', 'Time', 'Out', 'Bootprint', 'IceMelt', 'Blower', 'Anchorage', 'Municipality', 'bobcat', 'snowrator', 'sweepster'];
+// The fixture's people (test/fixture.js): inside an ATTRIBUTE a name cannot be marked (a chip's "Call <name>"), so there only.
+const PEOPLE_WORDS = ['Alex', 'Test', 'Sam', 'Sample', 'Jordan', 'Demo', 'Matthew', 'Pending', 'Pat'];
+async function englishLeft(page, sel = 'body') {
+  return page.evaluate(({ sel, allow, people }) => {
+    const W = /[A-Za-zÁÉÍÓÚÑÜáéíóúñü]{3,}/g;
+    const words = (s) => String(s).match(W) || [];
+    const english = new Set(), spanish = new Set();
+    Object.keys(SnowEs.ES).forEach((k) => words(k).forEach((w) => english.add(w)));
+    Object.values(SnowEs.ES).forEach((v) => words(v).forEach((w) => spanish.add(w)));
+    SnowEs.ES_RULES.forEach((r) => {
+      const src = String(r[1]);
+      (typeof r[1] === 'function' ? (src.match(/'[^']*'/g) || []) : [src]).forEach((lit) => words(lit).forEach((w) => spanish.add(w)));
+    });
+    english.forEach((w) => spanish.delete(w));
+    const keep = new Set(allow), out = new Set();
+    // a text box holds what a person typed (the engine never touches a textarea either)
+    const held = (el) => !el || !!el.closest('[data-no-es], script, style, textarea, [hidden]');
+    const shown = (el) => { const st = getComputedStyle(el); return st.display !== 'none' && st.visibility !== 'hidden' && el.getClientRects().length > 0; };
+    const check = (text, where) => words(text).forEach((w) => { if (!spanish.has(w) && !keep.has(w)) out.add(w + ' @ ' + where); });
+    const root = document.querySelector(sel);
+    const tw = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let n;
+    while ((n = tw.nextNode())) {
+      const p = n.parentElement;
+      if (held(p) || !shown(p)) continue;
+      check(n.nodeValue, p.id || p.className || p.tagName);
+    }
+    root.querySelectorAll('[placeholder],[aria-label],[title],[alt]').forEach((el) => {
+      if (held(el)) return;
+      ['placeholder', 'aria-label', 'title', 'alt'].forEach((a) => { const v = el.getAttribute(a); if (v) check(v.split(/\s+/).filter((w) => people.indexOf(w) === -1).join(' '), el.id || el.tagName + '[' + a + ']'); });
+    });
+    return [...out].sort();
+  }, { sel, allow: ALLOW_EN, people: PEOPLE_WORDS });
+}
+const esOn = (page) => page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+// stormWorld with names that hold row words (Review Focus 2): route R1 "Done Route", site S1 "Map Site", zone Z1 "Sidewalk 2".
+const esWorld = () => {
+  const w = stormWorld();
+  w.routes = w.routes.map((r) => (r.id === 'R1' ? { ...r, name: 'Done Route' } : r));
+  w.sites = w.sites.map((s) => (s.id === 'S1' ? { ...s, name: 'Map Site' } : s));
+  w.zones = w.zones.map((z) => (z.id === 'Z1' ? { ...z, name: 'Sidewalk 2' } : z));
+  return w;
+};
+
+test('Spanish screens: the sign-in screen has no English left', async ({ page }) => {
+  await esOn(page);
+  await open(page, { snow: fakeSnow(world()) });
+  await expect(page.locator('main')).toContainText('Iniciar sesión');
+  expect(await englishLeft(page)).toEqual([]);
+});
+
+test('Spanish screens: a crew member\'s Tonight and Storm tab have no English left; the names are as typed', async ({ page }) => {
+  await esOn(page);
+  // (a crew phone's route and site names come from the Post, the fixture's own: N1, PAC; Matt's tests below carry the renamed ones)
+  await openStorm(page, esWorld());
+  await expect(page.locator('main')).toContainText('Sidewalk 2');
+  expect(await englishLeft(page)).toEqual([]);
+  await page.click('nav [data-tab="tonight"]');
+  expect(await englishLeft(page)).toEqual([]);
+});
+
+test('Spanish screens: a lead\'s Storm tab and site card have no English left', async ({ page }) => {
+  await esOn(page);
+  await openStorm(page, esWorld(), { token: 'tok-alex' });
+  await openRoute(page, 'R1');
+  expect(await englishLeft(page)).toEqual([]);
+  await openCard(page, 'S1');
+  expect(await englishLeft(page, '#dlg')).toEqual([]);
+});
+
+test('Spanish screens: Matt\'s live view, an opened route and the storm controls have no English left', async ({ page }) => {
+  await esOn(page);
+  await openStorm(page, esWorld(), { token: 'tok-matt' });
+  await expect(page.locator('main')).toContainText('Done Route');
+  expect(await englishLeft(page)).toEqual([]);
+  await openRoute(page, 'R1');
+  expect(await englishLeft(page)).toEqual([]);
+});
+
+test('Spanish screens: the Board, Add people… and the Clear confirm have no English left', async ({ page }) => {
+  await esOn(page);
+  await open(page, { token: 'tok-matt', snow: fakeSnow(esWorld()), clockAt: STORM_CLOCK });
+  await page.click('nav [data-tab="board"]');
+  await expect(page.locator('main')).toContainText('Done Route');
+  expect(await englishLeft(page)).toEqual([]);
+  await page.click('[data-addpeople="R1"]');
+  expect(await englishLeft(page, '#dlg')).toEqual([]);
+});
+
+test('Spanish screens: the Roster, a worker card and the worker editor have no English left', async ({ page }) => {
+  await esOn(page);
+  await open(page, { token: 'tok-matt', snow: fakeSnow(esWorld()), clockAt: STORM_CLOCK });
+  await page.click('nav [data-tab="roster"]');
+  expect(await englishLeft(page)).toEqual([]);
+  await page.click('[data-open="C01"]');
+  expect(await englishLeft(page, '#dlg')).toEqual([]);
+  await page.click('#w_edit');
+  expect(await englishLeft(page, '#dlg')).toEqual([]);
+});
+
+test('Spanish screens: Sites, the site editor, Routes, the route editor and Add sites… have no English left', async ({ page }) => {
+  await esOn(page);
+  await open(page, { token: 'tok-matt', snow: fakeSnow(esWorld()), clockAt: STORM_CLOCK });
+  await page.click('nav [data-tab="sites"]');
+  await expect(page.locator('main')).toContainText('Map Site');
+  expect(await englishLeft(page)).toEqual([]);
+  await page.click('[data-edit="site:S1"]');
+  expect(await englishLeft(page, '#dlg')).toEqual([]);
+  await page.click('#dlgClose');
+  await backSettled(page);
+  await page.click('nav [data-tab="routes"]');
+  expect(await englishLeft(page)).toEqual([]);
+  await page.click('[data-edit="route:R1"]');
+  expect(await englishLeft(page, '#dlg')).toEqual([]);
+  await page.click('#r_pick');
+  expect(await englishLeft(page, '#dlg')).toEqual([]);
+});
+
+test('Spanish screens: a site map and Matt\'s map editor have no English left', async ({ page }) => {
+  await esOn(page);
+  await adminMap(page, mapWorld());
+  expect(await englishLeft(page)).toEqual([]);
+  await page.click('#mapedit');
+  await page.click('#ed_new');
+  expect(await englishLeft(page)).toEqual([]);
+});
+
+test('Spanish screens: Print route lists in Spanish has no English left on its pages', async ({ page }) => {
+  await esOn(page);
+  await stubPrint(page);
+  await openStorm(page, rlWorld(), { token: 'tok-matt' });
+  await page.click('#printRouteLists');
+  expect(await englishLeft(page, '#printview')).toEqual([]);
+});

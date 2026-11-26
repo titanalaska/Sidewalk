@@ -230,6 +230,8 @@ const NOT_SHOWN = {
   'Esri, HERE, Garmin': 'the snow map\'s photo credit: company names, shown as they are',
   'snowdot nofc': 'two CSS class names (lib/snowmap.js)',
   'small primary': 'two CSS class names (lib/rosterui.js addCrewButton)',
+  'Esri, Maxar, Earthstar Geographics': 'the site map\'s photo credit: company names, shown as they are',
+  'Municipality of Anchorage': 'the site map\'s photo credit: a proper noun',
   'px system-ui, -apple-system, sans-serif': 'a canvas font (lib/crewcardsui.js)',
   '700 44px system-ui, sans-serif': 'a canvas font (lib/crewcardsui.js)',
   '400 24px system-ui, sans-serif': 'a canvas font (lib/crewcardsui.js)',
@@ -268,11 +270,7 @@ const LEAVES_THE_APP = {
 const NOT_YET = {
   'index.html': '*',
   'lib/api.js': ['signIn'],
-  'lib/app.js': ['openMap', 'printRouteMaps', 'shareApp'],
-  'lib/bpimport.js': ['parseExport'],
-  'lib/mapedit.js': ['addImported', 'away', 'beginDraw', 'drawControls', 'formButtons', 'importBusy', 'onclick', 'previewJob', 'problem', 'readBootprint', 'renderArchived', 'restoreZone', 'saveView', 'showRef', 'start', 'unsavedWork', 'walksAndPiles'],
-  'lib/mapprint.js': ['pageHtml'],
-  'lib/mapview.js': ['open'],
+  'lib/app.js': ['shareApp'],
   'lib/routelist.js': ['pageHtml'],
   'lib/share.js': ['share'],
   'lib/shiftlog.js': ['checkAgain', 'checkTap', 'curbItems', 'machineProblem', 'undoTarget'],
@@ -411,7 +409,26 @@ const BUILT = {
   'Archived (': ['Archived (4)', 'Archivados (4)'],
   'site is missing': ['line 2: site is missing', 'línea 2: falta el sitio'],
   'dates must be YYYY-MM-DD': ['line 4: dates must be YYYY-MM-DD', 'línea 4: las fechas deben ser AAAA-MM-DD'],
-  '(this site)': ['BC5 (this site)', 'BC5 (este sitio)'],  // Task 5 (11/25/26): the Board, its toasts (names in spans of their own: lib/app.js holdNames) and its warnings.
+  '(this site)': ['BC5 (this site)', 'BC5 (este sitio)'],
+  // Task 8 (11/25/26): the map editor and the Bootprint import.
+  'Getting map': ['Getting map 2 of 7 ready…', 'Preparando el mapa 2 de 7…'],
+  'corners that are not saved.': ['Save or Cancel this zone first. It has 5 corners that are not saved.', 'Guarda o cancela esta zona primero. Tiene 5 esquinas sin guardar.'],
+  'Archived zones (0)': ['Archived zones (0)', 'Zonas archivadas (0)'],
+  'Archived zones (': ['Archived zones (2)', 'Zonas archivadas (2)'],
+  'snow pile': ['3 walks · 1 snow pile to add', '3 recorridos · 1 montón de nieve por agregar'],
+  'km away': ['1.4 km away · 1 walk', 'a 1.4 km · 1 recorrido'],
+  'm away': ['120 m away · 3 walks · 2 snow piles', 'a 120 m · 3 recorridos · 2 montones de nieve'],
+  'no corners': ['no corners · 0 walks', 'sin esquinas · 0 recorridos'],
+  "(the plow crew's)": ["Left out: 2 lots (the plow crew's)", 'Se dejaron fuera: 2 lotes (de la cuadrilla de arado)'],
+  'with no width (set it in Bootprint)': ['Left out: 3 runs with no width (set it in Bootprint)', 'Se dejaron fuera: 3 trazos sin ancho (ponlo en Bootprint)'],
+  'that turn too sharply (trace as an area)': ['Left out: 1 run that turn too sharply (trace as an area)', 'Se dejaron fuera: 1 trazo con vueltas muy cerradas (trázalo como área)'],
+  'unfinished shape': ['Left out: 2 unfinished shapes', 'Se dejaron fuera: 2 figuras sin terminar'],
+  'already imported': ['Left out: 1 already imported', 'Se dejaron fuera: 1 ya importado'],
+  'Left out:': ['Left out: 1 cut-out', 'Se dejaron fuera: 1 recorte'],
+  'to add': ['1 walk to add', '1 recorrido por agregar'],
+  'Add': ['Add 4 zones', 'Agregar 4 zonas'],
+  'Adding': ['Adding 2 of 4…', 'Agregando 2 de 4…'],
+  'from Bootprint. Tap any heated or do-not-touch one to change it.': ['Added 4 zones from Bootprint. Tap any heated or do-not-touch one to change it.', 'Se agregaron 4 zonas de Bootprint. Toca cualquiera con calefacción o de no tocar para cambiarla.'],  // Task 5 (11/25/26): the Board, its toasts (names in spans of their own: lib/app.js holdNames) and its warnings.
   'Trucks for': ['Trucks for Night of 12/4', 'Camionetas de Noche del 12/4'],
   'Take': ['Take 3 people off 2 routes?', '¿Quitar a 3 personas de 2 rutas?'],
   'Took': ['Took 3 people off the Board', 'Se quitó a 3 personas del tablero'],
@@ -574,7 +591,7 @@ test('every left-out entry is real, and every NOT_YET entry still hides a string
 const KEEP_EN = new Set(['Shovel', 'Command', 'Titan', 'Inventory', 'Bobcat', 'Snowrator', 'Sweepster', 'BuilderTrend', 'ANTHC', 'MOA', 'JBER',
   'PIN', 'Esri', 'Google', 'Maxar', 'Earthstar', 'Geographics', 'HERE', 'Garmin', 'Matt', 'JPEG', 'PNG', 'NWS', 'GPS', 'min', 'max',
   'app', 'Anchorage', 'YYYY',
-  'Time', 'Out', 'Daily', 'Log', 'Blower', 'IceMelt']);   // BuilderTrend's own field names, kept beside the Spanish ("Entrada (Time In)", "Daily Log")   // app: "la app" is Spanish too; Anchorage a place; YYYY a date pattern
+  'Time', 'Out', 'Daily', 'Log', 'Blower', 'IceMelt', 'Bootprint', 'bootprint', 'export', 'html']);   // Bootprint and its address   // BuilderTrend's own field names, kept beside the Spanish ("Entrada (Time In)", "Daily Log")   // app: "la app" is Spanish too; Anchorage a place; YYYY a date pattern
 function halfSpanish(text) {
   const out = Es.translateString(text);
   if (out === text) return null;

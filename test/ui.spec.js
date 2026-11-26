@@ -12622,3 +12622,20 @@ test('Spanish: the route editor reads Spanish; the route and site names stay as 
   await expect(dlg.locator('ol.sitelist')).not.toContainText('Mapa');
   await expect(dlg.locator('[data-up="0"]')).toHaveAttribute('aria-label', 'Subir');
 });
+
+// ---------- Spanish everywhere, Task 8: Matt's map editor on a Spanish phone (11/25/26) ----------
+test('Spanish: the map editor reads Spanish (its bar, the floating buttons, the zone form)', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await adminMap(page, mapWorld());
+  await expect(page.locator('#mapedit')).toHaveText('Editar mapa');
+  await page.click('#mapedit');
+  await expect(page.locator('#ed_new')).toHaveText('Zona nueva');
+  await expect(page.locator('#ed_view')).toHaveText('Guardar vista');
+  await expect(page.locator('#ed_rotl')).toHaveAttribute('aria-label', 'Girar el mapa a la izquierda');
+  await page.click('#ed_new');
+  await expect(page.locator('#zoneform h2')).toHaveText('Zona nueva');
+  await expect(page.locator('#zoneform [data-ztype="hand"]')).toHaveText('A mano');
+  await expect(page.locator('#zoneform [data-ztype="heated"]')).toHaveText('Con calefacción');
+  await expect(page.locator('#z_save')).toHaveText('Guardar zona');
+  await expect(page.locator('#z_name')).toHaveAttribute('placeholder', 'Entrada principal');
+});

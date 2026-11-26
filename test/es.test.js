@@ -707,3 +707,39 @@ test('Sites and Routes: the built lines keep their numbers', () => {
   assert.equal(Es.translateString('7 sites'), '7 sitios');
   assert.equal(Es.translateString('line 2: site is missing · line 4: dates must be YYYY-MM-DD'), 'línea 2: falta el sitio · línea 4: las fechas deben ser AAAA-MM-DD');
 });
+
+// Spanish everywhere, Task 8: Matt's map editor, the Bootprint import, the map print page. Draft, tú.
+test('the map editor and the Bootprint import read Spanish', () => {
+  const cases = {
+    'Edit map': 'Editar mapa', 'New zone': 'Zona nueva', 'Edit zone': 'Editar zona', 'Show old map': 'Mostrar mapa viejo',
+    'Import from Bootprint': 'Importar de Bootprint', 'Lock corners': 'Bloquear esquinas', 'Unlock corners': 'Desbloquear esquinas',
+    'Delete corner': 'Borrar esquina', 'Turn the map left': 'Girar el mapa a la izquierda', 'Turn the map right': 'Girar el mapa a la derecha',
+    'Moving map: tap to add corners': 'Moviendo el mapa: toca para agregar esquinas',
+    'Adding corners: tap to move map': 'Agregando esquinas: toca para mover el mapa',
+    'Tap the map to add corners. Drag a corner to move it.': 'Toca el mapa para agregar esquinas. Arrastra una esquina para moverla.',
+    'At least 3 corners. Tap the map to add them.': 'Al menos 3 esquinas. Toca el mapa para agregarlas.',
+    'View saved. The crew open here.': 'Vista guardada. La cuadrilla abre aquí.',
+    'Pick a job': 'Elige un trabajo', 'Unnamed job': 'Trabajo sin nombre', 'Nothing to add': 'Nada que agregar', 'Hide': 'Ocultar',
+    'Site map': 'Mapa del sitio', 'Main entry': 'Entrada principal',
+    'That file is not a Bootprint export. Make one at bootprint.app/export.html.': 'Ese archivo no es una exportación de Bootprint. Haz una en bootprint.app/export.html.',
+  };
+  for (const [en, es] of Object.entries(cases)) assert.equal(Es.translateString(en), es, en);
+});
+
+test('the map editor\'s built lines keep their numbers', () => {
+  assert.equal(Es.translateString('Archived zones (2)'), 'Zonas archivadas (2)');
+  assert.equal(Es.translateString('Add 1 zone'), 'Agregar 1 zona');
+  assert.equal(Es.translateString('Add 4 zones'), 'Agregar 4 zonas');
+  assert.equal(Es.translateString('Adding 2 of 4…'), 'Agregando 2 de 4…');
+  assert.equal(Es.translateString('3 walks · 1 snow pile to add'), '3 recorridos · 1 montón de nieve por agregar');
+  assert.equal(Es.translateString('1 walk to add'), '1 recorrido por agregar');
+  assert.equal(Es.translateString('120 m away · 3 walks · 2 snow piles'), 'a 120 m · 3 recorridos · 2 montones de nieve');
+  assert.equal(Es.translateString('1.4 km away · 1 walk'), 'a 1.4 km · 1 recorrido');
+  assert.equal(Es.translateString('no corners · 0 walks'), 'sin esquinas · 0 recorridos');
+  assert.equal(Es.translateString("Left out: 2 lots (the plow crew's), 1 cut-out, 3 runs with no width (set it in Bootprint), 1 already imported"),
+    'Se dejaron fuera: 2 lotes (de la cuadrilla de arado), 1 recorte, 3 trazos sin ancho (ponlo en Bootprint), 1 ya importado');
+  assert.equal(Es.translateString('Added 4 zones from Bootprint. Tap any heated or do-not-touch one to change it.'),
+    'Se agregaron 4 zonas de Bootprint. Toca cualquiera con calefacción o de no tocar para cambiarla.');
+  assert.equal(Es.translateString('Added 2 of 5. Stopped: not saved. Import again for the rest.'), 'Se agregaron 2 de 5. Se detuvo: no se guardó. Importa otra vez para el resto.');
+  assert.equal(Es.translateString('Getting map 2 of 7 ready…'), 'Preparando el mapa 2 de 7…');   // then the site's name, in its own span
+});

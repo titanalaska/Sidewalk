@@ -396,3 +396,12 @@ test('storm tab: in Spanish the new lines read bolsas / cubetas / Sí, the names
   expect(flat).toContain('Arena: Bea Demo 1 cubeta');
   expect(flat).toContain('Paleado: Alex Test No, Bea Demo Sí');
 });
+
+test('storm tab: in Spanish a person whose name is a translatable word keeps the name (data-no-es)', async ({ page }) => {
+  // "Crew" is an exact-text-node Spanish rule (Cuadrilla). As a person's name it must stay "Crew": 3 bags -> "Crew 3 bolsas".
+  const w = world();
+  w.visits = [visit(1, { by_key: 'k-crew', by_name: 'Crew', ice_melt_bags: 3 })];
+  await open(page, w, 'es');
+  const flat = (await (await totals(page)).locator('> div').allInnerTexts()).map((r) => r.replace(/\s+/g, ' ').trim());
+  expect(flat).toContain('Derretidor de hielo: Crew 3 bolsas');
+});

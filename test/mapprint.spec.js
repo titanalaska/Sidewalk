@@ -184,3 +184,21 @@ test('Print maps on a route prints one page per site in the route\'s order, and 
   await expect(page.locator('[data-printroute="R1"]')).toBeEnabled();
   expect(errors).toEqual([]);
 });
+
+// Print language (Spanish everywhere, Matt 11/25/26): the map page has the same English | Español buttons as the route lists.
+// mapWorld by hand: PAC with "Main entry" (priority), "Heated walk", "Ski trail"; materials "~8 buckets sand" (typed: as typed).
+test('Print map: the English / Español buttons; Español translates the page\'s labels, never a zone name or the typed materials', async ({ page }) => {
+  const errors = await printed(page, 'tok-matt');
+  await expect(page.locator('#printbar [data-printlang="en"]')).toHaveAttribute('aria-pressed', 'true');
+  const sheet = page.locator('#printsheets .mp-sheet');
+  await expect(sheet).toContainText('Materials: ~8 buckets sand');
+  await page.click('#printbar [data-printlang="es"]');
+  await expect(sheet).toContainText('Materiales: ~8 buckets sand');
+  await expect(sheet.locator('.mp-zones thead')).toContainText('Zona');
+  await expect(sheet.locator('.mp-zones tbody tr').nth(0)).toContainText('★ Main entry');
+  await expect(sheet.locator('.mp-zones tbody tr').nth(1)).toContainText('Heated walk');
+  await expect(page.locator('#mapPrintNow')).toHaveText('Print');   // the bar stays the phone's (English)
+  await page.click('#printbar [data-printlang="en"]');
+  await expect(sheet).toContainText('Materials: ~8 buckets sand');
+  expect(errors).toEqual([]);
+});

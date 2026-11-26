@@ -304,6 +304,8 @@ const ONE_WORD_ENGLISH = {
   Snowrator: 'a machine\'s brand name',
   Sweepster: 'a machine\'s brand name',
   N: 'the north arrow on a printed map: Norte is N too',
+  English: 'the print screen\'s language pair: each language is named in its own language',
+  'Español': 'the print screen\'s language pair (already Spanish)',
   V: 'the Board chip for a Valley worker: Valle is V too',
   // never on a screen
   POST: 'the HTTP method (lib/api.js)',

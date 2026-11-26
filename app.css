@@ -313,6 +313,13 @@ body.has-ref.ref-min #mapbox{height:62vh}
 #printview{position:fixed;inset:0;z-index:20;overflow:auto;background:#d9d8d4;color:#000}
 #printbar{position:sticky;top:0;z-index:1;display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--card);color:var(--ink);border-bottom:1px solid var(--line)}
 #printbar .muted{flex:1}
+/* The print screen's English | Español (Spanish everywhere, 11/25/26): one pair, never split; the bar may wrap at 320 px. */
+#printbar{flex-wrap:wrap}
+#printbar .print-lang{display:inline-flex;flex:none;white-space:nowrap}
+#printbar .print-lang button{border-radius:0;margin:0}
+#printbar .print-lang button:first-child{border-radius:8px 0 0 8px}
+#printbar .print-lang button:last-child{border-radius:0 8px 8px 0}
+#printbar .print-lang button[aria-pressed="true"]{background:var(--ink);color:var(--card)}
 #printsheets{max-width:8.5in;margin:12px auto;padding:0.5in;background:#fff;color:#000;box-shadow:0 1px 6px rgba(0,0,0,.25);font:11pt/1.35 Arial,Helvetica,sans-serif}
 /* The day handoff card (10/5/26): what night left, at the top of the Storm tab by day. */
 .handoff h2{font-size:17px;margin:0 0 6px}

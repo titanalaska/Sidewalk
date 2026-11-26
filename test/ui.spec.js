@@ -12457,3 +12457,98 @@ test.describe('check night:', () => {
     expect(shiftCalls(calls).length).toBeGreaterThanOrEqual(2);
   });
 });
+
+// ---------- Print language (Spanish everywhere, Matt 11/25/26) ----------
+// "He asked me to print out the route sheets, and it had no option to print it in Spanish." The print screen gets its own
+// English | Español buttons: they redraw the PAGES only; the bar and the app around them stay in the phone's language.
+// rlWorld (above) by hand: N2 (Alex Test lead; PAC with "Main entry" + "Heated walk"), N10 (no crew; "Lead Yard", a site
+// name holding the row word "Lead", so a name that slipped out of data-no-es would read "Líder Yard").
+test('print language: an EN phone prints the route lists in Spanish with one tap; the bar stays English; the data stays as typed', async ({ page }) => {
+  await stubPrint(page);
+  await page.addInitScript(() => { const real = window.print; window.print = () => { window.__textAtPrint = document.getElementById('printsheets').innerText; real(); }; });
+  await openStorm(page, rlWorld(), { token: 'tok-matt' });
+  await page.click('#printRouteLists');
+  await expect(page.locator('#printbar [data-printlang="en"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#printbar [data-printlang="es"]')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#printsheets')).toContainText('Date:');
+  await page.click('#printbar [data-printlang="es"]');
+  await expect(page.locator('#printbar [data-printlang="es"]')).toHaveAttribute('aria-pressed', 'true');
+  const view = page.locator('#printsheets');
+  await expect(view).toContainText('Fecha:');
+  await expect(view).toContainText('Cuadrilla:');
+  await expect(view).toContainText('Líder: Alex Test');
+  await expect(view).not.toContainText('Date:');
+  await expect(view).toContainText('Lead Yard');            // a name: as typed
+  await expect(view).toContainText('Heated walk');
+  // The bar and the app stay English: this phone is English.
+  await expect(page.locator('#printbar')).toContainText('Back');
+  await expect(page.locator('#printbar')).toContainText('2 route lists');
+  await expect(page.locator('#printNow')).toHaveText('Print');
+  // Print prints what is shown.
+  await page.click('#printNow');
+  expect(await page.evaluate(() => window.__textAtPrint)).toContain('Fecha:');
+  // And back to English.
+  await page.click('#printbar [data-printlang="en"]');
+  await expect(view).toContainText('Date:');
+  await expect(view).not.toContainText('Fecha:');
+  await expect(view).toContainText('Lead Yard');
+});
+
+test('print language: on an ES phone the route lists open in Spanish; English puts them back and STAYS English after a later change', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await stubPrint(page);
+  await openStorm(page, rlWorld(), { token: 'tok-matt' });
+  await page.click('#printRouteLists');
+  await expect(page.locator('#printbar [data-printlang="es"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#printsheets')).toContainText('Fecha:');
+  await expect(page.locator('#printbar')).toContainText('Atrás');           // the bar follows the phone
+  await page.click('#printbar [data-printlang="en"]');
+  await expect(page.locator('#printsheets')).toContainText('Date:');
+  await expect(page.locator('#printbar')).toContainText('Atrás');           // still the phone's language
+  // A later change inside the English pages: a new node and an edited text node. The phone's observer is on (ES) and must
+  // leave them English (Review Focus 1).
+  await page.evaluate(() => {
+    const p = document.createElement('p'); p.id = 'latePrint'; p.textContent = 'Sign in';
+    const pg = document.querySelector('#printsheets .rl-page'); pg.appendChild(p);
+    const b = document.querySelector('#printsheets .rl-date b') || document.querySelector('#printsheets .rl-date');
+    const t = document.createTreeWalker(b, NodeFilter.SHOW_TEXT).nextNode(); t.nodeValue = 'Date: ';
+  });
+  await page.waitForTimeout(150);
+  await expect(page.locator('#latePrint')).toHaveText('Sign in');
+  await expect(page.locator('#printsheets')).toContainText('Date:');
+  await expect(page.locator('#printsheets')).not.toContainText('Fecha:');
+});
+
+// Print sheets are the night's English record (the Drive PDFs' twin). Before, a phone set to ES translated the pages a moment
+// after printing, names included: a zone named "Sidewalk 2" became "Banqueta 2". stormWorld by hand: PAC's Z2 renamed
+// "Sidewalk 2" and given a Problem "ice", so the billing page names it: "Sidewalk 2: Problem".
+test('print language: Print sheets on an ES phone stays English, names and all; no language buttons; the bar reads Spanish', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  const w = stormWorld();
+  w.zones = w.zones.map((z) => (z.id === 'Z2' ? { ...z, name: 'Sidewalk 2' } : z));
+  w.log = [logRow(1, 'S1', 'Z1', 'cleared', 'Alex Test', { at: at('06:30') }), logRow(2, 'S1', 'Z2', 'problem', 'Alex Test', { note: 'ice', at: at('06:35') })];
+  await stubPrint(page);
+  await openStorm(page, w, { token: 'tok-matt' });
+  await page.click('#printSheets');
+  await expect(page.locator('#printview')).toBeVisible();
+  await page.waitForTimeout(150);
+  const view = page.locator('#printsheets');
+  await expect(view).toContainText('Sidewalk 2: Problem');
+  await expect(view).toContainText('Route N1');
+  await expect(view).not.toContainText('Banqueta');
+  await expect(view).not.toContainText('Problema');
+  await expect(page.locator('#printbar [data-printlang]')).toHaveCount(0);
+  await expect(page.locator('#printbar')).toContainText('Atrás');
+});
+
+test('print language: Print crew times on an ES phone stays English (Ship 2 gives it the buttons)', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await cnOpen(page, cnWorld());
+  await page.click('#printCrewTimes');
+  await page.click('[data-clocknight="night-2026-12-04"]');
+  await expect(page.locator('#printview')).toBeVisible();
+  await page.waitForTimeout(150);
+  await expect(page.locator('#printsheets h1')).toHaveText('Crew timesNight of 12/4');
+  await expect(page.locator('#printsheets table.times thead')).toContainText('Name');
+  await expect(page.locator('#printbar [data-printlang]')).toHaveCount(0);
+});

@@ -743,3 +743,24 @@ test('the map editor\'s built lines keep their numbers', () => {
   assert.equal(Es.translateString('Added 2 of 5. Stopped: not saved. Import again for the rest.'), 'Se agregaron 2 de 5. Se detuvo: no se guardó. Importa otra vez para el resto.');
   assert.equal(Es.translateString('Getting map 2 of 7 ready…'), 'Preparando el mapa 2 de 7…');   // then the site's name, in its own span
 });
+
+// Spanish everywhere, Task 9: the server's refusal words (snow-app-script Code.js, auth.js, roster.js) and the shared files'
+// (shiftlog.js), shown after "Not saved:". A validator joins its messages with "; " (Code.js errs.join('; ')): every one reads Spanish.
+test('the server\'s refusals read Spanish, one by one and joined', () => {
+  assert.equal(Es.translateString('Not saved: Name is required; Customer must be short text, like ANTHC'),
+    'No se guardó: El nombre es obligatorio; Cliente debe ser texto corto, como ANTHC');
+  assert.equal(Es.translateString('Not saved: Phone is 30 characters at most; That picture is too big'),
+    'No se guardó: El teléfono puede tener 30 caracteres como máximo; Esa foto es demasiado grande');
+  assert.equal(Es.translateString('Not saved: Only Matt can do that.'), 'No se guardó: Solo Matt puede hacer eso.');
+  assert.equal(Es.translateString("Not saved: You're not on tonight's Board. Ask Matt to add you."),
+    'No se guardó: No estás en el tablero de esta noche. Pídele a Matt que te agregue.');
+  assert.equal(Es.translateString('Not saved: That time is not on the night you picked'), 'No se guardó: Esa hora no está en el turno de noche que elegiste');
+  assert.equal(Es.translateString('Not saved: Already handed off at 8:00 AM'), 'No se guardó: Ya se entregó a las 8:00 AM');
+  assert.equal(Es.translateString('Not saved: Too many corners (412); the most a zone can hold is 400'),
+    'No se guardó: Demasiadas esquinas (412); una zona puede tener como máximo 400');
+  assert.equal(Es.translateString('Not saved: works well with must list people on the roster'), 'No se guardó: trabaja bien con debe listar personas de la lista');
+  assert.equal(Es.translateString('Not saved: A unit list is 60 characters at most'), 'No se guardó: Una lista de unidades puede tener 60 caracteres como máximo');
+  assert.equal(Es.translateString('Not saved: Someone has tapped this walk since'), 'No se guardó: Alguien marcó este recorrido desde entonces');
+  assert.equal(Es.translateString('Not saved: A Snowrator has no attachment'), 'No se guardó: Un Snowrator no lleva aditamento');
+  assert.equal(Es.translateString('Link copied. Paste it in a text.'), 'Enlace copiado. Pégalo en un mensaje.');
+});

@@ -600,6 +600,14 @@ function fakeSnow(state, opts = {}) {
       state[tab] = state[tab].filter((x) => x.id !== rec.id).concat([rec]);
       return { ok: true, record: rec, ...v };
     }
+    // Typed words (Spanish everywhere, Ship 2; snow-app-script Code.js translate_): every ask is kept on state.translateAsks. By
+    // default every line is refused, so a screen shows its typed lines as typed and nothing is asked again; a test sets
+    // state.translate(body) to answer { done, later, refused } itself.
+    if (body.action === 'translate') {
+      (state.translateAsks = state.translateAsks || []).push(body);
+      const r = state.translate ? state.translate(body) : { done: {}, later: [], refused: body.texts };
+      return { ok: true, lang: body.lang, ...r, ...v };
+    }
     return { ok: false, code: 'error', reason: 'unknown action', ...v };
   };
 }
@@ -12629,16 +12637,44 @@ test('print language: Print sheets on an ES phone stays English, names and all; 
   await expect(page.locator('#printbar')).toContainText('Atrás');
 });
 
-test('print language: Print crew times on an ES phone stays English (Ship 2 gives it the buttons)', async ({ page }) => {
+// Ship 2 (11/25/26) gave Print crew times its English / Espanol buttons: every name in the table is data-no-es (routesheet.js
+// clockSheetBody). cnWorld's night of 12/4 by hand: Alex, Bea and Cy worked it; Cy is renamed "Start" here, a made-up name equal to
+// a column word, so a name that slipped out of data-no-es would read "Inicio". Spanish: the heading "Horas del equipo" + "Noche
+// del 12/4", the columns Nombre / Inicio / Fin / Horas.
+const cnStartWorld = () => {
+  const w = cnWorld();
+  w.crew = w.crew.map((c) => (c.id === 'C3' ? { ...c, name: 'Start' } : c));
+  w.clockRows = w.clockRows.map((r) => (r.crew_id === 'C3' ? { ...r, name: 'Start' } : r));
+  return w;
+};
+test('print language: Print crew times on an ES phone opens in Spanish, the names as typed; English puts it back (Ship 2)', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
-  await cnOpen(page, cnWorld());
+  await cnOpen(page, cnStartWorld());
   await page.click('#printCrewTimes');
   await page.click('[data-clocknight="night-2026-12-04"]');
   await expect(page.locator('#printview')).toBeVisible();
-  await page.waitForTimeout(150);
+  await expect(page.locator('#printbar [data-printlang]')).toHaveCount(2);
+  await expect(page.locator('#printbar [data-printlang="es"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('#printsheets h1')).toHaveText('Horas del equipoNoche del 12/4');
+  await expect(page.locator('#printsheets table.times thead')).toHaveText('NombreInicioFinHoras');
+  expect(await page.locator('#printsheets table.times tbody td[data-no-es]').allTextContents()).toEqual(['Alex', 'Bea', 'Start']);
+  await page.click('#printbar [data-printlang="en"]');
   await expect(page.locator('#printsheets h1')).toHaveText('Crew timesNight of 12/4');
-  await expect(page.locator('#printsheets table.times thead')).toContainText('Name');
-  await expect(page.locator('#printbar [data-printlang]')).toHaveCount(0);
+  await expect(page.locator('#printsheets table.times thead')).toHaveText('NameStartEndHours');
+  expect(await page.locator('#printsheets table.times tbody td[data-no-es]').allTextContents()).toEqual(['Alex', 'Bea', 'Start']);
+});
+
+test('print language: Print crew times on an EN phone: Espanol translates the headings, every name unchanged (Ship 2)', async ({ page }) => {
+  await cnOpen(page, cnStartWorld());
+  await page.click('#printCrewTimes');
+  await page.click('[data-clocknight="night-2026-12-04"]');
+  await expect(page.locator('#printsheets h1')).toHaveText('Crew timesNight of 12/4');
+  await page.click('#printbar [data-printlang="es"]');
+  await expect(page.locator('#printsheets h1')).toHaveText('Horas del equipoNoche del 12/4');
+  await expect(page.locator('#printsheets table.times thead')).toHaveText('NombreInicioFinHoras');
+  expect(await page.locator('#printsheets table.times tbody td[data-no-es]').allTextContents()).toEqual(['Alex', 'Bea', 'Start']);
+  // the bar stays English: this phone is English
+  await expect(page.locator('#printNow')).toHaveText('Print');
 });
 
 // ---------- Spanish everywhere, Task 5: Matt's Board on a Spanish phone (11/25/26) ----------
@@ -12921,4 +12957,102 @@ test('Spanish screens: the live view\'s site totals have no English left; names 
   await expect(totals).toContainText('Done salt');
   await expect(totals).toContainText('Jordan Demo 3.5 pulg');
   expect(await englishLeft(page, '[data-livesite="S1"]')).toEqual([]);
+});
+
+// ---------- Spanish everywhere, Ship 2, Task 15: the words people type, marked on the real screens (11/26/26) ----------
+// lib/estyped.js shows the Spanish of every data-typed element (also data-no-es). The fake's translate refuses every line unless
+// a test answers it (fakeSnow: state.translate), so a screen shows its typed lines as typed.
+
+test('typed words: the Storm tab marks the zone names and the crew Problem note; never a site or route name', async ({ page }) => {
+  // stormWorld by hand: R1 "N1" = S1 "PAC": Z1 "Main entry" (sidewalk), Z2 "Heated walk" (heated), Z3 "Ski trail" (no_touch: never
+  // a walk). The Log holds a Problem on Z1 with the note "Ice by the door". Matt opens R1. In page order: Main entry's name, its
+  // last line's note (a crew note: data-typed="crew"), Heated walk's name. Every mark is data-no-es.
+  const w = stormWorld();
+  w.log = [logRow(1, 'S1', 'Z1', 'problem', 'Jordan Demo', { note: 'Ice by the door' })];
+  await openStorm(page, w, { token: 'tok-matt' });
+  await openRoute(page, 'R1');
+  const card = page.locator('[data-shiftsite="S1"]');
+  await expect(card).toContainText('Ice by the door');
+  const marks = await card.locator('[data-typed]').evaluateAll((els) => els.map((e) => [e.textContent, e.getAttribute('data-typed'), e.hasAttribute('data-no-es')]));
+  expect(marks).toEqual([['Main entry', '', true], ['Ice by the door', 'crew', true], ['Heated walk', '', true]]);
+  const all = await page.locator('main [data-typed]').allTextContents();
+  for (const name of ['PAC', 'N1', 'Jordan Demo']) expect(all).not.toContain(name);
+});
+
+test('typed words: "Whole site" is the app\'s own words: never marked, and Spanish on a Spanish phone', async ({ page }) => {
+  // stormWorld's S2 (on R2) has no zones drawn: its one walk is the Storm tab's "Whole site" (es.js: Todo el sitio).
+  await esOn(page);
+  await openStorm(page, stormWorld(), { token: 'tok-matt' });
+  await openRoute(page, 'R2');
+  const card = page.locator('[data-shiftsite="S2"]');
+  await expect(card.locator('.walk-name')).toHaveText('Todo el sitio');
+  await expect(card.locator('[data-typed]')).toHaveCount(0);
+});
+
+test('typed words: a Spanish phone shows the Spanish it holds for a zone name on the Storm tab, and asks for the rest', async ({ page }) => {
+  // This phone holds "Main entry" -> "Entrada principal"; "Heated walk" is not held: it is asked for (and the fake refuses it, so
+  // it stays as typed). Nothing else typed is on the card.
+  await esOn(page);
+  await page.addInitScript(() => localStorage.setItem('snow-es-typed', JSON.stringify({ es: { 'Main entry': 'Entrada principal' }, en: {} })));
+  const w = stormWorld();
+  await openStorm(page, w, { token: 'tok-matt' });
+  await openRoute(page, 'R1');
+  const names = page.locator('[data-shiftsite="S1"] .walk-name [data-typed]');
+  await expect(names).toHaveText(['Entrada principal', 'Heated walk']);
+  await page.clock.runFor(600);
+  await expect.poll(() => (w.translateAsks || []).length).toBeGreaterThan(0);
+  const asked = [].concat(...w.translateAsks.map((b) => b.texts));
+  expect(asked).toContain('Heated walk');
+  expect(asked).not.toContain('Main entry');
+  expect(w.translateAsks.every((b) => b.lang === 'es')).toBe(true);
+});
+
+test('typed words: a zone name holding " / " (Matt\'s two languages) is never asked for', async ({ page }) => {
+  await esOn(page);
+  const w = stormWorld();
+  w.zones = w.zones.map((z) => (z.id === 'Z1' ? { ...z, name: 'Door / Puerta 5' } : z));
+  await openStorm(page, w, { token: 'tok-matt' });
+  await openRoute(page, 'R1');
+  await expect(page.locator('[data-shiftsite="S1"]')).toContainText('Door / Puerta 5');
+  await page.clock.runFor(600);
+  await expect.poll(() => (w.translateAsks || []).length).toBeGreaterThan(0);   // Heated walk is asked for
+  const asked = [].concat(...w.translateAsks.map((b) => b.texts));
+  expect(asked).toContain('Heated walk');
+  expect(asked).not.toContain('Door / Puerta 5');
+});
+
+test('typed words: an English phone asks for a crew Problem note in English, never for a zone name', async ({ page }) => {
+  const w = stormWorld();
+  w.log = [logRow(1, 'S1', 'Z1', 'problem', 'Jordan Demo', { note: 'Hielo en la puerta' })];
+  w.translate = (b) => ({ done: Object.fromEntries(b.texts.map((t) => [t, b.lang === 'en' && t === 'Hielo en la puerta' ? 'Ice at the door' : t])), later: [], refused: [] });
+  await openStorm(page, w, { token: 'tok-matt' });
+  await openRoute(page, 'R1');
+  await page.clock.runFor(600);
+  await expect(page.locator('[data-shiftsite="S1"] [data-typed="crew"]')).toHaveText('Ice at the door');
+  const asked = w.translateAsks.map((b) => [b.lang, b.texts]);
+  expect(asked).toEqual([['en', ['Hielo en la puerta']]]);
+  await expect(page.locator('[data-shiftsite="S1"] .walk-name [data-typed]')).toHaveText(['Main entry', 'Heated walk']);
+});
+
+test('typed words: an EN phone prints the route lists in Espanol: the held Spanish for typed lines, English where none is held, never blank', async ({ page }) => {
+  await stubPrint(page);
+  // rlWorld by hand: route N2 = PAC (S1): materials "NO SALT: fresh concrete"; walks Main entry (plain: not listed) and Heated walk
+  // (heated: listed). Notes "Gate code 4512" added. This phone holds Spanish for the materials and Heated walk, none for the notes.
+  const w = rlWorld();
+  w.sites = w.sites.map((s) => (s.id === 'S1' ? { ...s, notes: 'Gate code 4512' } : s));
+  await page.addInitScript(() => localStorage.setItem('snow-es-typed', JSON.stringify({ es: { 'NO SALT: fresh concrete': 'SIN SAL: concreto nuevo', 'Heated walk': 'Banqueta con calefacción' }, en: {} })));
+  await openStorm(page, w, { token: 'tok-matt' });
+  await page.click('#printRouteLists');
+  const view = page.locator('#printsheets');
+  await expect(view).toContainText('NO SALT: fresh concrete');
+  await page.click('#printbar [data-printlang="es"]');
+  await expect(view).toContainText('SIN SAL: concreto nuevo');
+  await expect(view).toContainText('Banqueta con calefacción');
+  await expect(view).toContainText('Gate code 4512');
+  await expect(view).not.toContainText('NO SALT: fresh concrete');
+  await expect(view).toContainText('Lead Yard');                    // a site name: as typed
+  await page.click('#printbar [data-printlang="en"]');
+  await expect(view).toContainText('NO SALT: fresh concrete');
+  await expect(view).toContainText('Heated walk');
+  await expect(view).not.toContainText('SIN SAL');
 });

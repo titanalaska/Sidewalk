@@ -264,8 +264,13 @@ const allCandidates = () => candidates().concat(serverCandidates()).filter((c) =
 const LEAVES_THE_APP = {
   // Every string here is a Drive PDF's, or a Print sheets / Print crew times page's (those pages sit under data-no-es:
   // the English record). The screens call only the data builders and clock(), whose AM / PM are ONE_WORD_ENGLISH.
-  // Ship 2 (Task 15) takes clockSheetData / clockSheetBody out of here when Print crew times gets its Espanol button.
-  'lib/routesheet.js': '*',
+  // Ship 2 (Task 15): clockSheetData / clockSheetBody are NOT here: Print crew times has its Espanol button, so the Crew times
+  // page's words need rows (its names are data-no-es). Every other routesheet.js function still leaves the app.
+  'lib/routesheet.js': ['bySeq', 'blank', 'text', 'nameOf', 'inStorm', 'clock', 'stamp', 'addDays', 'shiftEndLocal', 'routeKey', 'byRouteName',
+    'liveRoutes', 'siteIdsOf', 'activity', 'newestPost', 'crewFor', 'crewOf', 'stormSpan', 'postHasCrew', 'sheetsFor', 'minutesOf', 'helpersAt',
+    'siteData', 'sheetData', 'esc', 'timeText', 'timesHtml', 'walkLine', 'siteHeading', 'passHeading', 'footer', 'isMulti', 'blocksOf', 'emptyNote',
+    'checkLines', 'metaLine', 'plural', 'billingLines', 'sheetBody', 'recordBody', 'sheetHtml', 'fileSafe', 'fileName', 'clockShiftsOf',
+    'shiftBefore', 'onTheClockAtStart', 'clockSheetsFor', 'clockSheetHtml', 'clockFileName', 'fold'],
   // The handoff PDF and its Print sheets page. NOT heading, siteParts or leftoverParts: the Storm tab's handoff card shows them.
   'lib/handoff.js': ['handoffBody', 'handoffHtml', 'fileName'],
   'lib/btnote.js': '*',    // the Copy for BT text: English always (BuilderTrend)
@@ -321,6 +326,9 @@ const BUILT = {
   'still on the clock. Tap End shift first, or their End has to be typed with Set shift.': ['3 are still on the clock. Tap End shift first, or their End has to be typed with Set shift.',
     '3 personas siguen en turno. Toca Terminar turno primero, o su salida se tiene que escribir con Poner turno.'],
   'with no End shift)': ['10:30 (2 nights with no End shift)', '10:30 (2 noches sin Terminar turno)'],
+  // Ship 2 (Task 15): the Crew times page's footer, its stamp added after the dot (Print crew times in Espanol).
+  'Made by Shovel Command from crew taps ·': ['Made by Shovel Command from crew taps · 12/5 10:00 AM',
+    'Hecho por Shovel Command con los toques de la cuadrilla · 12/5 10:00 AM'],
   'cleared must be yes or no': ['line 3: cleared must be yes or no', 'línea 3: autorizado debe ser sí o no'],
   'Save or Cancel this zone first. It has': ['Save or Cancel this zone first. It has 5 corners that are not saved.', 'Guarda o cancela esta zona primero. Tiene 5 esquinas sin guardar.'],
   'Storm · became a storm': ['Storm · became a storm 2:14 AM by Ben Test', 'Tormenta · se volvió tormenta 2:14 AM por Ben Test'],
@@ -478,6 +486,7 @@ const BUILT_SITES = {
   'couldn\'t be made on this phone (no signal?). Their zone lists still print.': ['lib/app.js printRouteMaps'],
   'still on the clock. Tap End shift first, or their End has to be typed with Set shift.': ['lib/boardui.js clearAsk'],
   'with no End shift)': ['lib/crewstats.js cardLines'],
+  'Made by Shovel Command from crew taps ·': ['lib/routesheet.js clockSheetBody'],
   'cleared must be yes or no': ['lib/forms.js parseClearances'],
   'Save or Cancel this zone first. It has': ['lib/mapedit.js unsavedWork'],
   'Storm · became a storm': ['lib/shiftlogui.js passHtml'],

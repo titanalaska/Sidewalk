@@ -180,3 +180,19 @@ test('featureCollection: each feature carries new_concrete, true only for exactl
   const by = Object.fromEntries(SnowMapNC.featureCollection(zones).features.map((f) => [f.properties.id, f.properties.new_concrete]));
   assert.deepStrictEqual(by, { A: true, B: false, C: false, D: false });
 });
+
+// Spanish everywhere, Ship 2: the zone card (a map tap) marks the zone's typed name and note data-typed, so lib/estyped.js shows
+// their Spanish; the priority star stays outside the name's span (a translation replaces the span's text, never the star).
+// Worked by hand: a priority sidewalk "Main entry" with the note "Ice by the door" ->
+//   <h2>★ <span data-no-es data-typed>Main entry</span></h2> ... <div data-no-es data-typed>Ice by the door</div>
+test('typed words: the zone card marks the name (the star outside it) and the note', () => {
+  const { sheetHtml } = require('../lib/mapview.js');
+  const h = sheetHtml({ id: 'Z1', type: 'sidewalk', name: 'Main entry', priority: true, note: 'Ice by the door', area_sqft: 1200 }, false);
+  assert.ok(h.startsWith('<h2>★ <span data-no-es data-typed>Main entry</span></h2>'), h);
+  assert.ok(h.includes('<div data-no-es data-typed>Ice by the door</div>'), h);
+  assert.strictEqual(h.split('data-typed').length - 1, 2);
+  // no priority, no note: one mark, no star
+  const p = sheetHtml({ id: 'Z2', type: 'hand', name: 'Back steps', note: '' }, false);
+  assert.ok(p.startsWith('<h2><span data-no-es data-typed>Back steps</span></h2>'), p);
+  assert.strictEqual(p.split('data-typed').length - 1, 1);
+});

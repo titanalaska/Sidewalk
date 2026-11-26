@@ -1310,3 +1310,17 @@ test('F9: "Cleared N people" is vertically centred against the Undo button', asy
   expect(d.buttonH).toBeGreaterThan(d.textH + 4);   // the button really is the taller one, so the test can tell
   expect(Math.abs(d.text - d.button)).toBeLessThanOrEqual(1.5);
 });
+
+// Spanish everywhere (Matt 11/25/26): a toast that carries a route's name gets the name in a span of its own (lib/app.js
+// holdNames), so the Spanish pass translates the words around it and never the name. World by hand: R1 renamed "Done Route"
+// ("Done" is a row: Listo), Alex Test + Sam Sample on it: Clear route takes 2 people off.
+test('Spanish: Clear route\'s toast reads Spanish and keeps the route name as typed', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  const w = world();
+  w.routes = w.routes.map((r) => (r.id === 'R1' ? { ...r, name: 'Done Route' } : r));
+  await open(page, w);
+  await page.click('[data-clearroute="R1"]');
+  await confirmClear(page);
+  await expect(toast(page)).toHaveText('Se quitó a 2 personas de Done Route');
+  await expect(toast(page).locator('[data-no-es]')).toHaveText('Done Route');
+});

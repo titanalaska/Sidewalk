@@ -13108,3 +13108,14 @@ test('typed words: the live view\'s Problems list marks the zone name and the cr
   const marks = await page.locator('#problems [data-typed]').evaluateAll((els) => els.map((e) => [e.textContent, e.getAttribute('data-typed')]));
   expect(marks).toEqual([['Main entry', ''], ['Ice by the door', 'crew']]);
 });
+
+test('typed words: the handoff card marks the Problem note as a crew note, and nothing else', async ({ page }) => {
+  // final review M7. handoffWorld: LEFT-RANK-2 (S3) has a Problem on Walk D, "ice at door"; at 9:30 its handoff line reads
+  // "LEFT-RANK-2 · 2 of 5 walks · Problem: ice at door". Site names are data-no-es, never typed; the one typed line on the card
+  // is the crew's note.
+  const w = handoffWorld();
+  await openStorm(page, w, { token: 'tok-matt', clockAt: HO_DAY });
+  await expect(page.locator('[data-leftover="S3"]')).toContainText('Problem: ice at door');
+  const marks = await page.locator('#handoff [data-typed]').evaluateAll((els) => els.map((e) => [e.textContent, e.getAttribute('data-typed'), e.hasAttribute('data-no-es')]));
+  expect(marks).toEqual([['ice at door', 'crew', true]]);
+});

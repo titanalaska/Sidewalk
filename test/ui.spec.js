@@ -7748,6 +7748,89 @@ test.describe('bottom tabs:', () => {
     await expect(crewBtn(page)).toHaveText('Cuadrilla1'); // the redraw on a Spanish phone still reads Cuadrilla
     await expect(sw(page, 'roster').locator('.tabcount')).toHaveText('1');
   });
+
+  // ---- every tab's words fit at 320 px (the narrowest phone in use), every role, EN and ES ----
+  // A button's word is its first text node. The Range's box is the word's full width even when CSS paints it as "Rout…"
+  // (an ellipsis is paint only: scrollWidth said "Routes" fit while the screen showed "Rout…"). One line per word that
+  // leaves its button's padding box by more than half a pixel.
+  const wordsFit = (page, sel) => page.locator(sel).evaluateAll((bs) => bs.flatMap((b) => {
+    const box = b.getBoundingClientRect(), cs = getComputedStyle(b);
+    const l = box.left + parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft), r = box.right - parseFloat(cs.borderRightWidth) - parseFloat(cs.paddingRight);
+    const rg = document.createRange(); rg.selectNodeContents(b.firstChild); const w = rg.getBoundingClientRect();
+    const out = w.left < l - 0.5 || w.right > r + 0.5 || w.top < box.top - 0.5 || w.bottom > box.bottom + 0.5;
+    return out ? [b.firstChild.textContent + ': ' + Math.round(w.width) + 'x' + Math.round(w.height) + ' in ' + Math.round(r - l) + 'x' + Math.round(box.height)] : [];
+  }));
+  // Pending Pat + 11 more requests = 12 waiting (as in the bars: test): the widest count a phone will see.
+  const TWELVE = () => PROFILES.map((p) => ({ ...p })).concat(Array.from({ length: 11 }, (_, i) => ({ id: 20 + i, name: 'Request ' + i, status: 'pending', hasPin: true })));
+  const DISPATCH = () => { const w = world(); w.crew = w.crew.map((c) => (c.id === 'C03' ? { ...c, dispatch: true } : c)); return w; };
+  // Worked on paper (live app.css, 320 px): admins' tabs are 80 px with 76 px of room; "Tormenta" needs 58-60 (bold),
+  // "Cuadrilla" 54-56. Crew tabs are 64 px with 60 of room: "Esta noche" needs 67-68, so it must wrap to two lines.
+  for (const [who, token, w, admin] of [['Matt', 'tok-matt', world, true], ['the dispatcher', 'tok-jordan', DISPATCH, true], ['a lead', 'tok-alex', world, false], ['crew', 'tok-jordan', world, false]]) {
+    for (const lang of ['en', 'es']) {
+      test("bottom tabs: at 320 px every tab's words show in full, for " + who + ' (' + lang + ')', async ({ page }) => {
+        await page.setViewportSize({ width: 320, height: 640 });
+        if (lang === 'es') await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+        await open(page, { token, snow: fakeSnow(w()), inv: invWithRequests(admin ? TWELVE() : []) });
+        await expect(page.locator('#tabs button').first()).toBeVisible();
+        if (admin) await expect(crewBtn(page).locator('.tabcount')).toHaveText('12');
+        // Each tab in turn is the current one: its word is bold, so wider.
+        const tabs = (await barOf(page)).map((t) => t[0]);
+        for (const tab of tabs) {
+          await page.click('#tabs [data-tab="' + tab + '"]');
+          await expect(page.locator('#tabs [data-tab="' + tab + '"]')).toHaveAttribute('aria-current', 'page');
+          expect(await wordsFit(page, '#tabs button, #crewsw button'), tab).toEqual([]);
+        }
+        if (!admin) return;
+        for (const [tab] of SWITCH) {
+          await sw(page, tab).click();
+          await expect(sw(page, tab)).toHaveAttribute('aria-current', 'page');
+          expect(await wordsFit(page, '#tabs button, #crewsw button'), 'switch ' + tab).toEqual([]);
+        }
+      });
+    }
+  }
+
+  // ---- the switch's current button keeps an edge at night ----
+  // Dark mode paints the page black (--bg #000) and the current switch button black too: with a black edge it vanished,
+  // only its gold word showing. The app's dark buttons carry a gold edge (--btn-edge: #111 by day, #f5b800 at night).
+  test("bottom tabs: at night the switch's current button keeps its gold edge on the black page", async ({ browser }) => {
+    const ctx = await browser.newContext({ colorScheme: 'dark', viewport: { width: 320, height: 640 } });
+    const page = await ctx.newPage();
+    await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: invWithRequests([]) });
+    await crewBtn(page).click();
+    await expect(sw(page, 'board')).toHaveAttribute('aria-current', 'page');
+    const c = await sw(page, 'board').evaluate((b) => ({ edge: getComputedStyle(b).borderTopColor, page: getComputedStyle(document.body).backgroundColor }));
+    expect(c.page).toBe('rgb(0, 0, 0)');
+    expect(c.edge).toBe('rgb(245, 184, 0)'); // #f5b800, the dark --btn-edge
+    await ctx.close();
+  });
+
+  // ---- the count never covers its word ----
+  // Beside it (badge.left >= word.right - 1) or under it (badge.top >= word.bottom - 3: a font's box runs about 2 px past
+  // its line), and always inside its button and the 320 px screen. Worked on paper: EN "Crew" 32 + 2 + badge ~24 = 58 of
+  // 76: beside. ES "Cuadrilla" 56 + 2 + 24 = 82 > 76: under. The switch's Roster at 15 px is ~47 of 63 of room: with a
+  // badge it goes under, in both languages (Roster stays English).
+  for (const lang of ['en', 'es']) {
+    test('bottom tabs: the count never covers its word (' + lang + ', 12 waiting, 320 px)', async ({ page }) => {
+      await page.setViewportSize({ width: 320, height: 640 });
+      if (lang === 'es') await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+      await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: invWithRequests(TWELVE()) });
+      await expect(crewBtn(page).locator('.tabcount')).toHaveText('12');
+      await crewBtn(page).click();
+      await expect(sw(page, 'roster').locator('.tabcount')).toHaveText('12');
+      const placeOf = (sel) => page.locator(sel).evaluate((b) => {
+        const box = b.getBoundingClientRect();
+        const rg = document.createRange(); rg.selectNodeContents(b.firstChild); const w = rg.getBoundingClientRect();
+        const c = b.querySelector('.tabcount').getBoundingClientRect();
+        const inside = c.left >= box.left - 0.5 && c.right <= box.right + 0.5 && c.top >= box.top - 0.5 && c.bottom <= box.bottom + 0.5 && c.right <= 320;
+        const place = c.left >= w.right - 1 ? 'beside' : c.top >= w.bottom - 3 ? 'under' : 'covers';
+        return { word: b.firstChild.textContent, inside, place };
+      });
+      const bar = await placeOf('#tabs [data-tab="board"]'), roster = await placeOf('#crewsw [data-tab="roster"]');
+      expect(bar).toEqual(lang === 'es' ? { word: 'Cuadrilla', inside: true, place: 'under' } : { word: 'Crew', inside: true, place: 'beside' });
+      expect(roster).toEqual({ word: 'Roster', inside: true, place: 'under' }); // ~47 + 26 of 63 px: under, in both languages
+    });
+  }
 });
 
 // ---- roster-3 (Matt, 10/8/26): where one lives, and a short night on the Board ----

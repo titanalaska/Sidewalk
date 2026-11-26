@@ -467,6 +467,167 @@ const BUILT = {
   'No confirmed driver (': ['No confirmed driver (2 not set)', 'Sin conductor confirmado (2 sin definir)'],
 };
 
+// Where each BUILT example honestly speaks (final review I2, 11/25/26): a piece is covered by its BUILT example only at these
+// sites ('file function'). The same words at another site need an example of their own (BUILT_ALSO) or a real rule, or the
+// missing-row check reports them: one worked example no longer vouches for every other line that holds the same words.
+const BUILT_SITES = {
+  'couldn\'t be made on this phone (no signal?). Their zone lists still print.': ['lib/app.js printRouteMaps'],
+  'still on the clock. Tap End shift first, or their End has to be typed with Set shift.': ['lib/boardui.js clearAsk'],
+  'with no End shift)': ['lib/crewstats.js cardLines'],
+  'cleared must be yes or no': ['lib/forms.js parseClearances'],
+  'Save or Cancel this zone first. It has': ['lib/mapedit.js unsavedWork'],
+  'Storm · became a storm': ['lib/shiftlogui.js passHtml'],
+  'goes back to not done for pass': ['lib/shiftlogui.js confirmAgain'],
+  'Copy for BT first if pass': ['lib/shiftlogui.js confirmAgain'],
+  'isn\'t posted yet.': ['lib/shiftlogui.js confirmAgain'],
+  'No forecast for': ['lib/shiftlogui.js outlookHtml'],
+  'Not saved: the map for': ['lib/shiftlogui.js run'],
+  'clearance not set': ['lib/warnings.js warningsFor'],
+  'Emergency contact name is': ['server/roster.js (top)'],
+  'Emergency contact phone is': ['server/roster.js (top)'],
+  'must be yes, no or not set': ['server/roster.js (top)'],
+  'Handoff from': ['lib/handoff.js heading'],
+  'Started by': ['lib/handoff.js leftoverParts'],
+  'Started': ['lib/handoff.js leftoverParts'],
+  'Handoff sheets:': ['lib/shiftlogui.js handoffStatus'],
+  'not saved': ['lib/shiftlogui.js handoffStatus'],
+  'Night sheets saved at handoff': ['lib/shiftlogui.js handoffStatus'],
+  'day handoff sheet': ['lib/shiftlogui.js openPrint'],
+  'day handoff sheets': ['lib/shiftlogui.js openPrint'],
+  'couldn\'t be built on this phone.': ['lib/shiftlogui.js openPrint'],
+  'It\'s still snowing:': ['lib/shiftlogui.js warnHtml'],
+  'Every walk at': ['lib/shiftlogui.js confirmAgain'],
+  'stays on the record.': ['lib/shiftlogui.js confirmAgain'],
+  'New snow at': ['lib/shiftlogui.js confirmDepth'],
+  'not saved:': ['lib/shiftlogui.js saveDialog'],
+  'Times': ['lib/shiftlogui.js openSetTimes'],
+  'walks done': ['lib/shiftlogui.js siteLineHtml', 'lib/sitestatus.js of'],
+  'Curbs:': ['lib/shiftlogui.js siteLineHtml'],
+  'Show': ['lib/shiftlogui.js bigToggleHtml'],
+  'Undone:': ['lib/shiftlogui.js afterSiteReply'],
+  'tapped since and kept.': ['lib/shiftlogui.js afterSiteReply'],
+  'Callouts (': ['lib/shiftlogui.js calloutsHtml'],
+  'sites on': ['lib/shiftlogui.js livesumHtml'],
+  'sites checked': ['lib/shiftlogui.js livesumHtml'],
+  'sites done': ['lib/shiftlogui.js liveRouteHtml', 'lib/shiftlogui.js livesumHtml'],
+  'last tap': ['lib/shiftlogui.js livesumHtml'],
+  'routes started': ['lib/shiftlogui.js livesumHtml'],
+  'not mapped yet': ['lib/shiftlogui.js snowMapHtml'],
+  'Forecast snow at every site from now to': ['lib/shiftlogui.js outlookHtml'],
+  ', against its callout depth.': ['lib/shiftlogui.js outlookHtml'],
+  'Up to': ['lib/shiftlogui.js outlookHtml'],
+  'snow from': ['lib/shiftlogui.js outlookHtml'],
+  'snow now': ['lib/shiftlogui.js outlookHtml'],
+  'No snow expected by': ['lib/shiftlogui.js outlookHtml'],
+  'as of': ['lib/shiftlogui.js outlookHtml'],
+  'Would reach callout depth (': ['lib/shiftlogui.js outlookHtml'],
+  '1 site has': ['lib/shiftlogui.js outlookHtml'],
+  'sites have': ['lib/shiftlogui.js outlookHtml'],
+  'no callout depth set.': ['lib/shiftlogui.js outlookHtml'],
+  'Left by night (': ['lib/shiftlogui.js handoffCardHtml'],
+  'this site': ['lib/shiftlogui.js run'],
+  'has changed. Mark the walk again.': ['lib/shiftlogui.js run'],
+  'min, saved before machine lines': ['lib/shiftlogui.js oldHtml'],
+  'min). Add it here too if they ran it.': ['lib/shiftlogui.js saveCard'],
+  'Night of': ['lib/time.js shiftLabel'],
+  'Day of': ['lib/time.js shiftLabel'],
+  'sq ft': ['lib/totals.js line', 'lib/totals.js walkParts'],
+  'Snow for the next': ['lib/weather.js hint'],
+  'Snow until': ['lib/weather.js hint'],
+  'Snow from': ['lib/weather.js hint'],
+  'No snow in the next': ['lib/weather.js hint'],
+  'Sheets:': ['lib/shiftlogui.js sheetsStatus'],
+  'Clean': ['lib/shiftlogui.js confirmAgain'],
+  'no picture': ['lib/app.js rosterListHtml'],
+  'Current link (#': ['lib/app.js editWorker'],
+  ', not approved right now)': ['lib/app.js editWorker'],
+  'football field': ['lib/crewcards.js fieldsWord'],
+  'football fields': ['lib/crewcards.js fieldsWord'],
+  'Winter': ['lib/crewcards.js winterWord'],
+  '· counted at': ['lib/crewcardsui.js headWord'],
+  '(called out': ['lib/crewstats.js cardLines'],
+  'Stats ·': ['lib/crewstatsui.js html'],
+  'Waiting for approval (': ['lib/rosterui.js waitingHtml'],
+  'They': ['lib/rosterui.js decide'],
+  'Can operate lists': ['server/roster.js (top)'],
+  'ticked, not added yet': ['lib/app.js draw'],
+  'the customer button': ['lib/app.js markPick'],
+  'hidden by': ['lib/app.js markPick'],
+  'Archived (': ['lib/app.js archivedHtml'],
+  'site is missing': ['lib/forms.js parseClearances'],
+  'dates must be YYYY-MM-DD': ['lib/forms.js parseClearances'],
+  '(this site)': ['lib/machinepick.js unitChoices'],
+  'Getting map': ['lib/app.js printRouteMaps'],
+  'corners that are not saved.': ['lib/mapedit.js unsavedWork'],
+  'Archived zones (0)': ['lib/mapedit.js start'],
+  'Archived zones (': ['lib/mapedit.js renderArchived'],
+  'snow pile': ['lib/mapedit.js walksAndPiles'],
+  'km away': ['lib/mapedit.js away'],
+  'm away': ['lib/mapedit.js away'],
+  'no corners': ['lib/mapedit.js away'],
+  '(the plow crew\'s)': ['lib/mapedit.js previewJob'],
+  'with no width (set it in Bootprint)': ['lib/mapedit.js previewJob'],
+  'that turn too sharply (trace as an area)': ['lib/mapedit.js previewJob'],
+  'unfinished shape': ['lib/mapedit.js previewJob'],
+  'already imported': ['lib/mapedit.js previewJob'],
+  'Left out:': ['lib/mapedit.js previewJob'],
+  'to add': ['lib/mapedit.js previewJob'],
+  'Add': ['lib/mapedit.js previewJob'],
+  'Adding': ['lib/mapedit.js addImported'],
+  'from Bootprint. Tap any heated or do-not-touch one to change it.': ['lib/mapedit.js addImported'],
+  'tries left.': ['lib/api.js signIn'],
+  'Share Shovel Command': ['lib/app.js shareApp'],
+  'ft back': ['lib/shiftlog.js curbItems'],
+  'is on': ['lib/shiftlog.js machineProblem'],
+  'is on two': ['lib/shiftlog.js machineProblem'],
+  's with no unit: pick the units': ['lib/shiftlog.js machineProblem'],
+  'Already handed off at': ['server/Code.js (top)'],
+  'That time is not on the': ['server/Code.js (top)'],
+  'you picked': ['server/Code.js (top)'],
+  'Phone is': ['server/roster.js (top)'],
+  'That sign-in is already on the roster as': ['server/roster.js (top)'],
+  'must list people on the roster': ['server/roster.js (top)'],
+  'A unit number is text,': ['server/roster.js (top)'],
+  'A unit list is': ['server/roster.js (top)'],
+  'Too many corners (': ['server/roster.js (top)'],
+  '); the most a zone can hold is': ['server/roster.js (top)'],
+  'Your line is': ['server/roster.js (top)'],
+  'characters at most': ['server/roster.js (top)'],
+  'Trucks for': ['lib/boardui.js renderBoard'],
+  'Take': ['lib/boardui.js clearAsk'],
+  'Took': ['lib/boardui.js clearGo'],
+  'the Board': ['lib/boardui.js clearGo'],
+  '1 was left as it is.': ['lib/boardui.js undoClear'],
+  'Put': ['lib/boardui.js undoClear'],
+  'were left as they are.': ['lib/boardui.js undoClear'],
+  'Add ticked (': ['lib/app.js markPick', 'lib/boardui.js pplMark'],
+  'hidden by search': ['lib/boardui.js pplMark'],
+  'Added': ['lib/boardui.js pplAdd'],
+  'already on a route and': ['lib/boardui.js pplAdd'],
+  'Posted: the crew see': ['lib/boardui.js post'],
+  'Callout:': ['lib/boardui.js openCallout'],
+  'Callout saved for': ['lib/boardui.js callout'],
+  'End': ['lib/boardui.js countText'],
+  'taken back for': ['lib/boardui.js countText'],
+  'Short night: on (after': ['lib/boardui.js shortNightButton'],
+  'Short night: on until': ['lib/boardui.js shortNightButton'],
+  'Crew sees': ['lib/boardui.js renderBoard'],
+  'clearance expired': ['lib/warnings.js warningsFor'],
+  'clearance expires': ['lib/warnings.js warningsFor'],
+  'rides with': ['lib/warnings.js warningsFor'],
+  ', who isn\'t on this route': ['lib/warnings.js warningsFor'],
+  'leads but can\'t drive': ['lib/warnings.js warningsFor'],
+  'No confirmed driver (': ['lib/warnings.js warningsFor'],
+};
+// A second (third) worked example for a piece another site builds differently: [example, Spanish, sites].
+const BUILT_ALSO = {
+  'Started': [['Started for 2 people', 'Empezó el turno para 2 personas', ['lib/boardui.js countText']]],
+  'not saved': [['Sheets: 2 not saved', 'Hojas: 2 sin guardar', ['lib/shiftlogui.js sheetsStatus']],
+    ['Added 2 of 5. Stopped: not saved. Import again for the rest.', 'Se agregaron 2 de 5. Se detuvo: no se guardó. Importa otra vez para el resto.', ['lib/mapedit.js addImported']]],
+  'sq ft': [['12,400 sq ft', '12,400 pies²', ['lib/crewstats.js cardLines']], ['≈ 1,200 sq ft', '≈ 1,200 pies²', ['lib/mapview.js sheetHtml']]],
+  'Winter': [['Stats · Winter 2026-27', 'Estadísticas · Invierno 2026-27', ['lib/crewstats.js cardLines']]],
+  'Added': [['Added 4 zones from Bootprint. Tap any heated or do-not-touch one to change it.', 'Se agregaron 4 zonas de Bootprint. Toca cualquiera con calefacción o de no tocar para cambiarla.', ['lib/mapedit.js addImported']]],
+};
 // Rows whose English is never one literal: the code joins two. The dead-row check wants both halves still in that file.
 const BUILT_ROWS = {
   // lib/shiftlogui.js warnHtml: "It's still snowing: " + ('sanded' | 'treated') + ' anyway'
@@ -506,20 +667,27 @@ function isOut(c) { return leaves(c) || notYet(c); }
 const ROW_RE = new RegExp(Object.keys(Es.ES).sort((a, b) => b.length - a.length).map((k) =>
   (/^[A-Za-z0-9]/.test(k) ? '\\b' : '') + k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + (/[A-Za-z0-9]$/.test(k) ? '\\b' : '')).join('|'), 'g');
 function fullyKeyed(text) { return !/[A-Za-z]/.test(text.replace(ROW_RE, ' ')); }
-function covered(text) {
+const siteOf = (c) => c.file + ' ' + (c.fns.filter((f) => f !== '(anon)').slice(-1)[0] || '(top)');
+// c (a candidate) given: a BUILT example counts only at its own sites. Without c (a bare text, the extractor self-tests), any.
+function builtCovers(text, c) {
+  const list = [];
+  if (BUILT[text] && (!c || (BUILT_SITES[text] || []).indexOf(siteOf(c)) !== -1)) list.push(BUILT[text]);
+  (BUILT_ALSO[text] || []).forEach((e) => { if (!c || e[2].indexOf(siteOf(c)) !== -1) list.push(e); });
+  return list.some((b) => Es.translateString(b[0]) === b[1]);
+}
+function covered(text, c) {
   if (Object.prototype.hasOwnProperty.call(Es.ES, text)) return true;
   // a rule with the g flag keeps lastIndex between test() calls: reset it, or the next piece is judged from the middle
   if (Es.ES_RULES.some((r) => { r[0].lastIndex = 0; return r[0].test(text); })) return true;
   if (fullyKeyed(text)) return true;
-  const b = BUILT[text];
-  return !!b && Es.translateString(b[0]) === b[1];
+  return builtCovers(text, c);
 }
 const where = (c) => c.file + ':' + c.line + (c.fns.length ? ' [' + c.fns[c.fns.length - 1] + ']' : '') + ' ' + JSON.stringify(c.text);
 
 test('every English string a screen renders (or the server refuses with) has a row or a rule', () => {
   const missing = [], seen = new Set();
   allCandidates().filter((c) => !isOut(c)).forEach((c) => {
-    if (covered(c.text)) return;
+    if (covered(c.text, c)) return;
     const k = c.file + '|' + c.text;
     if (seen.has(k)) return;
     seen.add(k); missing.push(c);
@@ -562,7 +730,7 @@ test('every row is still rendered: no dead row', () => {
 test('every capitalised one-word text node is a row, a rule or named; every one-word row is rendered', () => {
   const missing = [], seen = new Set();
   oneWordNodes().filter((c) => !isOut(c)).forEach((c) => {
-    if (covered(c.text) || ONE_WORD_ENGLISH[c.text]) return;
+    if (covered(c.text, c) || ONE_WORD_ENGLISH[c.text]) return;
     const k = c.file + '|' + c.text;
     if (seen.has(k)) return;
     seen.add(k); missing.push(c);
@@ -595,6 +763,16 @@ test('every left-out entry is real, and every NOT_YET entry still hides a string
     else e.forEach((fn) => need(open.some((c) => c.file === f && !leaves(c) && (fn === '(top)' ? c.fns.length === 0 : c.fns.indexOf(fn) !== -1)),
       'NOT_YET hides nothing in ' + f + ' ' + fn + ': delete it'));
   });
+  // every site a BUILT example names must still hold that piece (a stale site would vouch for nothing, quietly)
+  const held = new Set(all.concat(ones).map((c) => c.text + '|' + siteOf(c)));
+  Object.keys(BUILT_SITES).forEach((t) => {
+    need(!!BUILT[t], 'BUILT_SITES names a piece BUILT does not have: ' + t);
+    BUILT_SITES[t].forEach((s) => need(held.has(t + '|' + s), 'BUILT_SITES: ' + s + ' no longer holds ' + JSON.stringify(t)));
+  });
+  Object.keys(BUILT_ALSO).forEach((t) => BUILT_ALSO[t].forEach((e) => {
+    need(Es.translateString(e[0]) === e[1], 'BUILT_ALSO example for ' + t + ' reads ' + JSON.stringify(Es.translateString(e[0])));
+    e[2].forEach((s) => need(held.has(t + '|' + s), 'BUILT_ALSO: ' + s + ' no longer holds ' + JSON.stringify(t)));
+  }));
   assert.deepEqual(problems, [], problems.length + ' left-out entr' + (problems.length === 1 ? 'y is' : 'ies are') + ' wrong:\n  ' + problems.join('\n  '));
   Object.keys(BUILT).forEach((t) => {
     assert.ok(all.some((c) => c.text === t) || ones.some((c) => c.text === t), 'BUILT names a piece no source holds: ' + t);

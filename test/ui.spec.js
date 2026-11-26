@@ -9004,7 +9004,7 @@ test('route lists: a 12-site route prints on TWO landscape letter pages, never m
 // 61 walks, and here also two Clean again passes, a helper's Arrived and a Problem with a two-sentence note; every site has a full
 // Site card (depth 3, Shoveled yes, 2 bags, 1 bucket, a Bobcat line of 45 minutes).
 // On paper: 12 sites -> 12 tr.site; the table header repeats (thead), a row never splits (break-inside: avoid), the page is
-// @page letter portrait = 612 x 792 points. PAGES_MEASURED below is the count Chromium printed; the spec's limit is 2.
+// @page letter portrait = 612 x 792 points. The spec's limit is 2 pages (the measured count is in the comment at the assertion).
 test("print sheets: a 12-site route's table prints on at most 2 Letter portrait pages", async ({ page }) => {
   const w = bigRouteWorld();
   const ids = w.routes.find((r) => r.id === 'R2').site_ids;
@@ -9192,7 +9192,6 @@ test('route lists: in Spanish a 12-site route still prints on two landscape page
   for (const b of boxes) expect(b).toEqual([792, 612]);
   await page.emulateMedia({ media: 'print' });
   const split = await lists.nth(0).locator('.rl-pick').evaluateAll((ss) => ss.filter((s) => s.getClientRects().length > 1).map((s) => s.textContent));
-  console.log('DBG2', JSON.stringify(await page.evaluate(() => { const th = document.querySelectorAll('#printsheets table.rs th')[1]; const cs = getComputedStyle(th); const r = document.createRange(); r.selectNodeContents(th); return [th.textContent, th.clientWidth, cs.paddingLeft, cs.overflowWrap, r.getBoundingClientRect().width, r.getClientRects().length]; })), await page.evaluate(() => [...document.querySelectorAll('#printsheets table.rs th')].map((t) => t.clientWidth)));
   expect(split).toEqual([]);
 });
 

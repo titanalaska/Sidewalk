@@ -599,12 +599,25 @@ test('final review 3: a share the phone calls expired (NotAllowedError) falls ba
   await expect(page.locator('#toast')).toBeHidden();
   expect(errors).toEqual([]);
 });
+// What the page DID, never a clock (cardsflake, 11/25/26). `__blobs` above counts toBlob CALLS: a tap that follows the call but beats the
+// finish finds no ready picture and builds it again, which took over a second on a loaded laptop and outlived the old fixed 700 ms wait
+// (3 of 10 runs read "Received: 0"). READY_WATCH adds two counters after READY_STUB's own: `__blobsDone` = a picture finished (the page then
+// holds it ready, so the tap hands it to navigator.share in its own turn) and `__shareEnded` = a stubbed share's promise settled (the page's
+// "a share is open" is over). Registered second, so it wraps READY_STUB's toBlob and share.
+const READY_WATCH = () => {
+  window.__blobsDone = 0; window.__shareEnded = 0;
+  const tb = HTMLCanvasElement.prototype.toBlob;
+  HTMLCanvasElement.prototype.toBlob = function (cb, ...rest) { return tb.call(this, (b) => { window.__blobsDone++; cb(b); }, ...rest); };
+  const sh = navigator.share;
+  navigator.share = function () { const p = sh.apply(this, arguments); const end = () => { window.__shareEnded++; }; p.then(end, end); return p; };
+};
 test('final review 3: a second tap while a share is open does nothing', async ({ page }) => {
   await page.addInitScript(READY_STUB, 'ok');
+  await page.addInitScript(READY_WATCH);
   await open(page, world(), 'tok-abel');
-  await expect.poll(() => page.evaluate(() => window.__blobs)).toBeGreaterThan(0);
-  await page.evaluate(() => { const b = document.querySelector('[data-ccshare]'); b.click(); b.click(); });
-  await page.waitForTimeout(700);
+  await expect.poll(() => page.evaluate(() => window.__blobsDone), { timeout: 15000 }).toBeGreaterThan(0);   // the picture is FINISHED, not just started
+  await page.evaluate(() => { const b = document.querySelector('[data-ccshare]'); b.click(); b.click(); });   // one turn: the second tap lands while the first share is open
+  await expect.poll(() => page.evaluate(() => window.__shareEnded), { timeout: 15000 }).toBeGreaterThan(0);   // the open share has run its course
   expect(await page.evaluate(() => window.__shared.length)).toBe(1);
   await expect(page.locator('#toast')).toBeHidden();
 });

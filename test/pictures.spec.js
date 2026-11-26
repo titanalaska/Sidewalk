@@ -8,6 +8,7 @@
 // C06 Nina Nursery (pending, no picture; signs in and gets pending_card), C07 Pat Waiting (pending, picture).
 // Matt's Roster lists the live, added cards: Abel, Ben, Jordan, Lena, Old Link = 5; no picture: Ben, Jordan, Lena, Old Link = 4.
 const { test, expect } = require('./no-real-weather.js');
+const { toScreen } = require('./crewtab.js'); // the admins' Crew tab: Crew, then the switch (bottom tabs, 11/25/26)
 const path = require('path');
 const url = require('url');
 
@@ -126,7 +127,7 @@ test('bar: a save WITHOUT a picture leaves it up; Cancel leaves it up', async ({
 
 test('bar: never for a crew member with a picture, for Matt, or for a dispatcher with no picture', async ({ browser }) => {
   const w = world(); w.crew.find((c) => c.id === 'C02').photo_thumb = PNG;
-  for (const [token, w2, landed] of [['tok-jordan', w, '#tabs [data-tab="tonight"]'], ['tok-matt', world(), '#tabs [data-tab="roster"]'], ['tok-ben', world(), '#tabs [data-tab="roster"]']]) {
+  for (const [token, w2, landed] of [['tok-jordan', w, '#tabs [data-tab="tonight"]'], ['tok-matt', world(), '#tabs [data-tab="board"]'], ['tok-ben', world(), '#tabs [data-tab="board"]']]) {
     const ctx = await browser.newContext(); const page = await ctx.newPage();
     await open(page, w2, { token });
     await expect(page.locator(landed)).toBeVisible();
@@ -183,7 +184,7 @@ test('waiting: Spanish phone reads the line in Spanish', async ({ page }) => {
 // ---------- the Add gate ----------
 test('gate: in the waiting list, no picture = "Add a picture first", off; a picture = Add to crew', async ({ page }) => {
   const calls = await open(page, world());
-  await page.click('#tabs [data-tab="roster"]');
+  await toScreen(page, 'roster');
   const nina = page.locator('#waitadd .person', { hasText: 'Nina Nursery' }), pat = page.locator('#waitadd .person', { hasText: 'Pat Waiting' });
   await expect(nina.locator('button')).toHaveText('Add a picture first');
   await expect(nina.locator('button')).toBeDisabled();
@@ -201,7 +202,7 @@ test('gate: in the waiting list, no picture = "Add a picture first", off; a pict
 
 test('gate: in the card too; Matt adds a picture from Edit, saves, and Add to crew comes back and adds them', async ({ page }) => {
   const calls = await open(page, world());
-  await page.click('#tabs [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await page.locator('#waitadd .pname', { hasText: 'Nina Nursery' }).click();
   await expect(page.locator('#dlgIn [data-addcrew-nopic]')).toHaveText('Add a picture first');
   await expect(page.locator('#dlgIn [data-addcrew-nopic]')).toBeDisabled();
@@ -225,7 +226,7 @@ test('gate: in the card too; Matt adds a picture from Edit, saves, and Add to cr
 
 test('gate: Add worker (a card Matt makes by hand) is not gated: it saves with no picture', async ({ page }) => {
   const calls = await open(page, world());
-  await page.click('#tabs [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await page.click('#addWorker');
   await page.fill('#f_name', 'Hand Made');
   await page.click('#f_save');
@@ -237,7 +238,7 @@ test('gate: Add worker (a card Matt makes by hand) is not gated: it saves with n
 const tile = (page, id) => page.locator('#roster_list .tile[data-open="' + id + '"]');
 test('roster: each tile with no picture says so, the Crew bar counts them, and the count follows the search', async ({ page }) => {
   await open(page, world());
-  await page.click('#tabs [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await expect(page.locator('#roster_list .grp-count')).toHaveText('5');
   await expect(page.locator('#roster_list .grp-nopic')).toHaveText('4 no picture');
   await expect(tile(page, 'C01').locator('.nopic')).toHaveCount(0);
@@ -252,7 +253,7 @@ test('roster: each tile with no picture says so, the Crew bar counts them, and t
 test('roster: everyone with a picture: no chip and no markers', async ({ page }) => {
   const w = world(); w.crew.forEach((c) => { c.photo_thumb = PNG; });
   await open(page, w, { width: 320 });
-  await page.click('#tabs [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await expect(page.locator('#roster_list .grp-count')).toHaveText('5');
   await expect(page.locator('#roster_list .grp-nopic')).toHaveCount(0);
   await expect(page.locator('#roster_list .nopic')).toHaveCount(0);
@@ -260,7 +261,7 @@ test('roster: everyone with a picture: no chip and no markers', async ({ page })
 
 test('roster: at 320 px the Crew bar with its chip fits, no sideways scroll', async ({ page }) => {
   await open(page, world(), { width: 320 });
-  await page.click('#tabs [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await expect(page.locator('#roster_list .grp-nopic')).toBeVisible();
   const m = await page.evaluate(() => {
     const bar = document.querySelector('#roster_list .grp-bar').getBoundingClientRect(), c = document.querySelector('#roster_list .grp-count').getBoundingClientRect();

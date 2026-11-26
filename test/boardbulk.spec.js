@@ -18,6 +18,7 @@
 // The fake stamps a batch's rows with its own clock, w.now (the page's 7:30:00 unless a test moves it), never earlier than 1 ms after the
 // newest Moves row. A Post is stamped w.now + 60 s.
 const { test, expect } = require('./no-real-weather.js');
+const { toScreen } = require('./crewtab.js'); // the admins' Crew tab: Crew, then the switch (bottom tabs, 11/25/26)
 const path = require('path');
 const url = require('url');
 const B = require('../lib/board.js');
@@ -540,7 +541,7 @@ test("after a clear, the bottom bar's Make lead is stamped after the clear's row
 
 test("after a clear, Place on a roster worker card is stamped after the clear's rows",async ({ page }) => {
   const { calls, clearAt } = await clearedAhead(page, 'R2');
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await page.click('[data-open="C04"]');   // Dee, unassigned
   await page.selectOption('#w_route', 'R3');
   await page.click('#w_place');
@@ -1249,7 +1250,7 @@ test('F7: Back during the save, a worker card opened meanwhile stays open when t
   await page.goBack();
   await expect(page.locator('#dlg')).toBeHidden();
   await backSettled(page);
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await page.click('[data-open="C04"]');   // Dee's card: a dialog that can be opened while the save is out
   await expect(page.locator('#w_place')).toBeVisible();
   await expect(toast(page)).toHaveText('Added 1 to Night 3', { timeout: 6000 });

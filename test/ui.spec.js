@@ -1,4 +1,5 @@
 const { test, expect } = require('./no-real-weather.js');
+const { toScreen } = require('./crewtab.js'); // the admins' Crew tab: Crew, then the switch (bottom tabs, 11/25/26)
 const path = require('path');
 const url = require('url');
 
@@ -805,21 +806,23 @@ test('crew see routes and sites but no roster or edit buttons', async ({ page })
   await page.click('nav [data-tab="routes"]');
   await expect(page.locator('.route-card[data-route="R1"]')).toBeVisible();
   await expect(page.locator('nav [data-tab="roster"]')).toHaveCount(0);
+  await expect(page.locator('[data-tab="roster"]')).toHaveCount(0); // nor in a Crew tab switch (bottom tabs, 11/25/26)
   await expect(page.locator('[data-edit]')).toHaveCount(0);
   await expect(page.locator('body')).not.toContainText('slow starter');
 });
 
 test('admin sees roster, sites and routes, with the private fields', async ({ page }) => {
   await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
-  await expect(page.locator('nav [data-tab="roster"]')).toBeVisible();
-  await page.click('nav [data-tab="roster"]');
+  // Roster sits under Crew (bottom tabs, 11/25/26). Worked by hand: Pending Pat (PROFILES) waits = 1, so Crew reads Crew1.
+  await expect(page.locator('#tabs [data-tab="board"]')).toHaveText('Crew1');
+  await toScreen(page, 'roster');
   await page.click('[data-open="C01"]');
   await expect(page.locator('#dlg')).toContainText('slow starter');
 });
 
 test('an admin save sends the revision and shows the saved record', async ({ page }) => {
   const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await page.click('[data-open="C03"]');
   await page.click('#w_edit');
   await page.fill('#f_phone', '555-0199');
@@ -833,7 +836,7 @@ test('an admin save sends the revision and shows the saved record', async ({ pag
 
 test('a conflict says reload and does not show the edit as saved', async ({ page }) => {
   await open(page, { token: 'tok-matt', snow: fakeSnow(world(), { saveReply: { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.' } }) });
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await page.click('[data-open="C03"]');
   await page.click('#w_edit');
   await page.fill('#f_phone', '555-0199');
@@ -847,7 +850,7 @@ test('a conflict says reload and does not show the edit as saved', async ({ page
 
 test('the sign-in picker on a roster record lists approved Inventory names', async ({ page }) => {
   await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await page.click('[data-open="C03"]');
   await page.click('#w_edit');
   const opts = await page.locator('#f_profile option').allTextContents();
@@ -859,7 +862,7 @@ test('a photo becomes a small thumbnail in the record', async ({ page }) => {
   const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
   const png = await page.evaluate(() => { const c = document.createElement('canvas'); c.width = 1200; c.height = 900;
     const g = c.getContext('2d'); g.fillStyle = '#3a7'; g.fillRect(0, 0, 1200, 900); return c.toDataURL('image/png').split(',')[1]; });
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await page.click('[data-open="C03"]');
   await page.click('#w_edit');
   await page.locator('#f_photo').setInputFiles({ name: 'j.png', mimeType: 'image/png', buffer: Buffer.from(png, 'base64') });
@@ -898,7 +901,7 @@ test('editing a worker keeps a sign-in link the picker cannot show', async ({ pa
   // I1. Alex is linked to Inventory profile 2, which is not in the approved list
   // (pending, rejected, or the list failed to load). A phone-number fix must not unlink him.
   const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await page.click('[data-open="C01"]');
   await page.click('#w_edit');
   expect(await page.locator('#f_profile').inputValue()).toBe('2');
@@ -910,7 +913,7 @@ test('editing a worker keeps a sign-in link the picker cannot show', async ({ pa
 
 test('if the names cannot load, the sign-in link is left alone', async ({ page }) => {
   const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: () => ({ nope: true }) });
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await page.click('[data-open="C03"]');
   await page.click('#w_edit');
   await expect(page.locator('#f_profile')).toBeDisabled();
@@ -1016,8 +1019,8 @@ test('new person: types a first and last name and a PIN; Inventory gets one pend
   // Matt's phone: Pending Pat (9) + Rosa (10) = Roster 2. Approve Rosa.
   const matt = await (await browser.newContext()).newPage(); // his own phone: his token never reaches Rosa's
   const mc = await open(matt, { token: 'tok-matt', snow: fakeSnow(world()), inv: invWithSignup(list) });
-  await expect(matt.locator('#tabs [data-tab="roster"]')).toHaveText('Roster 2');
-  await matt.click('nav [data-tab="roster"]');
+  await expect(matt.locator('#tabs [data-tab="board"]')).toHaveText('Crew2'); // Crew carries the count (bottom tabs, 11/25/26)
+  await toScreen(matt, 'roster');
   await matt.click('[data-approve="10"]');
   await expect(matt.locator('#toast')).toHaveText('Rosa Mendez can sign in now');
   expect(mc.inv.find((x) => x.action === 'approveProfile')).toMatchObject({ id: '10', token: 'tok-matt' });
@@ -2056,7 +2059,7 @@ test('a file that is not a Bootprint export is refused with a reason', async ({ 
 // ---------- pairings (sub-project 4, 10/1/26) ----------
 test('the roster card edits the Crew Board fields and sends them', async ({ page }) => {
   const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await page.click('[data-open="C03"]');
   await page.click('#w_edit');
   await page.selectOption('#f_rides_with', 'C01');
@@ -2086,7 +2089,7 @@ test('a blank clearance and blank seasons are sent as empty, never invented', as
   await page.click('#s_save');
   await expect(page.locator('#dlg')).toBeHidden();
   expect(calls.filter((c) => c.body.action === 'saveSite').at(-1).body.record.needs_clearance).toBe(null);
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await page.click('[data-open="C03"]');
   await page.click('#w_edit');
   await page.click('#f_save');
@@ -2323,7 +2326,7 @@ test('nothing posted yet is said plainly', async ({ page }) => {
 test('a gear entry guesses the route from the shift and is sent with a calendar date', async ({ page }) => {
   const w = world(); w.callouts = [{ id: 'night-2026-10-01', shift: 'night-2026-10-01', roster: { R1: { lead: 'C01', members: [] } }, rev: 1 }];
   const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w), clockAt: '2026-10-01T22:00:00-08:00' });
-  await page.click('nav [data-tab="log"]');
+  await toScreen(page, 'log');
   await page.click('#newEntry');
   await page.selectOption('#g_worker', 'C01');
   await page.selectOption('#g_shift', 'night-2026-10-01');
@@ -2338,7 +2341,7 @@ test('a gear entry guesses the route from the shift and is sent with a calendar 
 
 test('a gear entry needs a worker, a type, an item and a shift', async ({ page }) => {
   const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()), clockAt: '2026-10-01T22:00:00-08:00' });
-  await page.click('nav [data-tab="log"]');
+  await toScreen(page, 'log');
   await page.click('#newEntry');
   await page.click('#g_save');
   await expect(page.locator('#g_err')).toContainText('Pick a worker');
@@ -7078,7 +7081,7 @@ test('self-service: crew open Your card on Tonight, see their card from bootstra
 
 test('self-service: Matt sees the pending Inventory request; Approve calls Inventory with his token and the row goes', async ({ page }) => {
   const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: invWithRequests(PROFILES.map((p) => ({ ...p }))) });
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await expect(page.locator('#waitapprove')).toContainText('Waiting for approval (1)');
   await expect(page.locator('#waitapprove')).toContainText('Pending Pat');
   await page.click('[data-approve="9"]');
@@ -7092,7 +7095,7 @@ test('self-service: Matt sees the pending Inventory request; Approve calls Inven
 
 test('self-service: Reject takes a second tap, then calls Inventory; one tap alone sends nothing', async ({ page }) => {
   const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: invWithRequests(PROFILES.map((p) => ({ ...p }))) });
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await page.click('[data-reject="9"]');
   await expect(page.locator('[data-reject="9"]')).toHaveText('Really reject?');
   expect(calls.inv.some((x) => x.action === 'rejectProfile')).toBe(false);
@@ -7106,7 +7109,8 @@ test('self-service: Reject takes a second tap, then calls Inventory; one tap alo
 // Matt's Roster tab carries a count: requests from the sign-in screen (Inventory names still pending) plus cards
 // filled out and not added yet, the same rows as the two waiting lists. Read at sign-in, every 5 minutes while
 // the app is on screen, and whenever it comes back on screen. Only Matt's phone asks; crew phones never do.
-const rosterTab = (page) => page.locator('#tabs [data-tab="roster"]');
+// Bottom tabs (11/25/26): the count rides on the bar's Crew (data-tab="board": Crew opens the Board), and on Roster in the switch.
+const crewTab = (page) => page.locator('#tabs [data-tab="board"]');
 // It carries a picture: Add to crew needs one (crew pictures, 11/24/26; the gate itself is test/pictures.spec.js).
 const NINA_CARD = { id: 'C04', name: 'Nina Nursery', profile_id: '4', pending: true, rev: 1, phone: '555-0199', photo_thumb: 'data:image/jpeg;base64,QUJD' };
 
@@ -7114,14 +7118,18 @@ test('roster count: the Roster tab counts who is waiting on Matt, and each decis
   // Worked by hand: Pending Pat's request (PROFILES, pending) + Nina's card (pending, not added) = 2.
   const w = world(); w.crew.push({ ...NINA_CARD });
   await open(page, { token: 'tok-matt', snow: fakeSnow(w), inv: invWithRequests(PROFILES.map((p) => ({ ...p }))) });
-  await expect(rosterTab(page)).toHaveText('Roster 2'); // before the Roster tab was ever opened
-  await rosterTab(page).click();
+  await expect(crewTab(page)).toHaveText('Crew2'); // before the Roster tab was ever opened
+  await toScreen(page, 'roster');
+  await expect(page.locator('#crewsw [data-tab="roster"]')).toHaveText('Roster2'); // the switch's Roster carries it too
   await page.click('[data-approve="9"]');
   await expect(page.locator('#toast')).toHaveText('Pending Pat can sign in now');
-  await expect(rosterTab(page)).toHaveText('Roster 1');
+  await expect(crewTab(page)).toHaveText('Crew1');
+  await expect(page.locator('#crewsw [data-tab="roster"]')).toHaveText('Roster1');
   await page.click('[data-addcrew="C04"]');
-  await expect(rosterTab(page)).toHaveText('Roster');
+  await expect(crewTab(page)).toHaveText('Crew');
+  await expect(page.locator('#crewsw [data-tab="roster"]')).toHaveText('Roster');
   await expect(page.locator('#tabs .tabcount')).toHaveCount(0); // nobody waiting: no count at all, never a 0
+  await expect(page.locator('#crewsw .tabcount')).toHaveCount(0);
 });
 
 test('roster count: a request sent while the app is open shows within 5 minutes, and a new card at once when the app comes back on screen', async ({ page }) => {
@@ -7129,20 +7137,20 @@ test('roster count: a request sent while the app is open shows within 5 minutes,
   const w = world();
   const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w), inv: invWithRequests(list), clockAt: STORM_CLOCK });
   await expect.poll(() => calls.inv.filter((c) => c.action === 'getProfiles').length).toBe(1); // the sign-in check
-  await expect(rosterTab(page)).toHaveText('Roster');
+  await expect(crewTab(page)).toHaveText('Crew');
   list.push({ id: 12, name: 'Newbie Nate', status: 'pending', hasPin: true }); // asks from his own phone
   await page.clock.fastForward('04:50');
   expect(calls.inv.filter((c) => c.action === 'getProfiles')).toHaveLength(1); // not yet: 4 min 50 s
   await page.clock.fastForward('00:15');
-  await expect(rosterTab(page)).toHaveText('Roster 1');
-  await rosterTab(page).click();
+  await expect(crewTab(page)).toHaveText('Crew1');
+  await toScreen(page, 'roster');
   await expect(page.locator('#waitapprove')).toContainText('Newbie Nate');
   await expect(page.locator('#waitadd')).toHaveCount(0);
   // Nina fills out her card on her phone; Matt's phone comes back on screen, on the Roster tab: the list itself
   // shows her, with no tap.
   w.crew.push({ ...NINA_CARD });
   await pollNow(page);
-  await expect(rosterTab(page)).toHaveText('Roster 2');
+  await expect(crewTab(page)).toHaveText('Crew2');
   await expect(page.locator('#waitadd')).toContainText('Nina Nursery');
   await expect(page.locator('#waitapprove')).toContainText('Newbie Nate');
   expect(await page.locator('[data-addcrew]').count()).toBe(1); // Nina once, never twice
@@ -7155,7 +7163,7 @@ test('roster count: a check on its way when Matt approves never brings the reque
   const slow = { next: false };
   const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: invWithRequests(list),
     invDelay: (p) => (slow.next && p.action === 'getProfiles' ? ((slow.next = false), 2000) : 0) });
-  await rosterTab(page).click();
+  await toScreen(page, 'roster');
   await expect(page.locator('#waitapprove')).toContainText('Pending Pat');
   const asked = calls.inv.filter((c) => c.action === 'getProfiles').length;
   slow.next = true;
@@ -7167,7 +7175,7 @@ test('roster count: a check on its way when Matt approves never brings the reque
   await expect.poll(() => calls.invAnswered).toBe(calls.inv.length); // the held reply has landed
   await page.waitForTimeout(300);
   await expect(page.locator('#waitapprove')).toHaveCount(0);
-  await expect(rosterTab(page)).toHaveText('Roster');
+  await expect(crewTab(page)).toHaveText('Crew');
 });
 
 test('roster count: crew phones never ask for the waiting lists', async ({ page }) => {
@@ -7181,14 +7189,20 @@ test('roster count: crew phones never ask for the waiting lists', async ({ page 
   await expect(page.locator('#tabs .tabcount')).toHaveCount(0);
 });
 
-test('bars: with 12 waiting, all six admin tabs still sit inside a 320 px screen', async ({ page }) => {
+test('bars: with 12 waiting, the four admin tabs and the Crew tab switch still sit inside a 320 px screen', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 640 });
   // Pending Pat + 11 more requests = 12.
   const list = PROFILES.map((p) => ({ ...p })).concat(Array.from({ length: 11 }, (_, i) => ({ id: 20 + i, name: 'Request ' + i, status: 'pending', hasPin: true })));
   await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: invWithRequests(list) });
-  await expect(rosterTab(page)).toHaveText('Roster 12');
+  await expect(crewTab(page)).toHaveText('Crew12');
   const tabs = await page.locator('#tabs button').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return { t: e.textContent, l: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width) }; }));
   for (const t of tabs) { expect(t.l, t.t).toBeGreaterThanOrEqual(0); expect(t.r, t.t).toBeLessThanOrEqual(320); expect(t.w, t.t).toBeGreaterThan(30); }
+  expect(tabs.map((t) => t.t)).toEqual(['Storm', 'Routes', 'Sites', 'Crew12']);
+  await toScreen(page, 'roster');
+  await expect(page.locator('#crewsw [data-tab="roster"]')).toHaveText('Roster12');
+  const sws = await page.locator('#crewsw button').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return { t: e.textContent, l: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width) }; }));
+  expect(sws.map((t) => t.t)).toEqual(['Board', 'Roster12', 'Cards', 'Log']);
+  for (const t of sws) { expect(t.l, t.t).toBeGreaterThanOrEqual(0); expect(t.r, t.t).toBeLessThanOrEqual(320); expect(t.w, t.t).toBeGreaterThan(30); }
 });
 
 test('self-service: a pending card waits to be added, off the grid and off the Board; Add to crew saves it whole with pending false', async ({ page }) => {
@@ -7198,7 +7212,7 @@ test('self-service: a pending card waits to be added, off the grid and off the B
   await page.click('nav [data-tab="board"]');
   await expect(page.locator('.chip[data-worker="C01"]')).toHaveCount(1);
   await expect(page.locator('.chip[data-worker="C04"]')).toHaveCount(0);
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await expect(page.locator('#waitadd')).toContainText('Waiting to be added (1)');
   await expect(page.locator('#waitadd')).toContainText('Nina Nursery');
   await expect(page.locator('.grid [data-open="C04"]')).toHaveCount(0);
@@ -7220,7 +7234,7 @@ test("roster-2: Matt's worker card shows the emergency contact (not set when bla
   const w = world();
   Object.assign(w.crew[0], { emergency_name: 'Kim Test', emergency_phone: '555-0911', smokes: true, cold_rated: false });
   const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await page.click('[data-open="C03"]');
   await expect(page.locator('#dlg tr:has-text("Emergency contact")')).toContainText('not set');
   await page.click('#dlgClose');
@@ -7264,7 +7278,7 @@ test('roster-2: Your card on Tonight shows the cold-rated question and the emerg
 
 test('self-service: with no requests and no cards waiting, the Roster tab has no waiting sections', async ({ page }) => {
   await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: invWithRequests(PROFILES.filter((x) => x.status !== 'pending')) });
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await expect(page.locator('.grid')).toBeVisible();
   await expect(page.locator('#waitapprove')).toHaveCount(0);
   await expect(page.locator('#waitadd')).toHaveCount(0);
@@ -7280,14 +7294,14 @@ test("place from the roster: tiles say where tonight's Board has each person", a
   const w = world();
   w.moves = [MOVE('C01', 'R1', 'lead')];
   await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await expect(page.locator('[data-open="C01"] .where')).toHaveText('N1 · lead');
   await expect(page.locator('[data-open="C03"] .where')).toHaveText('Unplaced');
 });
 
 test('place from the roster: Place sends one Move as a member; the tile and the Board follow', async ({ page }) => {
   const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await page.click('[data-open="C03"]');
   await expect(page.locator('#w_where')).toHaveText('Unplaced');
   await page.selectOption('#w_route', 'R1');
@@ -7307,7 +7321,7 @@ test('place from the roster: Make lead and Unassign are one Move each; nothing t
   const w = world();
   w.moves = [MOVE('C03', 'R1', 'member')];
   const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await page.click('[data-open="C03"]');
   await expect(page.locator('#w_route')).toHaveValue('R1');
   await page.click('#w_place');   // already a member of N1
@@ -7327,7 +7341,7 @@ test('place from the roster: Make lead and Unassign are one Move each; nothing t
 
 test("place from the roster: Place with no route picked asks for one and sends nothing; a lost save toasts and changes nothing", async ({ page }) => {
   const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()), abortIf: (b) => b.action === 'addMove' });
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await page.click('[data-open="C03"]');
   await expect(page.locator('#w_unassign')).toHaveCount(0);   // not on the Board: nothing to pull
   await page.click('#w_place');
@@ -7341,7 +7355,7 @@ test("place from the roster: Place with no route picked asks for one and sends n
 
 test('place from the roster: a second place while one is saving sends nothing more', async ({ page }) => {
   const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()), delay: { addMove: 1500 } });
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await page.click('[data-open="C03"]');
   await page.selectOption('#w_route', 'R1');
   await page.click('#w_place');
@@ -7357,7 +7371,7 @@ test('place from the roster: a card still waiting to be added has no Place row',
   const w = world();
   w.crew.push({ id: 'C04', name: 'Nina Nursery', profile_id: '4', pending: true, rev: 1 });
   await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await page.click('[data-open="C04"]');
   await expect(page.locator('#dlg')).toBeVisible();
   await expect(page.locator('#w_route')).toHaveCount(0);
@@ -7535,18 +7549,18 @@ test('snow map: crew get no map card', async ({ page }) => {
 // On Matt's phone, with its larger text, the six admin tabs overflowed the bottom bar and Roster sat
 // off the right edge; the top bar squeezed his name to "M…" while "Snow Crew" kept its full width.
 // 320 px is the narrowest phone in use; every tab must sit inside it, and the name must outrank the title.
-test('bars: all seven admin tabs sit inside a 320 px screen, and the name badge keeps room over the title', async ({ page }) => {
+test('bars: all four admin tabs sit inside a 320 px screen, and the name badge keeps room over the title', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 640 });
   await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
-  await expect(page.locator('#tabs button')).toHaveCount(7);   // Crew joined the six on 11/24/26
+  await expect(page.locator('#tabs button')).toHaveCount(4);   // Storm, Routes, Sites, Crew (bottom tabs, 11/25/26; was seven)
   const tabs = await page.locator('#tabs button').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return { t: e.textContent, l: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width) }; }));
   for (const t of tabs) { expect(t.l, t.t).toBeGreaterThanOrEqual(0); expect(t.r, t.t).toBeLessThanOrEqual(320); expect(t.w, t.t).toBeGreaterThan(30); }
-  // Pending Pat (PROFILES) is waiting: the Roster tab counts 1 (10/19/26). Read once the sign-in check lands.
-  await expect(page.locator('#tabs [data-tab="roster"]')).toHaveText('Roster 1');
+  // Pending Pat (PROFILES) is waiting: Crew counts 1 (10/19/26, on Crew since 11/25/26). Read once the sign-in check lands.
+  await expect(page.locator('#tabs [data-tab="board"]')).toHaveText('Crew1');
   const all = await page.locator('#tabs button').evaluateAll((els) => els.map((e) => { const r = e.getBoundingClientRect(); return { t: e.textContent, l: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width) }; }));
   for (const t of all) { expect(t.l, t.t).toBeGreaterThanOrEqual(0); expect(t.r, t.t).toBeLessThanOrEqual(320); expect(t.w, t.t).toBeGreaterThan(30); }
-  expect(all.map((t) => t.t)).toEqual(['Storm', 'Routes', 'Sites', 'Board', 'Log', 'Roster 1', 'Crew']);
-  await page.click('#tabs [data-tab="roster"]');
+  expect(all.map((t) => t.t)).toEqual(['Storm', 'Routes', 'Sites', 'Crew1']);
+  await toScreen(page, 'roster');
   await expect(page.locator('#addWorker')).toBeVisible();
   // The top bar: the name badge is at least as wide as the words it holds minus the title's share; concretely, wider than a lone initial.
   const who = await page.locator('#who').evaluate((e) => ({ w: Math.round(e.getBoundingClientRect().width), text: e.textContent, scroll: e.scrollWidth, client: e.clientWidth }));
@@ -7555,6 +7569,185 @@ test('bars: all seven admin tabs sit inside a 320 px screen, and the name badge 
   // Nothing in the header leaves the screen.
   const hdr = await page.locator('header > *').evaluateAll((els) => els.map((e) => Math.round(e.getBoundingClientRect().right)));
   for (const r of hdr) expect(r).toBeLessThanOrEqual(320);
+});
+
+// ---- bottom tabs (Matt, 11/25/26: "combining log and board and roster and crew together") ----
+// Matt and the dispatcher: Storm · Routes · Sites · Crew. Crew opens on the Board EVERY time (Matt: "Board every time"),
+// with a switch on top: Board · Roster · Cards · Log. A bar button's data-tab is the screen it opens, so the admins'
+// Crew button carries data-tab="board". Crew and leads keep Storm · Tonight · Routes · Sites · Crew and never get the switch.
+// The waiting count rides on Crew in the bar and on Roster in the switch (it was cut to "Rost…" on the 7-tab bar).
+// Design + plan: Snow/Sidewalk specs + ledgers/2026-11-25-bottom-tabs-*.md.
+const barOf = (page) => page.locator('#tabs button').evaluateAll((b) => b.map((x) => [x.dataset.tab, x.textContent]));
+const switchOf = (page) => page.locator('#crewsw button').evaluateAll((b) => b.map((x) => [x.dataset.tab, x.textContent]));
+const crewBtn = (page) => page.locator('#tabs [data-tab="board"]');
+const sw = (page, tab) => page.locator('#crewsw [data-tab="' + tab + '"]');
+const SWITCH = [['board', 'Board'], ['roster', 'Roster'], ['crew', 'Cards'], ['log', 'Log']];
+const JORDAN_PIN = (p) => p.action === 'getProfiles' ? { profiles: PROFILES } : p.action === 'verifyPin' && p.id === '3' && p.pin === '3333'
+  ? { valid: true, success: true, id: 3, name: 'Jordan Demo', status: 'approved', token: 'tok-jordan' } : { valid: false, attemptsLeft: 4 };
+
+test.describe('bottom tabs:', () => {
+  test('bottom tabs: Matt has Storm, Routes, Sites, Crew; Crew opens on the Board with the switch Board, Roster, Cards, Log', async ({ page }) => {
+    // Nobody waiting: no requests, and world() holds no pending card. So no badge anywhere.
+    await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: invWithRequests([]) });
+    await expect(page.locator('#tabs button')).toHaveCount(4);
+    expect(await barOf(page)).toEqual([['storm', 'Storm'], ['routes', 'Routes'], ['sites', 'Sites'], ['board', 'Crew']]);
+    await expect(page.locator('#crewsw')).toBeHidden(); // Matt opens on Routes, as before
+    await crewBtn(page).click();
+    await expect(page.locator('#crewsw')).toBeVisible();
+    expect(await switchOf(page)).toEqual(SWITCH);
+    await expect(sw(page, 'board')).toHaveAttribute('aria-current', 'page');
+    await expect(crewBtn(page)).toHaveAttribute('aria-current', 'page');
+    await expect(page.locator('#post')).toBeVisible();
+  });
+
+  test('bottom tabs: the switch reaches Roster, Cards and Log, and Crew stays the current tab', async ({ page }) => {
+    await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: invWithRequests([]) });
+    await crewBtn(page).click();
+    for (const [tab, mark] of [['roster', '#addWorker'], ['crew', 'main h2'], ['log', '#newEntry']]) {
+      await sw(page, tab).click();
+      await expect(sw(page, tab)).toHaveAttribute('aria-current', 'page');
+      await expect(page.locator('#crewsw [aria-current="page"]')).toHaveCount(1);
+      await expect(crewBtn(page)).toHaveAttribute('aria-current', 'page');
+      await expect(page.locator(mark).first()).toBeVisible();
+    }
+    // Roster's search box keeps what was typed while Matt switches away and back (memory only, as today).
+    await sw(page, 'roster').click();
+    await page.fill('#roster_q', 'Al');
+    await sw(page, 'log').click();
+    await expect(page.locator('#newEntry')).toBeVisible();
+    await sw(page, 'roster').click();
+    await expect(page.locator('#roster_q')).toHaveValue('Al');
+  });
+
+  test('bottom tabs: Crew opens on Board every time', async ({ page }) => {
+    await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: invWithRequests([]) });
+    await crewBtn(page).click();
+    await sw(page, 'roster').click();
+    await expect(page.locator('#addWorker')).toBeVisible();
+    await crewBtn(page).click(); // already on Crew, on Roster: the tap still lands on the Board
+    await expect(page.locator('#post')).toBeVisible();
+    await expect(sw(page, 'board')).toHaveAttribute('aria-current', 'page');
+    await sw(page, 'log').click();
+    await page.click('#tabs [data-tab="storm"]');
+    await expect(page.locator('#crewsw')).toBeHidden();
+    await crewBtn(page).click(); // left from Log, back from Storm: the Board, never Log
+    await expect(page.locator('#post')).toBeVisible();
+    await sw(page, 'crew').click();
+    await expect(page.locator('main h2').first()).toHaveText('Crew');
+    await crewBtn(page).click();
+    await expect(page.locator('#post')).toBeVisible();
+  });
+
+  test('bottom tabs: the Board from the switch reads the trucks once, as the Board tab did', async ({ page }) => {
+    const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: invWithRequests([]) });
+    const reads = () => calls.filter((c) => c.body.action === 'getShiftLog').length;
+    await crewBtn(page).click();
+    await sw(page, 'roster').click();
+    await expect(page.locator('#addWorker')).toBeVisible();
+    await page.waitForTimeout(300); // let the Board's own read from the first tap land
+    const before = reads();
+    await sw(page, 'board').click(); // one read, as entering the Board tab did (the trucks a lead set)
+    await expect.poll(reads).toBe(before + 1);
+    await sw(page, 'roster').click();
+    await crewBtn(page).click(); // the bar's Crew lands on the Board: one more read
+    await expect.poll(reads).toBe(before + 2);
+    await page.waitForTimeout(300);
+    expect(reads()).toBe(before + 2); // and no more than one each
+  });
+
+  test('bottom tabs: switching sections adds no Back step; Back from a card opened on Roster leaves Roster on screen', async ({ page }) => {
+    await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: invWithRequests([]) });
+    await crewBtn(page).click();
+    await expect(page.locator('#post')).toBeVisible();
+    const len = await page.evaluate(() => history.length);
+    for (const tab of ['roster', 'log', 'roster']) await sw(page, tab).click();
+    await expect(page.locator('#addWorker')).toBeVisible();
+    expect(await page.evaluate(() => history.length)).toBe(len); // a switch tap is no Back step, as a tab tap never was
+    await page.click('[data-open="C01"]');
+    await expect(page.locator('#dlg')).toBeVisible();
+    await page.goBack();
+    await expect(page.locator('#dlg')).toBeHidden();
+    await expect(sw(page, 'roster')).toHaveAttribute('aria-current', 'page');
+    await expect(page.locator('#addWorker')).toBeVisible();
+  });
+
+  test("bottom tabs: the dispatcher gets Matt's four tabs and the switch", async ({ page }) => {
+    // Jordan (C03) carries the dispatcher mark: he signs in as an admin with his crew id (dispatch-1, 11/9/26).
+    const w = world();
+    w.crew = w.crew.map((c) => (c.id === 'C03' ? { ...c, dispatch: true } : c));
+    await open(page, { token: 'tok-jordan', snow: fakeSnow(w), inv: invWithRequests([]) });
+    await expect(page.locator('#who')).toContainText('admin');
+    expect(await barOf(page)).toEqual([['storm', 'Storm'], ['routes', 'Routes'], ['sites', 'Sites'], ['board', 'Crew']]);
+    await crewBtn(page).click();
+    expect(await switchOf(page)).toEqual(SWITCH);
+    await expect(page.locator('#post')).toBeVisible();
+  });
+
+  for (const [who, token] of [['a lead', 'tok-alex'], ['a crew phone', 'tok-jordan']]) {
+    test('bottom tabs: ' + who + ' keeps Storm, Tonight, Routes, Sites, Crew and never sees the switch', async ({ page }) => {
+      await open(page, { token, snow: fakeSnow(world()), inv: invWithRequests([]) });
+      await expect(page.locator('#tabs button')).toHaveCount(5);
+      expect((await barOf(page)).map((t) => t[0])).toEqual(['storm', 'tonight', 'routes', 'sites', 'crew']);
+      await expect(page.locator('#crewsw')).toBeHidden();
+      await page.click('#tabs [data-tab="crew"]');
+      await expect(page.locator('main h2').first()).toHaveText('Crew');
+      await expect(page.locator('#crewsw')).toBeHidden();
+      await expect(page.locator('#crewsw button')).toHaveCount(0);
+    });
+  }
+
+  test('bottom tabs: signing out leaves no switch', async ({ page }) => {
+    await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: invWithRequests([]) });
+    await crewBtn(page).click();
+    await sw(page, 'roster').click();
+    await expect(page.locator('#addWorker')).toBeVisible();
+    await page.click('#signout');
+    await expect(page.locator('#signin')).toBeVisible();
+    await expect(page.locator('#crewsw')).toBeHidden();
+  });
+
+  test('bottom tabs: a crew phone after Matt signed out on Roster', async ({ page }) => {
+    // The same phone, Matt then Jordan. The screen Matt left (Roster) is no crew screen: Jordan gets his own tabs, no switch.
+    await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: JORDAN_PIN });
+    await crewBtn(page).click();
+    await sw(page, 'roster').click();
+    await expect(page.locator('#addWorker')).toBeVisible();
+    await page.click('#signout');
+    await page.selectOption('#si_who', '3');
+    await page.fill('#si_pin', '3333');
+    await page.click('#si_go');
+    await expect(page.locator('#tabs button')).toHaveCount(5);
+    expect((await barOf(page)).map((t) => t[0])).toEqual(['storm', 'tonight', 'routes', 'sites', 'crew']);
+    await expect(page.locator('#crewsw')).toBeHidden();
+    await expect(page.locator('#tabs [aria-current="page"]')).toHaveCount(1);
+    expect((await page.locator('main').innerText()).trim()).not.toBe('');
+  });
+
+  test('bottom tabs: a Spanish phone reads Cuadrilla in the bar and Tarjetas in the switch', async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+    await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: invWithRequests([]) });
+    await expect(crewBtn(page)).toHaveText('Cuadrilla');
+    expect((await barOf(page)).map((t) => t[1])).toEqual(['Tormenta', 'Rutas', 'Sitios', 'Cuadrilla']);
+    await crewBtn(page).click();
+    await expect(sw(page, 'crew')).toHaveText('Tarjetas');
+    // Board, Roster and Log are Matt's words and stay English (es.js), until the Spanish-everywhere work says otherwise.
+    expect((await switchOf(page)).map((t) => t[1])).toEqual(['Board', 'Roster', 'Tarjetas', 'Log']);
+  });
+
+  test('bottom tabs: the count on a Spanish phone', async ({ page }) => {
+    // Worked by hand: Pending Pat's request (PROFILES, pending) + Nina's card (pending, not added) = 2. Approve Pat -> 1.
+    await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+    const w = world(); w.crew.push({ ...NINA_CARD });
+    await open(page, { token: 'tok-matt', snow: fakeSnow(w), inv: invWithRequests(PROFILES.map((p) => ({ ...p }))) });
+    await expect(crewBtn(page)).toHaveText('Cuadrilla2');
+    await expect(crewBtn(page).locator('.tabcount')).toHaveText('2');
+    await crewBtn(page).click();
+    await expect(sw(page, 'roster').locator('.tabcount')).toHaveText('2');
+    await sw(page, 'roster').click();
+    await page.click('[data-approve="9"]');
+    await expect(crewBtn(page)).toHaveText('Cuadrilla1'); // the redraw on a Spanish phone still reads Cuadrilla
+    await expect(sw(page, 'roster').locator('.tabcount')).toHaveText('1');
+  });
 });
 
 // ---- roster-3 (Matt, 10/8/26): where one lives, and a short night on the Board ----
@@ -7592,7 +7785,7 @@ test('roster-3: Your card asks where you live, blank until chosen; Valley is sen
 test("roster-3: Matt's worker card shows where they live (not set when blank) and his editor sets and clears it", async ({ page }) => {
   const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
   const saved = () => calls.filter((c) => c.body.action === 'saveCrew').at(-1).body.record;
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await page.click('[data-open="C03"]');
   await expect(page.locator('#dlgIn tr', { hasText: 'Lives in' })).toContainText('not set');
   await page.click('#w_edit');
@@ -7601,7 +7794,7 @@ test("roster-3: Matt's worker card shows where they live (not set when blank) an
   await page.click('#f_save');
   await expect(page.locator('#dlg')).toBeHidden();
   expect(saved().home_area).toBe('valley');
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await page.click('[data-open="C03"]');
   await expect(page.locator('#dlgIn tr', { hasText: 'Lives in' })).toContainText('Valley');
   await page.click('#w_edit');
@@ -8152,7 +8345,7 @@ const dispatchSaves = (calls) => calls.filter((c) => c.body && c.body.action ===
 
 test("dispatcher mark: Matt's editor has the row, not set until he says; yes is sent as true and the card reads it back", async ({ page }) => {
   const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(world()) });
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await page.click('[data-open="C03"]');
   // The card: its own row, "not set" on a card nobody has answered for (never a guessed "no").
   const row = page.locator('#dlgIn tr', { has: page.locator('th', { hasText: /^Dispatcher$/ }) });
@@ -8184,7 +8377,7 @@ test('dispatcher mark: an edit that never touches the row sends the mark back as
   const w = world();
   w.crew = w.crew.map((c) => (c.id === 'C03' ? { ...c, dispatch: true } : c));
   const calls = await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   // Jordan carries the mark: a phone-number fix must not cost him the board.
   await page.click('[data-open="C03"]');
   await page.click('#w_edit');
@@ -8208,12 +8401,12 @@ test("dispatcher mark: a dispatcher gets Matt's screens; on their own card the r
   // Jordan is crew on the roster and an admin by the mark: the header says so and the tabs are Matt's.
   await expect(page.locator('#who')).toHaveText('Jordan Demo · admin');
   await expect(page.locator('#tabs [data-tab="board"]')).toBeVisible();
-  await expect(page.locator('#tabs [data-tab="roster"]')).toBeVisible();
+  await expect(page.locator('#tabs button')).toHaveCount(4); // Matt's four: Storm, Routes, Sites, Crew (bottom tabs, 11/25/26)
   // The Storm tab is Matt's too: with no storm open, Start storm is his to tap, and there is no crew Tonight tab.
   await page.click('#tabs [data-tab="storm"]');
   await expect(page.locator('[data-storm="start"]')).toBeVisible();
   await expect(page.locator('#tabs [data-tab="tonight"]')).toHaveCount(0);
-  await page.click('#tabs [data-tab="roster"]');
+  await toScreen(page, 'roster');
   // His own card: the row is there, locked, and says why.
   await page.click('[data-open="C03"]');
   await page.click('#w_edit');
@@ -8244,6 +8437,7 @@ test('dispatcher mark: a crew phone never draws the row, and Your card says who 
   await open(page, { token: 'tok-jordan', snow: fakeSnow(world()) });
   await expect(page.locator('#who')).toHaveText('Jordan Demo');
   await expect(page.locator('#tabs [data-tab="roster"]')).toHaveCount(0);
+  await expect(page.locator('#crewsw button')).toHaveCount(0); // no Crew tab switch either (bottom tabs, 11/25/26)
   await page.click('#yourCard');
   await expect(page.locator('#s_home_area')).toBeVisible();
   await expect(page.locator('#f_dispatch')).toHaveCount(0);

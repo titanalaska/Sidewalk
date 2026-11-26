@@ -10,6 +10,7 @@
 //   C05 Cy Dock      seasons 0     no line                      nights 1  team 100 sq ft        -> "Rookie" (0 is a slip of the thumb for 1)
 // Abel signed in: Abel, then Ana, Cy, Zed. Matt (no card of his own): Abel, Ana, Cy, Zed too, none of them his.
 const { test, expect } = require('./no-real-weather.js');
+const { toScreen } = require('./crewtab.js'); // the admins' Crew tab: Crew, then the switch (bottom tabs, 11/25/26)
 const path = require('path');
 const url = require('url');
 
@@ -114,14 +115,20 @@ async function open(page, w, token, o = {}) {
     if (copy && !sessionStorage.getItem('seeded')) { localStorage.setItem(key, copy); sessionStorage.setItem('seeded', '1'); }
   }, [token, o.copy ? JSON.stringify(o.copy) : '', KEY]);
   await page.goto(PAGE);
-  if (o.tab !== false) await page.click('nav [data-tab="crew"]');
+  if (o.tab !== false) await toCrew(page);
   return errors;
 }
 const names = (page) => page.locator('.ccard .cc-front .cc-name').allInnerTexts();
 const front = (page, id) => page.locator('.ccard[data-card="' + id + '"] .cc-front');
 const tabsOf = (page) => page.locator('nav [data-tab]').evaluateAll((b) => b.map((x) => x.dataset.tab));
+// The cards: a crew or lead phone's own Crew tab; for an admin, Crew then Cards in the switch (bottom tabs, 11/25/26).
+async function toCrew(page) {
+  await page.locator('#tabs button').first().waitFor();
+  if (await page.locator('#tabs [data-tab="crew"]').count()) await page.click('#tabs [data-tab="crew"]');
+  else await toScreen(page, 'crew');
+}
 
-test('crew cards: a crew phone has Crew after Sites, Matt has it after Roster', async ({ page, browser }) => {
+test("crew cards: a crew phone has Crew after Sites; Matt's Crew tab holds them as Cards", async ({ page, browser }) => {
   await open(page, world(), 'tok-abel', { tab: false });
   await expect(page.locator('nav [data-tab="sites"]')).toBeVisible();
   expect(await tabsOf(page)).toEqual(['storm', 'tonight', 'routes', 'sites', 'crew']);
@@ -129,8 +136,12 @@ test('crew cards: a crew phone has Crew after Sites, Matt has it after Roster', 
   const ctx2 = await browser.newContext();
   const page2 = await ctx2.newPage();
   await open(page2, world(), 'tok-matt', { tab: false });
-  await expect(page2.locator('nav [data-tab="roster"]')).toBeVisible();
-  expect(await tabsOf(page2)).toEqual(['storm', 'routes', 'sites', 'board', 'log', 'roster', 'crew']);
+  // Crew opens the Board. Worked by hand: no sign-in requests (profiles: []) + C04 New Card (pending, not added) = 1 waiting.
+  await expect(page2.locator('nav [data-tab="board"]')).toHaveText('Crew1');
+  expect(await tabsOf(page2)).toEqual(['storm', 'routes', 'sites', 'board']);
+  await toScreen(page2, 'crew');
+  await expect(page2.locator('#crewsw [data-tab="crew"]')).toHaveText('Cards');
+  await expect(page2.locator('#crewsw [data-tab="crew"]')).toHaveAttribute('aria-current', 'page');
   await ctx2.close();
 });
 
@@ -252,7 +263,7 @@ test('crew cards: a good reply is kept, and the next opening draws it before the
   expect(kept.cards.length).toBe(4);
   let release; w.hold = new Promise((r) => { release = r; });
   await page.click('nav [data-tab="sites"]');
-  await page.click('nav [data-tab="crew"]');
+  await toCrew(page);
   await expect(page.locator('.ccard')).toHaveCount(4);   // the copy, while the new ask is held
   release();
 });
@@ -271,7 +282,7 @@ test('crew cards: a reply held until after the tab changed draws nothing; after 
   expect(await page.evaluate((k) => localStorage.getItem(k), KEY)).toBeNull();   // a reply that landed off the tab keeps nothing
   // Signed out with an ask on its way: it draws nothing and brings the key back to nobody.
   w.hold = new Promise((r) => { release = r; });
-  await page.click('nav [data-tab="crew"]');
+  await toCrew(page);
   await expect.poll(() => w.asks).toBe(2);
   await page.click('#signout');
   await expect(page.locator('#signin')).toBeVisible();
@@ -363,7 +374,7 @@ test("crew cards: Matt's worker editor has Their line; blanking it takes the lin
   const w = world();
   w.crew[0].card_line = 'Plow before sunrise';
   await open(page, w, 'tok-matt', { tab: false });
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await page.locator('[data-open="C01"]').click();
   await page.click('#w_edit');
   await expect(page.locator('label:has-text("Their line")')).toHaveCount(1);
@@ -373,7 +384,7 @@ test("crew cards: Matt's worker editor has Their line; blanking it takes the lin
   await page.click('#f_save');
   await expect(page.locator('#dlg')).toHaveJSProperty('open', false);
   expect(w.crewSaves.at(-1).card_line).toBe(null);
-  await page.click('nav [data-tab="crew"]');
+  await toCrew(page);
   await expect(page.locator('.ccard')).toHaveCount(4);
   await expect(front(page, 'C01').locator('.cc-line')).toHaveCount(0);
 });
@@ -382,7 +393,7 @@ test("crew cards: Matt's save of a 41-character line shows the refusal inside th
   const w = world();
   w.crew[0].card_line = 'Plow before sunrise';
   await open(page, w, 'tok-matt', { tab: false });
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await page.locator('[data-open="C01"]').click();
   await page.click('#w_edit');
   await page.evaluate(() => document.getElementById('f_card_line').removeAttribute('maxlength'));

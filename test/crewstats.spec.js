@@ -7,6 +7,7 @@
 //   called out 2, worked 1, no-show 0, 480 min, 1,900 sq ft, Bobcat 120, help visits 0;
 //   nights: Night of 12/4 on N1, 8:00, 1,600 sq ft, Bobcat 120 | Night of 11/8 on N1, called out, 300 sq ft.
 const { test, expect } = require('./no-real-weather.js');
+const { toScreen } = require('./crewtab.js'); // the admins' Crew tab: Crew, then the switch (bottom tabs, 11/25/26)
 const path = require('path');
 const url = require('url');
 
@@ -76,7 +77,7 @@ async function open(page, w, o = {}) {
   await page.route(isInv, (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ profiles: [] }) }));
   await page.addInitScript(() => { localStorage.setItem('titan-snow-token', 'tok-matt'); });
   await page.goto(PAGE);
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await expect(page.locator('#addWorker')).toBeVisible();
   return errors;
 }

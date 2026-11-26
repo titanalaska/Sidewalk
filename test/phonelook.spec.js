@@ -16,6 +16,7 @@
 // Roster: 14 crew, C01 has a photo, the rest show initials. At 320 px the old grid tile was about 190 px tall (a 139 px square photo plus
 //   the name and place lines); the new row is a 64 px photo plus 2 x 6 px padding = about 78 px, so each card must measure under 90 px.
 const { test, expect } = require('./no-real-weather.js');
+const { toScreen } = require('./crewtab.js'); // the admins' Crew tab: Crew, then the switch (bottom tabs, 11/25/26)
 const path = require('path');
 const url = require('url');
 const SL = require('../lib/shiftlog.js');
@@ -101,7 +102,7 @@ async function open(page, w, o = {}) {
   await page.addInitScript(() => { localStorage.setItem('titan-snow-token', 'tok-matt'); });
   await page.goto(PAGE);
   if ((o.tab || 'storm') === 'roster') {
-    await page.click('nav [data-tab="roster"]');
+    await toScreen(page, 'roster');
     await expect(page.locator('.tile').first()).toBeVisible();
     return calls;
   }
@@ -300,7 +301,7 @@ test('roster: a tap on the photo opens it large, Close closes it, Back closes it
   await expect(big).toBeVisible();
   await page.goBack();
   await expect(page.locator('#dlg')).toBeHidden();
-  await expect(page.locator('[data-tab="roster"][aria-current="page"]')).toBeVisible();   // still on the Roster tab
+  await expect(page.locator('#crewsw [data-tab="roster"][aria-current="page"]')).toBeVisible();   // still on Roster (the Crew tab's switch, 11/25/26)
 });
 
 test('roster: a tap on the name still opens the person; a person with no photo has no photo button', async ({ page }) => {

@@ -13,6 +13,7 @@
 //   Abel Stone, Álvaro Reed, Ana Brook | Beto Marsh | Carla Dune | Dario Field | Elena Ford | José Niño, Juan Carlos Pérez | Karl Moss |
 //   Lena Park | Mateo Ridge | Ñico Soto | Zed Vale.      Letter rows: A B C D E J K L M N Z = 11.
 const { test, expect } = require('./no-real-weather.js');
+const { toScreen } = require('./crewtab.js'); // the admins' Crew tab: Crew, then the switch (bottom tabs, 11/25/26)
 const path = require('path');
 const url = require('url');
 
@@ -82,7 +83,7 @@ async function open(page, w, o = {}) {
   });
   await page.addInitScript(() => { localStorage.setItem('titan-snow-token', 'tok-matt'); });
   await page.goto(PAGE);
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await expect(page.locator('#addWorker')).toBeVisible();
 }
 
@@ -247,7 +248,7 @@ test('never silent: a person\'s card opening and closing, and a trip to the Site
   expect(await names(page)).toEqual(['José Niño']);
   await page.click('nav [data-tab="sites"]');
   await expect(page.locator('#site_q')).toBeVisible();
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await expect(page.locator('#roster_q')).toHaveValue('jose');
   expect(await names(page)).toEqual(['José Niño']);
 });
@@ -260,7 +261,7 @@ test('signing out lets go of the search: the next sign-in opens the whole roster
   await page.selectOption('#si_who', '1');
   await page.fill('#si_pin', '1111');
   await page.click('#si_go');
-  await page.click('nav [data-tab="roster"]');
+  await toScreen(page, 'roster');
   await expect(page.locator('#roster_q')).toHaveValue('');
   await expect(page.locator('#roster_list .tile')).toHaveCount(14);
 });

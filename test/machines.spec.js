@@ -43,7 +43,7 @@ const mline = (type, unit, attachment, key, name, minutes, since) => ({ type, un
 
 function fakeSnow(state) {
   return (body) => {
-    const v = { version: 'machines-1', action: body.action };
+    const v = { version: 'nightsheet-1', action: body.action };
     if (body.token !== 'tok-matt') return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     const me = { name: 'Matthew', role: 'admin', crew_id: null };
     const refuse = (code, reason) => ({ ok: false, code, reason, ...v });

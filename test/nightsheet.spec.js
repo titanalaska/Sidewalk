@@ -53,7 +53,7 @@ function threeKeys(body, prev) {
 
 function fakeSnow(state) {
   return (body) => {
-    const v = { version: 'machines-1', action: body.action };
+    const v = { version: 'nightsheet-1', action: body.action };
     if (body.token !== 'tok-matt') return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     const me = { name: 'Matthew', role: 'admin', crew_id: null };
     if (body.action === 'bootstrap') return { ok: true, me, admin_name: 'Matthew', sites: state.sites, routes: state.routes, zones: state.zones, crew: state.crew, post: state.post, moves: [], callouts: [], gear: [], ...v };
@@ -348,7 +348,7 @@ test('the fake mirrors the server: a key left out keeps the saver\'s own previou
 
 // The Storm tab's per-site totals (Matt, 11/25/26): each person's bags, buckets and Shoveled under the site, after Depth and before
 // Materials. Worked on paper: Alex's card says 2 bags, Shoveled No; Bea's says 1 bag, 1 bucket, Shoveled Yes; Cy's says nothing.
-// Card order is the order visitTotals gives (newest first by seq? no: see the first assertion, which reads the page, not the code).
+// The asserted order is the card order on screen (Alex, then Bea), as the assertions below read it from the page.
 // Ice melt: only Alex and Bea; Sand: only Bea; Shoveled: Alex No, Bea Yes. Cy is in none of them.
 function threeCards() {
   const w = world();

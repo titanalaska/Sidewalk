@@ -229,6 +229,12 @@ const NOT_SHOWN = {
   'px Arial, sans-serif': 'a canvas font (lib/mapprint.js drawNumbers, drawNorth), never shown',
   'Esri, HERE, Garmin': 'the snow map\'s photo credit: company names, shown as they are',
   'snowdot nofc': 'two CSS class names (lib/snowmap.js)',
+  'small primary': 'two CSS class names (lib/rosterui.js addCrewButton)',
+  'px system-ui, -apple-system, sans-serif': 'a canvas font (lib/crewcardsui.js)',
+  '700 44px system-ui, sans-serif': 'a canvas font (lib/crewcardsui.js)',
+  '400 24px system-ui, sans-serif': 'a canvas font (lib/crewcardsui.js)',
+  '400 22px system-ui, sans-serif': 'a canvas font (lib/crewcardsui.js)',
+  'Shovel Command ·': 'the app\'s name on the shared crew-card picture (canvas); the winter word after it goes through say()',
   'Snow Route Sheets': 'the Drive folder\'s name (Code.js SHEETS_FOLDER)',
   'Crew times': 'the head of a Crew times PDF\'s file name in Drive',
   'Crew times (worked out).pdf': 'a Drive file name',
@@ -262,18 +268,13 @@ const LEAVES_THE_APP = {
 const NOT_YET = {
   'index.html': '*',
   'lib/api.js': ['signIn'],
-  'lib/app.js': ['(top)', 'siteCard', 'archive', 'archivedHtml', 'async', 'checks', 'draw', 'drawPick', 'editSite', 'editWorker', 'markPick', 'openMap', 'openWorker', 'pickListHtml', 'printRouteMaps', 'renderRoster', 'renderRoutes', 'renderSites', 'restoreRecord', 'rosterListHtml', 'rosterTile', 'shareApp'],
+  'lib/app.js': ['archive', 'archivedHtml', 'draw', 'drawPick', 'editSite', 'markPick', 'openMap', 'pickListHtml', 'printRouteMaps', 'renderRoutes', 'renderSites', 'restoreRecord', 'shareApp'],
   'lib/bpimport.js': ['parseExport'],
-  'lib/crewcards.js': ['fieldsWord', 'winterWord'],
-  'lib/crewcardsui.js': ['fitText', 'headWord', 'pngOf', 'shareCard'],
-  'lib/crewstats.js': ['cardLines'],
-  'lib/crewstatsui.js': ['html', 'load'],
   'lib/forms.js': ['parseClearances'],
   'lib/machinepick.js': ['unitChoices'],
   'lib/mapedit.js': ['addImported', 'away', 'beginDraw', 'drawControls', 'formButtons', 'importBusy', 'onclick', 'previewJob', 'problem', 'readBootprint', 'renderArchived', 'restoreZone', 'saveView', 'showRef', 'start', 'unsavedWork', 'walksAndPiles'],
   'lib/mapprint.js': ['pageHtml'],
   'lib/mapview.js': ['open'],
-  'lib/rosterui.js': ['addCrewButton', 'addToCrew', 'decide', 'waitingHtml'],
   'lib/routelist.js': ['pageHtml'],
   'lib/share.js': ['share'],
   'lib/shiftlog.js': ['checkAgain', 'checkTap', 'curbItems', 'machineProblem', 'undoTarget'],
@@ -392,7 +393,19 @@ const BUILT = {
   'No snow in the next': ['No snow in the next 12 h', 'Sin nieve en las próximas 12 h'],
   'Sheets:': ['Sheets: 6 saved', 'Hojas: 6 guardadas'],
   'Clean': ['Clean PAC again?', '¿Limpiar PAC de nuevo?'],
-  // Task 5 (11/25/26): the Board, its toasts (names in spans of their own: lib/app.js holdNames) and its warnings.
+  // Task 6 (11/25/26): the Roster, the worker card, crew stats and crew cards.
+  'no picture': ['3 no picture', '3 sin foto'],
+  'Current link (#': ['Current link (#12, not approved right now)', 'Enlace actual (#12, no aprobado ahora)'],
+  ', not approved right now)': ['Current link (#12, not approved right now)', 'Enlace actual (#12, no aprobado ahora)'],
+  'football field': ['about 1 football field', 'un campo de fútbol americano'],
+  'football fields': ['about 3 football fields', 'unos 3 campos de fútbol americano'],
+  'Winter': ['Winter 2026-27', 'Invierno 2026-27'],
+  '· counted at': ['Winter 2026-27 · counted at 2:14 AM', 'Invierno 2026-27 · contado a las 2:14 AM'],
+  '(called out': ['5 (called out 1, no-show 0)', '5 (llamado 1, faltas 0)'],
+  'Stats ·': ['Stats · Winter 2026-27', 'Estadísticas · Invierno 2026-27'],
+  'Waiting for approval (': ['Waiting for approval (1)', 'Esperando aprobación (1)'],
+  'They': ['They can sign in now', 'Ya puede iniciar sesión'],
+  'Can operate lists': ['Can operate lists blower, sweepster, bobcat, snowrator or shovel', 'Puede operar solo: soplador, sweepster, bobcat, snowrator o pala'],  // Task 5 (11/25/26): the Board, its toasts (names in spans of their own: lib/app.js holdNames) and its warnings.
   'Trucks for': ['Trucks for Night of 12/4', 'Camionetas de Noche del 12/4'],
   'Take': ['Take 3 people off 2 routes?', '¿Quitar a 3 personas de 2 rutas?'],
   'Took': ['Took 3 people off the Board', 'Se quitó a 3 personas del tablero'],
@@ -433,6 +446,8 @@ const BUILT_ROWS = {
   'Shift not saved': { file: 'lib/shiftlogui.js', head: 'Shift', tail: 'not saved:' },
   // snow-app-script roster.js lineErrs: 'Your line is ' + LINE_MAX + ' characters at most' (LINE_MAX = 40)
   'Your line is 40 characters at most': { file: 'server/roster.js', head: 'Your line is', tail: 'characters at most' },
+  // lib/rosterui.js decide: (p ? p.name : 'They') + ' can sign in now'
+  'They can sign in now': { file: 'lib/rosterui.js', head: 'They', tail: 'can sign in now' },
 };
 
 // ---------------------------------------------------------------- the checks

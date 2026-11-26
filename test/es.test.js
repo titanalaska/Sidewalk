@@ -645,3 +645,36 @@ test('the Board\'s built lines keep their names, numbers and shifts', () => {
   assert.equal(Es.translateString("Alex Test leads but can't drive"), 'Alex Test es líder pero no puede manejar');
   assert.equal(Es.translateString('No confirmed driver (2 not set)'), 'Sin conductor confirmado (2 sin definir)');
 });
+
+// Spanish everywhere, Task 6: Matt's Roster, the worker card and editor, the waiting lists, crew stats. Draft, tú.
+test('the Roster, the worker card and crew stats read Spanish', () => {
+  const cases = {
+    'Add worker': 'Agregar trabajador', 'Search crew': 'Buscar en la cuadrilla', 'No crew yet.': 'Todavía no hay cuadrilla.',
+    'No picture': 'Sin foto', 'No one matches': 'Nadie coincide', 'Good lead': 'Buen líder', 'Smokes': 'Fuma',
+    'Dispatcher': 'Despachador', 'Operates': 'Opera', 'Traits': 'Cualidades', 'Weaknesses': 'Debilidades', 'Clearances': 'Autorizaciones',
+    'Rides with': 'Viaja con', 'Works well with': 'Trabaja bien con', 'Keep apart from': 'Mantener separado de',
+    'Waiting to be added': 'Esperando que lo agreguen', 'Place': 'Asignar', 'Stats': 'Estadísticas', 'Edit': 'Editar',
+    'nobody': 'nadie', 'Name': 'Nombre', 'Photo': 'Foto', 'Archive': 'Archivar', 'Where they live': 'Dónde vive',
+    'Can operate': 'Puede operar', 'Pick a route…': 'Elige una ruta…', 'Hours': 'Horas', 'Machines': 'Máquinas',
+    'Sq ft cleared': 'Pies² despejados', 'Help visits': 'Visitas de ayuda', 'Night by night': 'Noche por noche',
+    'no End': 'sin salida', 'no-show': 'falta', 'called out': 'llamado', 'Approve': 'Aprobar', 'Reject': 'Rechazar',
+    'Add to crew': 'Agregar a la cuadrilla', 'Add a picture first': 'Primero agrega una foto', 'My crew card': 'Mi tarjeta de la cuadrilla',
+    'blower': 'soplador', 'shovel': 'pala', 'bobcat': 'bobcat',
+  };
+  for (const [en, es] of Object.entries(cases)) assert.equal(Es.translateString(en), es, en);
+});
+
+test('the Roster\'s built lines keep their numbers and names', () => {
+  assert.equal(Es.translateString('3 no picture'), '3 sin foto');
+  assert.equal(Es.translateString('Current link (#12, not approved right now)'), 'Enlace actual (#12, no aprobado ahora)');
+  assert.equal(Es.translateString('Stats · Winter 2026-27'), 'Estadísticas · Invierno 2026-27');
+  assert.equal(Es.translateString('5 (called out 1, no-show 0)'), '5 (llamado 1, faltas 0)');
+  assert.equal(Es.translateString('12,400 sq ft'), '12,400 pies²');
+  assert.equal(Es.translateString('Waiting to be added (2)'), 'Esperando que los agreguen (2)');
+  assert.equal(Es.translateString('Waiting for approval (1)'), 'Esperando aprobación (1)');
+  assert.equal(Es.translateString(' can sign in now'), ' ya puede iniciar sesión');     // after the person's name, in its own span
+  assert.equal(Es.translateString('They can sign in now'), 'Ya puede iniciar sesión');   // no name known
+  assert.equal(Es.translateString(' is on the crew'), ' ya está en la cuadrilla');
+  assert.equal(Es.translateString(' · lead'), ' · líder');                               // a route's name before it, in its own span
+  assert.equal(Es.translateString('blower, bobcat, shovel'), 'soplador, bobcat, pala');
+});

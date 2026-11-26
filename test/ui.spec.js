@@ -12579,3 +12579,29 @@ test('Spanish: the Board reads Spanish; route, site and people names stay as typ
   await expect(page.locator('main')).not.toContainText('Listo Route');
   await expect(page.locator('main')).not.toContainText('Mapa Site');
 });
+
+// ---------- Spanish everywhere, Task 6: Matt's Roster and a worker's card on a Spanish phone (11/25/26) ----------
+// stormWorld by hand: C01 renamed "Map Done" ("Map", "Done" are rows) with typed traits "Done fast", and C03 (Jordan Demo)
+// renamed "Hi Back" ("Hi", "Back" are rows), C01 riding with C03. The card's labels read Spanish; every name and typed word as typed.
+test('Spanish: the Roster and a worker card read Spanish; names, traits and clearances stay as typed', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  const w = stormWorld();
+  w.crew = w.crew.map((c) => (c.id === 'C01' ? { ...c, name: 'Map Done', traits: 'Done fast', rides_with: 'C03' } : c.id === 'C03' ? { ...c, name: 'Hi Back' } : c));
+  await open(page, { token: 'tok-matt', snow: fakeSnow(w), clockAt: STORM_CLOCK });
+  await expect(page.locator('nav [data-tab="roster"]')).toContainText('Personal');
+  await page.click('nav [data-tab="roster"]');
+  await expect(page.locator('#addWorker')).toHaveText('Agregar trabajador');
+  await expect(page.locator('#roster_q')).toHaveAttribute('placeholder', 'Buscar en la cuadrilla');
+  await expect(page.locator('main')).toContainText('Map Done');
+  await expect(page.locator('main')).toContainText('Hi Back');
+  await page.click('[data-open="C01"]');
+  const card = page.locator('#dlgIn');
+  await expect(card.locator('h2')).toHaveText('Map Done');
+  await expect(card).toContainText('Viaja con');
+  await expect(card).toContainText('Hi Back');
+  await expect(card).toContainText('Done fast');
+  await expect(card).toContainText('Cualidades');
+  await expect(card.locator('#w_edit')).toHaveText('Editar');
+  await expect(card).not.toContainText('Hola');
+  await expect(card).not.toContainText('Listo');
+});

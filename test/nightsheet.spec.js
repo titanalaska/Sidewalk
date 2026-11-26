@@ -405,3 +405,79 @@ test('storm tab: in Spanish a person whose name is a translatable word keeps the
   const flat = (await (await totals(page)).locator('> div').allInnerTexts()).map((r) => r.replace(/\s+/g, ' ').trim());
   expect(flat).toContain('Derretidor de hielo: Crew 3 bolsas');
 });
+
+// Fix wave (11/25/26, final review). The crew's own typed Materials text is the crew's words: on a Spanish phone "Ice melt: 2 bags"
+// typed into Materials used must NOT be read as the Storm tab's own "Ice melt:" prefix. Worked on paper: Alex's card says materials
+// "Ice melt: 2 bags", depth 3; the line reads "Materials: Ice melt: 2 bags (Alex Test)" in English and in Spanish only "Materials:"
+// changes -> "Materiales: Ice melt: 2 bags (Alex Test)".
+test('storm tab: in Spanish the crew\'s typed Materials text is never translated; the English line is unchanged', async ({ page }) => {
+  const w = world();
+  w.visits = [visit(1, { by_key: 'k-alex', by_name: 'Alex Test', depth_in: 3, materials_used: 'Ice melt: 2 bags' })];
+  await open(page, w, 'es');
+  const flat = (await (await totals(page)).locator('> div').allInnerTexts()).map((r) => r.replace(/\s+/g, ' ').trim());
+  expect(flat).toContain('Materiales: Ice melt: 2 bags (Alex Test)');
+  expect(flat.join(' | ')).not.toContain('Derretidor');
+});
+
+test('storm tab: in English the Depth and Materials lines read exactly as before', async ({ page }) => {
+  const w = world();
+  w.visits = [visit(1, { by_key: 'k-alex', by_name: 'Alex Test', depth_in: 3, materials_used: 'Ice melt: 2 bags' }),
+    visit(2, { by_key: 'k-bea', by_name: 'Bea Demo', depth_in: 4, materials_used: 'salt' })];
+  await open(page, w);
+  const flat = (await (await totals(page)).locator('> div').allInnerTexts()).map((r) => r.replace(/\s+/g, ' ').trim());
+  expect(flat).toContain('Depth: Alex Test 3 in, Bea Demo 4 in');
+  expect(flat).toContain('Materials: Ice melt: 2 bags (Alex Test), salt (Bea Demo)');
+});
+
+// Print sheets, the end-of-night table in print at 720 px (Letter less half-inch margins). Worked on paper, night of 10/2:
+//   Big Clinic (S1): Arrived TAPPED 12:55 AM on 10/3 (00:55), Left never tapped, a typed row with Out 10:05 PM -> In "12:55 AM",
+//     Out "10:05 PM" + "(typed)" on a second line.
+//   Camp Lot (S2, no zones = Whole site): its one walk tapped at 12:55 AM, no Arrived / Left -> the joined cell "Done 12:55 AM".
+// A two-digit-hour time needs about 58 px; at 7 % (about 50 px) "12:55 AM10:05 PM" ran together. Every td.t must hold its content.
+function printWorld() {
+  const w = world();
+  w.sites.push({ id: 'S2', name: 'Camp Lot', rev: 1, units: { bobcat: '', snowrator: '' }, materials_needed: '' });
+  w.routes[0].site_ids = ['S1', 'S2'];
+  w.post.routes[0].sites = [{ id: 'S1', name: 'Big Clinic' }, { id: 'S2', name: 'Camp Lot' }];
+  const row = (n, site, zone, state, at, extra = {}) => ({ id: 'L-' + n, seq: n, storm_id: 'ST-1', shift_id: SHIFT, site_id: site, zone_id: zone, state,
+    note: '', by_key: 'C01', by_name: 'Alex Test', at, off_route: false, snowing_warned: false, undoes: null, ...extra });
+  w.log = [
+    row(1, 'S1', '*', 'arrived', '2026-10-03T00:55:00.000-08:00'),
+    row(2, 'S1', 'Z1', 'cleared', '2026-10-03T01:10:00.000-08:00'),
+    row(3, 'S1', '*', 'typed', '2026-10-03T06:20:00.000-08:00', { by_key: 'admin', by_name: 'Matthew', time_in: '', time_out: '2026-10-02T22:05' }),
+    row(4, 'S2', 'whole', 'cleared', '2026-10-03T00:55:00.000-08:00'),
+  ];
+  w.visits = [visit(1, { site_id: 'S1', by_key: 'C01', by_name: 'Alex Test', depth_in: 3 })];
+  return w;
+}
+async function openPrint(page, w) {
+  await open(page, w);
+  await page.locator('#liveBack').click();
+  await page.addInitScript(() => { window.print = () => {}; });
+  await page.evaluate(() => { window.print = () => {}; });
+  await page.click('#printSheets');
+  await expect(page.locator('#printsheets table.rs')).toHaveCount(1);
+  await page.evaluate(() => { [...document.querySelectorAll('#printsheets .sheet')].slice(1).forEach((e) => e.remove()); });
+  await page.setViewportSize({ width: 720, height: 900 });
+  await page.emulateMedia({ media: 'print', colorScheme: 'dark' });
+}
+
+test('print sheets: every In / Out time stays on one line inside its cell, in print at 720 px', async ({ page }) => {
+  await openPrint(page, printWorld());
+  const rows = await page.locator('#printsheets tr.site').evaluateAll((trs) => trs.map((tr) => ({ name: tr.querySelector('.sitecell b').textContent,
+    cells: [...tr.querySelectorAll('td.t')].map((td) => ({ text: td.innerText.replace(/\s+/g, ' ').trim(), sw: td.scrollWidth, cw: td.clientWidth })) })));
+  const big = rows.find((r) => r.name === 'Big Clinic'), camp = rows.find((r) => r.name === 'Camp Lot');
+  expect(big.cells.map((c) => c.text)).toEqual(['12:55 AM', '10:05 PM (typed)']);
+  expect(camp.cells.map((c) => c.text)).toEqual(['Done 12:55 AM']);
+  for (const c of big.cells.concat(camp.cells)) expect(c.sw, c.text + ' ' + c.sw + ' > ' + c.cw).toBeLessThanOrEqual(c.cw);
+  // The widths: In and Out are 9 % of 720 = 64.8 px (a little less after the border), the joined cell twice that.
+  expect(big.cells[0].cw).toBeGreaterThanOrEqual(60);
+});
+
+test('print sheets: headings print black and bold even on a dark-mode phone', async ({ page }) => {
+  await openPrint(page, printWorld());
+  const ths = await page.locator('#printsheets table.rs th').evaluateAll((els) => els.map((th) => { const cs = getComputedStyle(th); return [cs.color, Number(cs.fontWeight)]; }));
+  expect(ths.length).toBe(10);
+  for (const [color, weight] of ths) { expect(color).toBe('rgb(0, 0, 0)'); expect(weight).toBeGreaterThanOrEqual(700); }
+});
+

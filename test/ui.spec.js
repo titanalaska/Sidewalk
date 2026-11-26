@@ -7749,6 +7749,21 @@ test.describe('bottom tabs:', () => {
     await expect(sw(page, 'roster').locator('.tabcount')).toHaveText('1');
   });
 
+  test('bottom tabs: a request that lands while Matt is on the Board shows on Crew and on the switch\'s Roster at once', async ({ page }) => {
+    // Off the Roster screen a new count is written in place (markCounts), not by a redraw: both badges must move.
+    // Worked by hand: nobody waits (no pending names, world() has no pending card); Newbie Nate asks = 1.
+    const list = PROFILES.filter((p) => p.status !== 'pending').map((p) => ({ ...p }));
+    await open(page, { token: 'tok-matt', snow: fakeSnow(world()), inv: invWithRequests(list) });
+    await crewBtn(page).click();
+    await expect(page.locator('#post')).toBeVisible();
+    await expect(page.locator('#tabs .tabcount, #crewsw .tabcount')).toHaveCount(0);
+    list.push({ id: 12, name: 'Newbie Nate', status: 'pending', hasPin: true });
+    await pollNow(page); // back on screen: the waiting lists are read again
+    await expect(crewBtn(page).locator('.tabcount')).toHaveText('1');
+    await expect(sw(page, 'roster').locator('.tabcount')).toHaveText('1');
+    await expect(page.locator('#post')).toBeVisible(); // still on the Board
+  });
+
   // ---- every tab's words fit at 320 px (the narrowest phone in use), every role, EN and ES ----
   // A button's word is its first text node. The Range's box is the word's full width even when CSS paints it as "Rout…"
   // (an ellipsis is paint only: scrollWidth said "Routes" fit while the screen showed "Rout…"). One line per word that

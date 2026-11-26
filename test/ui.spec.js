@@ -8383,7 +8383,8 @@ test("Spanish: a lead's storm controls are not half-translated; the card's Start
   await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
   const w = stormWorld(); w.storms = [];                                       // no storm open: Start storm shows
   await openStorm(page, w, { token: 'tok-alex' });
-  await expect(page.locator('[data-storm="start"]')).toHaveText('Start storm');
+  // Spanish everywhere (Matt 11/25/26): the leads' controls read Spanish too, whole ("Empezar tormenta", never "Inicio storm").
+  await expect(page.locator('[data-storm="start"]')).toHaveText('Empezar tormenta');
   w.storms = [START_ROW];
   await page.reload();                                                        // the storm is open now
   await page.click('nav [data-tab="storm"]');

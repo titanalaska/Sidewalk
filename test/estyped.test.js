@@ -64,3 +64,24 @@ test('estyped: prefetch for Matt (no crew id) or with no Post: no own route, eve
     sites: S.sites, zones: [] };
   assert.deepEqual(T.prefetchLines(L), [['Sweep the steps'], ['Salt the ramp']]);
 });
+
+test('estyped: a kept value of only spaces is dropped (never a blank line on screen)', () => {
+  // final review M2: a Translation cell Matt cleared to spaces must never blank the English
+  assert.deepEqual(T.readStore(JSON.stringify({ es: { a: '   ', b: 'Banqueta' }, en: { c: '' } })), { es: { b: 'Banqueta' }, en: {} });
+});
+
+test("estyped: a crew phone's prefetch leaves out the curb zones it never sees (a site with Curbs for the crew off)", () => {
+  // final review M9. S1 crew_curbs off: its curb zone "Curb north" (type hand, named Curb...) is never on a crew screen -> not
+  // asked. S2 crew_curbs on: its "Curb south" is -> asked. Matt (admin) sees every zone on his map -> his list keeps both.
+  global.CrewShiftLog = require('../lib/shiftlog.js');
+  try {
+    const sites = [{ id: 'S1', notes: '', crew_curbs: false }, { id: 'S2', notes: '', crew_curbs: true }];
+    const zones = [{ id: 'Z1', site_id: 'S1', type: 'hand', name: 'Curb north', note: '' },
+      { id: 'Z2', site_id: 'S1', type: 'sidewalk', name: 'Front walk', note: '' },
+      { id: 'Z3', site_id: 'S2', type: 'hand', name: 'Curb south', note: '' }];
+    const crew = { me: { crew_id: 'C03', role: 'crew' }, post: null, sites, zones };
+    assert.deepEqual(T.prefetchLines(crew), [[], ['Front walk', 'Curb south']]);
+    const matt = { me: { crew_id: null, role: 'admin' }, post: null, sites, zones };
+    assert.deepEqual(T.prefetchLines(matt), [[], ['Curb north', 'Front walk', 'Curb south']]);
+  } finally { delete global.CrewShiftLog; }
+});

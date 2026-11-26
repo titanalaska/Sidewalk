@@ -24,8 +24,10 @@ function world() {
     routes: [{ id: 'R1', name: 'N1', rev: 1, site_ids: ['S1'] }],
     crew: [], post: null, storms: [], log: [],
     calls: [],                    // every translate body, in order
-    // The fake translator: '[ES] text' / '[EN] text' unless the test changes it. mode 'offline' = no signal (aborted).
-    answer: (lang, t) => '[' + lang.toUpperCase() + '] ' + t,
+    // The fake translator, as the server answers: a line the Translations tab holds (HELD below, what this phone was given
+    // earlier) comes back the same; any other line '[ES] text' / '[EN] text' unless the test changes it. mode 'offline' = no
+    // signal (aborted).
+    answer: (lang, t) => (HELD[lang] && HELD[lang][t]) || '[' + lang.toUpperCase() + '] ' + t,
     later: () => false, refused: () => false, mode: 'ok',
   };
 }
@@ -71,6 +73,14 @@ async function open(page, w, o = {}) {
   await page.route(isSnow, async (route) => {
     const body = JSON.parse(route.request().postData() || '{}');
     if (body.action === 'translate' && w.mode === 'offline') { w.calls.push(body); return route.abort('internetdisconnected'); }
+    if (body.action === 'translate') {
+      // how many translate calls are out at once (w.maxOut), each reply held w.delayMs of real time
+      w.out = (w.out || 0) + 1; w.maxOut = Math.max(w.maxOut || 0, w.out);
+      if (w.delayMs) await new Promise((r) => setTimeout(r, w.delayMs));
+      const reply = JSON.stringify(fake(body));
+      w.out--;
+      return route.fulfill({ contentType: 'application/json', body: reply });
+    }
     await route.fulfill({ contentType: 'application/json', body: JSON.stringify(fake(body)) });
   });
   await page.route(isInv, (route) => route.fulfill({ contentType: 'application/json', body: '{}' }));
@@ -94,15 +104,91 @@ async function addTyped(page, items) {
 }
 const text = (page, id) => page.locator('#' + id).evaluate((el) => el.textContent);
 
-test('typed words: a Spanish phone shows the Spanish it holds for a zone name, with no call', async ({ page }) => {
+test('typed words: a Spanish phone shows the Spanish it holds at once, and asks the tab for that line once this session', async ({ page }) => {
   const w = world();
   await open(page, w);
   await addTyped(page, [['z', 'Sidewalk north']]);
-  // held: 'Sidewalk north' -> 'Banqueta norte'
+  // held: 'Sidewalk north' -> 'Banqueta norte', shown before anything is asked (no signal needed)
   await expect(page.locator('#z')).toHaveText('Banqueta norte');
   await expect(page.locator('#z')).toHaveAttribute('data-typed-shown', '');
-  await page.clock.runFor(2000);
   expect(w.calls.length).toBe(0);
+  // 400 ms later the line is asked once (the tab answers it: final review C1); never again this session
+  await page.clock.runFor(500);
+  await expect.poll(() => w.calls.length).toBe(1);
+  expect(w.calls[0].texts).toEqual(['Sidewalk north']);
+  await page.clock.runFor(61000);
+  await addTyped(page, [['z2', 'Sidewalk north']]);
+  await page.clock.runFor(61000);
+  expect(w.calls.length).toBe(1);
+  await expect(page.locator('#z2')).toHaveText('Banqueta norte');
+});
+
+test('typed words: a line Matt fixed by hand in the Translations tab reaches a phone that already holds the old Spanish', async ({ page }) => {
+  // final review C1. This phone holds 'Sidewalk north' -> 'Banqueta norte'; the tab now says 'Banqueta del lado norte'.
+  const w = world();
+  w.answer = (lang, t) => (t === 'Sidewalk north' ? 'Banqueta del lado norte' : '[ES] ' + t);
+  await open(page, w);
+  await addTyped(page, [['z', 'Sidewalk north']]);
+  await expect(page.locator('#z')).toHaveText('Banqueta norte');
+  await page.clock.runFor(500);
+  await expect(page.locator('#z')).toHaveText('Banqueta del lado norte');
+  const kept = await page.evaluate((k) => JSON.parse(localStorage.getItem(k)), KEY);
+  expect(kept.es['Sidewalk north']).toBe('Banqueta del lado norte');
+});
+
+test('typed words: a blank answer never blanks the English, and a blank kept value is not shown', async ({ page }) => {
+  // final review M2: a cell cleared to spaces. The kept copy holds 'Old note' -> '   ' (dropped on read); Google answers '  '.
+  const w = world();
+  w.answer = () => '  ';
+  await open(page, w, { held: { es: { 'Old note': '   ' }, en: {} } });
+  await addTyped(page, [['a', 'Old note'], ['b', 'Salt the ramp']]);
+  await expect(page.locator('#a')).toHaveText('Old note');
+  await page.clock.runFor(500);
+  await expect.poll(() => w.calls.length).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.SnowEsTyped.pending().inflight)).toBe(0);
+  await expect(page.locator('#a')).toHaveText('Old note');
+  await expect(page.locator('#b')).toHaveText('Salt the ramp');
+});
+
+test('typed words: no signal never uses up a line\'s retries: once signal is back the line is translated', async ({ page }) => {
+  // final review M4. Offline: ask 1 at 0.4 s and a retry every ~60 s; four retries fail (more than the 3 a "later" gets);
+  // then signal is back and the next retry is answered.
+  const w = world();
+  w.mode = 'offline';
+  await open(page, w);
+  await addTyped(page, [['a', 'Salt the ramp']]);
+  const settled = () => expect.poll(() => page.evaluate(() => window.SnowEsTyped.pending().inflight)).toBe(0);
+  await page.clock.runFor(500);
+  await expect.poll(() => w.calls.length).toBe(1); await settled();
+  for (let n = 2; n <= 5; n++) { await page.clock.runFor(61000); await expect.poll(() => w.calls.length).toBe(n); await settled(); }
+  await expect(page.locator('#a')).toHaveText('Salt the ramp');
+  w.mode = 'ok';
+  await page.clock.runFor(61000);
+  await expect(page.locator('#a')).toHaveText('[ES] Salt the ramp');
+});
+
+test('typed words: one call at a time, and a line both on screen and in the sign-in fill is asked once', async ({ page }) => {
+  // final review I2. Jordan's own route R2 = S2 (Sweep the steps, South walk); the rest = S1 (Salt the ramp, 2 bags, North walk,
+  // Ice by the door). Two of those are also on screen. Every reply waits 300 ms (real time), so two calls out at once would show.
+  const w = world();
+  w.sites = [{ id: 'S1', name: 'Big Clinic', notes: 'Salt the ramp', materials_needed: '2 bags', rev: 1 },
+    { id: 'S2', name: 'Mid Lot', notes: 'Sweep the steps', materials_needed: '', rev: 1 }];
+  w.zones = [{ id: 'Z1', site_id: 'S1', name: 'North walk', type: 'sidewalk', note: 'Ice by the door', rev: 1 },
+    { id: 'Z2', site_id: 'S2', name: 'South walk', type: 'sidewalk', note: '', rev: 1 }];
+  w.routes = [{ id: 'R1', name: 'N1', rev: 1, site_ids: ['S1'] }, { id: 'R2', name: 'N2', rev: 1, site_ids: ['S2'] }];
+  w.post = { id: 'P-1', shift: 'night-2026-12-04', posted_at: '2026-12-04T20:00:00.000-09:00', people: { C03: { name: 'Jordan Demo' } },
+    routes: [{ id: 'R1', name: 'N1', lead: null, members: [], sites: [{ id: 'S1', name: 'Big Clinic' }] },
+      { id: 'R2', name: 'N2', lead: null, members: ['C03'], sites: [{ id: 'S2', name: 'Mid Lot' }] }] };
+  w.delayMs = 300;
+  await open(page, w, { crew: true, held: null });
+  await addTyped(page, [['a', 'South walk'], ['b', 'North walk']]);
+  await page.clock.runFor(500);
+  await expect.poll(() => [].concat(...w.calls.map((c) => c.texts)).length).toBe(6);
+  await expect.poll(() => page.evaluate(() => window.SnowEsTyped.pending())).toEqual({ queued: 0, inflight: 0 });
+  const asked = [].concat(...w.calls.map((c) => c.texts));
+  expect([...asked].sort()).toEqual(['2 bags', 'Ice by the door', 'North walk', 'Salt the ramp', 'South walk', 'Sweep the steps']);
+  expect(w.maxOut).toBe(1);
+  await expect(page.locator('#b')).toHaveText('[ES] North walk');
 });
 
 test('typed words: three misses are ONE translate call 400 ms later, and all three are patched', async ({ page }) => {
@@ -223,7 +309,8 @@ test('typed words: a tap on a translated note shows the English for 4 s, a secon
   await expect(page.locator('#z')).toHaveText('Sidewalk north');
   await page.locator('#z').click();
   await expect(page.locator('#z')).toHaveText('Banqueta norte');
-  expect(w.calls.length).toBe(0);
+  // the one call is the session's check of the held line (the tab answered the same Spanish)
+  expect(w.calls.map((c) => c.texts)).toEqual([['Sidewalk north']]);
 });
 
 test('typed words: EN puts every typed element back to its English; ES shows the Spanish again, with no call', async ({ page }) => {

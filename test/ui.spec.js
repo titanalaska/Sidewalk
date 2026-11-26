@@ -8470,6 +8470,8 @@ test('Spanish: the map\'s "Which zone?" list reads Spanish and keeps the zone na
   await expect(page.getByText('Which zone?', { exact: true })).toHaveCount(0);
   await expect(inSheet(page, '[data-pickzone="Z1"]')).toHaveText('Sidewalk - front entry');
   await expect(inSheet(page, '[data-pickzone="Z6"]')).toHaveText('Curb - entry');
+  // each button's zone name is a typed word (Ship 2: data-typed, so lib/estyped.js can show its Spanish; the fake refuses here)
+  expect(await inSheet(page, '.zonepick [data-typed]').allTextContents()).toEqual(['Sidewalk - front entry', 'Curb - entry']);
   await expect(inSheet(page, '.zonepick').getByText('Banqueta')).toHaveCount(0);
   await inSheet(page, '[data-pickzone="Z1"]').click();
   await expect(inSheet(page, 'h2')).toContainText('Sidewalk - front entry');
@@ -12819,6 +12821,9 @@ async function englishLeft(page, sel = 'body') {
 }
 const esOn = (page) => page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
 // stormWorld with names that hold row words (Review Focus 2): route R1 "Done Route", site S1 "Map Site", zone Z1 "Sidewalk 2".
+// Ship 2 (11/26/26, final review): zone names are typed words now. On a Spanish phone lib/estyped.js asks the server for their
+// Spanish, and a real server would answer "Banqueta 2" for "Sidewalk 2". This file's fake refuses every translate line, so these
+// screens still show the name as typed: what they hold is that the app's OWN Spanish pass (es.js rows) never touches a name.
 const esWorld = () => {
   const w = stormWorld();
   w.routes = w.routes.map((r) => (r.id === 'R1' ? { ...r, name: 'Done Route' } : r));
@@ -13055,4 +13060,45 @@ test('typed words: an EN phone prints the route lists in Espanol: the held Spani
   await expect(view).toContainText('NO SALT: fresh concrete');
   await expect(view).toContainText('Heated walk');
   await expect(view).not.toContainText('SIN SAL');
+});
+
+// Final review M8 (11/26/26): data-typed on each remaining place, one count per screen; never a name, an address or a unit.
+test('typed words: the Sites tab marks a site\'s notes, never its name', async ({ page }) => {
+  // world() by hand: PAC (S1) gets the notes "Gate code 4512"; TUDOR-TRANSIT has none -> exactly one mark on the Sites tab
+  const w = world();
+  w.sites = w.sites.map((s) => (s.id === 'S1' ? { ...s, notes: 'Gate code 4512' } : s));
+  await open(page, { token: 'tok-matt', snow: fakeSnow(w) });
+  await page.click('nav [data-tab="sites"]');
+  await expect(page.locator('main')).toContainText('Gate code 4512');
+  const marks = await page.locator('main [data-typed]').evaluateAll((els) => els.map((e) => [e.textContent, e.hasAttribute('data-no-es')]));
+  expect(marks).toEqual([['Gate code 4512', true]]);
+});
+
+test('typed words: the map page marks the materials and the notes, never the address', async ({ page }) => {
+  // mapWorld by hand: PAC has materials "4-5 bags IceMelt"; notes "Gate code 4512" and an address added
+  const w = mapWorld();
+  w.sites = w.sites.map((s) => (s.id === 'S1' ? { ...s, notes: 'Gate code 4512', address: '3 Test Way' } : s));
+  await adminMap(page, w);
+  const marks = await page.locator('#mapsite [data-typed]').evaluateAll((els) => els.map((e) => [e.textContent, e.hasAttribute('data-no-es')]));
+  expect(marks).toEqual([['4-5 bags IceMelt', true], ['Gate code 4512', true]]);
+});
+
+test('typed words: the site card marks the Needed line\'s materials', async ({ page }) => {
+  const w = stormWorld();
+  w.sites = w.sites.map((s) => (s.id === 'S1' ? { ...s, materials_needed: '2-4 bags IceMelt' } : s));
+  await openStorm(page, w, { token: 'tok-matt' });
+  await openRoute(page, 'R1');
+  await openCard(page, 'S1');
+  await expect(page.locator('#vc_needed [data-typed]')).toHaveText('2-4 bags IceMelt');
+  await expect(page.locator('#dlg [data-typed]')).toHaveCount(1);
+});
+
+test('typed words: the live view\'s Problems list marks the zone name and the crew note', async ({ page }) => {
+  // stormWorld + a Problem on Main entry, "Ice by the door": the live view's Problems card lists it: PAC (a site name: not
+  // marked) · Main entry (typed) and the note (a crew note)
+  const w = stormWorld();
+  w.log = [logRow(1, 'S1', 'Z1', 'problem', 'Jordan Demo', { note: 'Ice by the door' })];
+  await openStorm(page, w, { token: 'tok-matt' });
+  const marks = await page.locator('#problems [data-typed]').evaluateAll((els) => els.map((e) => [e.textContent, e.getAttribute('data-typed')]));
+  expect(marks).toEqual([['Main entry', ''], ['Ice by the door', 'crew']]);
 });

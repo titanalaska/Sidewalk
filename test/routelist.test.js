@@ -116,6 +116,7 @@ test('no routes at all: no pages', () => {
 
 const html = (i, t) => RouteList.pageHtml(RouteList.pages(mk())[i], t || ((s) => s));
 const count = (s, needle) => s.split(needle).length - 1;
+const NL = String.fromCharCode(10); // a line break, written without an escape
 
 test('page: the heading, a blank date (never a real one), the crew lines', () => {
   const h = html(0);
@@ -166,13 +167,18 @@ test('page: a lead alone omits the Crew line; members alone omit the Lead line',
 
 test('page: the NO SALT line is bold; a blank materials site prints no Materials line; one Materials: in all', () => {
   const h = html(0);
-  assert.ok(h.includes('<b data-no-es>NO SALT: fresh concrete. Sand only.</b>'));
+  // typed words (Spanish everywhere, Ship 2): the materials are a typed line, data-typed as well as data-no-es
+  assert.ok(h.includes('<b data-no-es data-typed>NO SALT: fresh concrete. Sand only.</b>'));
   assert.equal(count(h, 'Materials:'), 1); // Zeta Lot has none
 });
 
 test('page: notes are escaped and keep their line break; names and address are escaped', () => {
   const h = html(0);
-  assert.ok(h.includes('Gate code on &lt;post&gt;<br>Back &amp; forth'));
+  // The break stays a line break in the text itself (white-space: pre-line), not a <br>: the typed-words layer sets the
+  // element's text, and a <br> join would lose the line (Spanish everywhere, Ship 2).
+  assert.ok(h.includes('<span data-no-es data-typed>Gate code on &lt;post&gt;' + NL + 'Back &amp; forth</span>'));
+  assert.ok(!h.includes('<br>'));
+  assert.ok(RouteList.css.includes('.rl-notes [data-typed] { white-space: pre-line; }'));
   assert.ok(!h.includes('<post>'));
   assert.ok(h.includes('1 Main St'));
   assert.equal(count(h, 'Notes:'), 1); // Zeta Lot has whitespace-only notes: none
@@ -208,9 +214,11 @@ test('page: one row per site; Done and Shoveled always, Curbs done only with cur
   assert.equal(count(zeta, 'class="rl-box"'), 2);
   assert.equal(count(alpha, 'class="rl-box"'), 3);
   assert.ok(!h.includes('Lot walk'), 'a plain walk is not listed');
-  assert.ok(alpha.includes('★ <span>Priority:</span> <span data-no-es>Front walk</span>'));
-  assert.ok(alpha.includes('<span>Heated, check only:</span> <span data-no-es>Entry pad</span>'));
-  assert.ok(alpha.includes('<span data-no-es>Curbs: clear 4 ft back (about 500 ft)</span>')); // wording changed on Matt's word 11/12/26
+  // each zone name is its own typed span (Spanish everywhere, Ship 2); the curb item is the app's own words: a plain span,
+  // which the Spanish rule translates (under data-no-es it printed English on a Spanish route list)
+  assert.ok(alpha.includes('★ <span>Priority:</span> <span data-no-es data-typed>Front walk</span>'));
+  assert.ok(alpha.includes('<span>Heated, check only:</span> <span data-no-es data-typed>Entry pad</span>'));
+  assert.ok(alpha.includes('<span class="rl-warn rl-curbs"><span>Curbs: clear 4 ft back (about 500 ft)</span></span>')); // wording changed on Matt's word 11/12/26
   assert.equal(count(h, 'Priority:'), 1);
   assert.equal(count(h, 'Heated, check only:'), 1);
   assert.ok(!h.includes('Old path') && !h.includes('Snow pile'));
@@ -288,7 +296,8 @@ test('new concrete: a striped walk (and a curb item with one striped zone) print
   // One line per site (11/14/26): the striped walks are one "Sand only, no salt:" line at their site, in walk order.
   const h = RouteList.pageHtml(RouteList.pages(o)[0], (s) => s);
   assert.equal(count(h, 'Sand only, no salt:'), 1);
-  assert.ok(h.includes('<span>Sand only, no salt:</span> <span data-no-es>Front walk, Curbs: clear 4 ft back (about 500 ft)</span>'));
+  // a zone name typed and marked; the curb item plain (a rule translates it); ", " between them
+  assert.ok(h.includes('<span>Sand only, no salt:</span> <span data-no-es data-typed>Front walk</span>, <span>Curbs: clear 4 ft back (about 500 ft)</span>'));
   assert.ok(!h.split('class="rl-site"')[1].includes('Sand only'), 'Zeta Lot has no striped walk');
   assert.ok(RouteList.pageHtml(RouteList.pages(o)[0], (s) => String(s).toUpperCase()).includes('SAND ONLY, NO SALT:'));
   assert.equal(count(html(0), 'Sand only, no salt:'), 0); // the untouched fixture prints none (its materials text says 'Sand only.': data)
@@ -369,4 +378,18 @@ test('css is a string of rules the view can scope', () => {
   assert.match(RouteList.css, /\.rl-page/);
   assert.match(RouteList.css, /break-after:\s*page/);
   assert.match(RouteList.css, /\.rl-site \{[^}]*break-inside:\s*avoid/); // a site's row is never split across two pages
+});
+
+// Spanish everywhere, Ship 2: the typed-words layer (lib/estyped.js) shows the Spanish of exactly the typed lines. Page N2 worked by
+// hand: Zeta Lot has no materials, blank notes and only a plain walk -> nothing marked. Alpha Court: its materials, its notes,
+// "Front walk" (Priority) and "Entry pad" (Heated) -> 4 marks; the curb item is the app's own words -> not marked. Never marked:
+// a site name (Alpha Court, Zeta Lot), the address (1 Main St), a unit (BC5).
+test('typed words: a route list marks exactly the typed lines, never a name, an address, a unit or the curb item', () => {
+  const h = html(0);
+  const marked = [...h.matchAll(/<(?:b|span)[^>]*data-typed[^>]*>([^<]*)</g)].map((m) => m[1]);
+  assert.deepEqual(marked, ['NO SALT: fresh concrete. Sand only.', 'Front walk', 'Entry pad', 'Gate code on &lt;post&gt;' + NL + 'Back &amp; forth']);
+  assert.equal(count(h, 'data-typed'), 4);
+  // every mark is also data-no-es (the app's own Spanish pass never touches a person's words)
+  assert.equal(count(h, 'data-no-es data-typed'), 4);
+  for (const never of ['Alpha Court', 'Zeta Lot', '1 Main St', 'BC5', 'Curbs: clear']) assert.ok(!marked.some((t) => t.includes(never)), never);
 });

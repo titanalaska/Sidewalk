@@ -23,16 +23,30 @@ test('the page carries the site, the picture, the legend and one row per zone, e
   const h = page();
   assert.match(h, /<h1 data-no-es>PAC &amp; Co<\/h1>/);
   assert.match(h, /621 W 6TH AVE.*MOA/);
-  assert.match(h, /<b>Materials:<\/b> <b data-no-es>~8 buckets sand<\/b>/);
+  assert.match(h, /<b>Materials:<\/b> <b data-no-es data-typed>~8 buckets sand<\/b>/);
   assert.match(h, /Line 1\nLine 2/);
   assert.match(h, /<img class="mp-img" src="data:image\/jpeg;base64,AAAA"/);
   for (const k of Object.keys(M.TYPES)) assert.ok(h.includes(M.TYPES[k].label), k + ' in the legend');
   assert.equal((h.match(/<tr><td>/g) || []).length, 3);
-  assert.match(h, /mp-num mp-pri">1<\/b><\/td><td data-no-es><b>★ Zed entry/);
+  // the star outside the typed name's span (the name is what lib/estyped.js translates)
+  assert.match(h, /mp-num mp-pri">1<\/b><\/td><td><b>★ <span data-no-es data-typed>Zed entry<\/span>/);
   assert.match(h, /New concrete: sand only, no salt/);
   assert.match(h, /Clear the &lt;ramp&gt;/);
   assert.ok(!h.includes('<ramp>'));
   assert.match(h, /Printed <span data-no-es>11\/18\/26, 12:40 PM/);
+});
+
+// Spanish everywhere, Ship 2: Print map in Espanol shows the Spanish of the typed lines (lib/estyped.js). On paper, this page:
+// the materials "~8 buckets sand", the notes "Line 1\nLine 2", the three zone names (Zed entry, Walk 2, Walk 10 in print
+// order) and Walk 2's note "Clear the <ramp>" -> 6 marks, each also data-no-es; Walk 10 and Zed entry have no note: their note
+// cells are not marked. Never marked: the site's name (PAC & Co), its address, its customer (MOA).
+test('typed words: the map page marks exactly the typed lines, never a name, an address or a customer', () => {
+  const h = page();
+  const marked = [...h.matchAll(/<(?:b|span|div|td)[^>]*data-typed[^>]*>([^<]*)</g)].map((m) => m[1]);
+  assert.deepEqual(marked, ['~8 buckets sand', 'Line 1\nLine 2', 'Zed entry', 'Walk 2', 'Clear the &lt;ramp&gt;', 'Walk 10']);
+  assert.equal(h.split('data-typed').length - 1, 6);
+  assert.equal(h.split('data-no-es data-typed').length - 1, 6);
+  for (const never of ['PAC', '621 W 6TH AVE', 'MOA']) assert.ok(!marked.some((t) => t.includes(never)), never);
 });
 
 test('no picture: the page says so and the list still prints; no zones: it says so; blank fields leave no line', () => {

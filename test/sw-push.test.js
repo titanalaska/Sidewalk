@@ -13,6 +13,8 @@ const EN_BODY = 'Snow tonight. Open Shovel Command for your route.';
 const ES_BODY = 'Nieve esta noche. Abre Shovel Command para ver tu ruta.';
 
 // opts.stored: {cacheName: {requestKey: text}}; opts.fail: 'open' | 'match' | 'text' makes the PREFS cache misbehave.
+// The app's own scope: the registration's, as the browser reports it for https://titanalaska.github.io/Sidewalk/sw.js.
+const SCOPE = 'https://titanalaska.github.io/Sidewalk/';
 function load(opts) {
   opts = opts || {};
   var stored = opts.stored || {};
@@ -51,7 +53,7 @@ function load(opts) {
   var self = {
     location: { origin: 'https://example.test' },
     clients: clientsApi,
-    registration: { showNotification: function (title, o) { shown.push({ title: title, o: o }); return Promise.resolve(); } },
+    registration: { scope: SCOPE, showNotification: function (title, o) { shown.push({ title: title, o: o }); return Promise.resolve(); } },
     skipWaiting: function () {},
     addEventListener: function (type, fn) { listeners[type] = fn; }
   };
@@ -135,9 +137,9 @@ test('tapping closes the notification and focuses the first window that can focu
   let closed = 0;
   const focused = [];
   const clients = [
-    { url: 'a' },
-    { url: 'b', focus: function () { focused.push('b'); return Promise.resolve(); } },
-    { url: 'c', focus: function () { focused.push('c'); return Promise.resolve(); } }
+    { url: SCOPE },
+    { url: SCOPE + 'index.html', focus: function () { focused.push('b'); return Promise.resolve(); } },
+    { url: SCOPE + '?c', focus: function () { focused.push('c'); return Promise.resolve(); } }
   ];
   const env = load({ clients: clients });
   const waited = fire(env, 'notificationclick', { notification: { close: function () { closed++; } } });
@@ -151,7 +153,7 @@ test('tapping closes the notification and focuses the first window that can focu
 
 test('tapping with no focusable window opens ./', async () => {
   let closed = 0;
-  const env = load({ clients: [{ url: 'x' }] });
+  const env = load({ clients: [{ url: SCOPE }] });
   await fire(env, 'notificationclick', { notification: { close: function () { closed++; } } })[0];
   assert.equal(closed, 1);
   assert.deepEqual(env.clients.opened, ['./']);
@@ -193,7 +195,7 @@ test('a focus() that rejects, or throws, falls through to openWindow(./) once; c
   };
   for (const how of Object.keys(makers)) {
     // the first window cannot focus, the second fails to, the third would work but is never reached
-    const env = load({ clients: [{ url: 'a' }, { url: 'b', focus: makers[how] }, { url: 'c', focus: function () { return Promise.resolve(); } }] });
+    const env = load({ clients: [{ url: SCOPE }, { url: SCOPE + 'index.html', focus: makers[how] }, { url: SCOPE + '?c', focus: function () { return Promise.resolve(); } }] });
     const t = tap(env);
     await t.waited[0];
     assert.equal(t.state.closed, 1, how);
@@ -203,7 +205,7 @@ test('a focus() that rejects, or throws, falls through to openWindow(./) once; c
 });
 
 test('if openWindow also rejects after a failed focus, that is the only thing that may reject', async () => {
-  const env = load({ openFail: true, clients: [{ url: 'b', focus: function () { return Promise.reject(new Error('x')); } }] });
+  const env = load({ openFail: true, clients: [{ url: SCOPE + 'index.html', focus: function () { return Promise.reject(new Error('x')); } }] });
   const t = tap(env);
   await assert.rejects(t.waited[0], /openWindow failed/);
   assert.deepEqual(env.clients.opened, ['./']);
@@ -211,7 +213,7 @@ test('if openWindow also rejects after a failed focus, that is the only thing th
 
 test('the work of a tap is inside waitUntil: nothing has happened when the listener returns, awaiting it finishes the job', async () => {
   const state = { focusCalled: false, focusDone: false };
-  const win = { url: 'b', focus: function () { state.focusCalled = true; return new Promise(function (r) { setTimeout(function () { state.focusDone = true; r(); }, 5); }); } };
+  const win = { url: SCOPE + 'index.html', focus: function () { state.focusCalled = true; return new Promise(function (r) { setTimeout(function () { state.focusDone = true; r(); }, 5); }); } };
   const env = load({ clients: [win] });
   const t = tap(env);
   assert.equal(t.waited.length, 1, 'waitUntil called once, synchronously');
@@ -232,4 +234,22 @@ test('close() is called before the windows are asked for', async () => {
   const t = tap(env);
   await t.waited[0];
   assert.deepEqual(env.clients.log, ['close', 'matchAll', 'openWindow']);
+});
+
+// The origin carries every Titan app (Inventory, Groundwork, Bootprint...), and matchAll({ includeUncontrolled }) hands back their
+// windows too (final review, 11/27/26). Only a window under this app's own scope is focused; with none of ours open, the app opens.
+// A look-alike path (/SidewalkOld/) and the address without its slash are not ours.
+test('a tap never brings another Titan app forward: only a window under the scope of this app is focused', async () => {
+  const focused = [];
+  const mk = (url) => ({ url, focus: function () { focused.push(url); return Promise.resolve(); } });
+  const others = [mk('https://titanalaska.github.io/Titan-Inventory/'), mk('https://titanalaska.github.io/Groundwork/index.html'),
+    mk('https://titanalaska.github.io/SidewalkOld/'), mk('https://titanalaska.github.io/Sidewalk')];
+  const env = load({ clients: others });
+  await tap(env).waited[0];
+  assert.deepEqual(focused, []);
+  assert.deepEqual(env.clients.opened, ['./']);
+  const env2 = load({ clients: others.concat([mk(SCOPE + 'index.html')]) });
+  await tap(env2).waited[0];
+  assert.deepEqual(focused, [SCOPE + 'index.html']);
+  assert.deepEqual(env2.clients.opened, []);
 });

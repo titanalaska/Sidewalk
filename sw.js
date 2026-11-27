@@ -51,9 +51,11 @@ self.addEventListener('push', function (e) {
 self.addEventListener('notificationclick', function (e) {
   e.notification.close();
   e.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).catch(function () { return []; }).then(function (list) {
-    var win = null;
+    // The origin carries every Titan app: matchAll hands back Inventory's and Groundwork's windows too. Only a window under
+    // this app's own scope is brought forward; with none of ours open, the app opens.
+    var scope = (self.registration && self.registration.scope) || '', win = null;
     for (var i = 0; i < list.length; i++) {
-      if (typeof list[i].focus === 'function') { win = list[i]; break; }
+      if (typeof list[i].focus === 'function' && scope && String(list[i].url || '').indexOf(scope) === 0) { win = list[i]; break; }
     }
     // A window that cannot be focused, or one whose focus fails, must not leave the tap doing nothing.
     return new Promise(function (resolve) { resolve(win ? win.focus() : Promise.reject(new Error('no window'))); })

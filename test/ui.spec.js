@@ -9486,6 +9486,32 @@ test('print wait: lines this phone already holds never hold the print', async ({
   await expect(page.locator('#printsheets .rl-page').nth(1).locator('.rl-sitehead .rl-es')).toHaveText('Patio Plomo');
 });
 
+test('print wait: a line answered "later" does not hold Print; its Spanish lands on the page when the retry answers', async ({ page }) => {
+  // The spec: a line waiting for a retry does not hold Print. On paper: the first ask of Lead Yard is answered "later" (Google's
+  // budget), the other three names come back the same (once). So 1 will print in English: Print is there (Print anyway), and the
+  // automatic print, decided then, is dropped. 60 s later the retry answers Patio Plomo: the page and the bar update, and
+  // nothing prints by itself.
+  const w = rlWorld();
+  let asked = 0;
+  w.translate = (b) => {
+    const later = b.texts.filter((t) => t === 'Lead Yard' && ++asked === 1);
+    return { done: Object.fromEntries(b.texts.filter((t) => !later.includes(t)).map((t) => [t, RL_ES[t] || t])), later, refused: [] };
+  };
+  await rlSpanish(page, w, { hold: 0 });
+  await page.click('#printRouteLists');
+  await page.clock.runFor(600);
+  await expect(page.locator('#printwait')).toHaveText('1 línea se imprimirá en inglés.');
+  await expect(page.locator('#printNow')).toBeEnabled();
+  await expect(page.locator('#printNow')).toHaveText('Imprimir de todos modos');
+  await page.clock.runFor(61000);
+  const ly = page.locator('#printsheets .rl-page').nth(1).locator('.rl-sitehead .rl-es');
+  await expect(ly).toHaveText('Patio Plomo');
+  await expect(page.locator('#printwait')).toHaveText('');
+  await expect(page.locator('#printNow')).toHaveText('Imprimir');
+  await page.waitForTimeout(300);
+  expect(await printed(page)).toBe(0);
+});
+
 // ---------------- times rows: the phone keeps the Clock rows it is sent (times plan, Task 8) ----------------
 // Fixture, worked by hand. The fake stamps 7:50 AM on 10/3, so the shift now is night-2026-10-02 and the one before it is
 // day-2026-10-02 (a night's is its own day). The Clock tab holds four rows, in this order:

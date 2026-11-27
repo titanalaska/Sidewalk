@@ -322,6 +322,9 @@ const ONE_WORD_ENGLISH = {
 
 // A phrase BUILT at run time from pieces that carry no row of their own: [an example of the finished line, its Spanish].
 const BUILT = {
+  // Route list polish (11/26/26): the print view's wait line, its counted pieces (the "1 line" sentences are whole literals).
+  'Translating': ['Translating 4 lines…', 'Traduciendo 4 líneas…'],
+  'lines will print in English.': ['2 lines will print in English.', '2 líneas se imprimirán en inglés.'],
   // Task 3 (11/25/26): the half-Spanish lines' pieces, each with the line the code builds and the Spanish the rules make of it.
   "couldn't be made on this phone (no signal?). Their zone lists still print.": ["2 maps couldn't be made on this phone (no signal?). Their zone lists still print.",
     '2 mapas no se pudieron hacer en este teléfono (¿sin señal?). Sus listas de zonas sí se imprimen.'],
@@ -485,6 +488,8 @@ const BUILT = {
 // sites ('file function'). The same words at another site need an example of their own (BUILT_ALSO) or a real rule, or the
 // missing-row check reports them: one worked example no longer vouches for every other line that holds the same words.
 const BUILT_SITES = {
+  'Translating': ['lib/shiftlogui.js printWait'],
+  'lines will print in English.': ['lib/shiftlogui.js printWait'],
   'couldn\'t be made on this phone (no signal?). Their zone lists still print.': ['lib/app.js printRouteMaps'],
   'still on the clock. Tap End shift first, or their End has to be typed with Set shift.': ['lib/boardui.js clearAsk'],
   'with no End shift)': ['lib/crewstats.js cardLines'],

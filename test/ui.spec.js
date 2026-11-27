@@ -9222,6 +9222,75 @@ test('route lists: in Spanish a 12-site route still prints on two landscape page
   expect(split).toEqual([]);
 });
 
+// ---- the fit (route list polish, Matt 11/26/26: "we gotta get it where most of a route fits on one sheet") ----
+// typicalRouteWorld, by hand: route N2 = 12 typical sites, each: a two-word name with a number ("Harbor Clinic 3") that Google
+// makes longer ("Clínica del Puerto 3"), an address, the materials "2 bags ice melt", one heated walk "Front walk" (one warning
+// line) and one plain walk "Side walk" (not listed), no notes, no units typed. No other route.
+const TYP_ES = { '2 bags ice melt': '2 bolsas de derretidor de hielo', 'Front walk': 'Banqueta del frente', 'Side walk': 'Banqueta lateral', N2: 'N2' };
+const typicalRouteWorld = () => {
+  const w = rlWorld();
+  const sites = [], zones = [];
+  for (let i = 1; i <= 12; i++) {
+    const id = 'T' + i;
+    sites.push({ id, name: 'Harbor Clinic ' + i, address: (2000 + i) + ' Spenard Road', materials_needed: '2 bags ice melt', notes: '', rev: 1 });
+    zones.push({ id: id + 'h', site_id: id, type: 'heated', name: 'Front walk', rev: 1 }, { id: id + 's', site_id: id, type: 'sidewalk', name: 'Side walk', rev: 1 });
+  }
+  w.sites = sites; w.zones = zones;
+  w.routes = [{ id: 'R2', name: 'N2', rev: 1, site_ids: sites.map((s) => s.id) }];
+  w.moves = [];
+  w.translate = (b) => ({ done: Object.fromEntries(b.texts.map((t) => [t, TYP_ES[t] || t.replace(/^Harbor Clinic (\d+)$/, 'Clínica del Puerto $1')])), later: [], refused: [] });
+  return w;
+};
+// What the paper looks like, for the ledger: the PDF's pages, each site row's height in print media at the table's printed width
+// (10 in = 960 CSS px), and how many Equipment cells have a first line taller than one and a half lines (wrapped).
+async function fitNumbers(page) {
+  const pdf = await routeListsPdf(page);
+  await page.emulateMedia({ media: 'print' });
+  const rows = await page.locator('#printsheets .rl-page').nth(0).locator('tr.rl-site').evaluateAll((trs) => trs.map((tr) => {
+    const first = tr.querySelector('.rl-eqline'), cs = first ? getComputedStyle(first) : null;
+    const line = cs ? parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.2 : 0;
+    return { h: Math.round(tr.getBoundingClientRect().height), wrapped: !!first && first.getBoundingClientRect().height > line * 1.5 };
+  }));
+  await page.emulateMedia({ media: 'screen' });
+  return { pages: pdf.pages, rowH: rows.map((r) => r.h), equipWrapped: rows.filter((r) => r.wrapped).length };
+}
+async function openSpanishLists(page, w) {
+  await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));
+  await stubPrint(page);
+  await page.setViewportSize({ width: 960, height: 700 });
+  await openStorm(page, w, { token: 'tok-matt' });
+  await page.click('#printRouteLists');
+  await page.clock.runFor(600);
+  // the pre-flight ruling: the paper is read once the wait is over (every line answered: nothing pending, nothing English).
+  // (The pre-polish code has no wait line: there the calls settling is the whole wait, so the same test measures the base.)
+  if (await page.locator('#printwait').count()) await expect(page.locator('#printwait')).toHaveText('', { timeout: 10000 });
+  await expect.poll(() => page.evaluate(() => window.SnowEsTyped && window.SnowEsTyped.pending().inflight)).toBe(0);
+}
+
+test('route lists: a typical 12-site route prints on ONE landscape page in Spanish', async ({ page }) => {
+  await openSpanishLists(page, typicalRouteWorld());
+  const site1 = page.locator('#printsheets .rl-page').nth(0).locator('.rl-sitehead').first();
+  if (await site1.locator('.rl-es').count()) await expect(site1.locator('.rl-es')).toHaveText('Clínica del Puerto 1');   // the branch's markup
+  const n = await fitNumbers(page);
+  console.log('FIT typical 12 in Spanish: ' + JSON.stringify(n));
+  // MEASURED (ledger, Task 5): the base commit and this branch, both printed here. The spec's target: one page.
+  expect(n.pages).toBe(1);
+});
+
+test('route lists: the heavy 12-site route stays at most two pages in Spanish with names beside', async ({ page }) => {
+  // bigRouteWorld's N2 + N10, every name answered about 20% longer ("Big Route Site 3 Medical Center" -> "Centro Médico del
+  // Sitio 3 de la Ruta Grande"), every typed line answered with "[ES] " before it (a little longer, as Spanish runs).
+  const w = bigRouteWorld();
+  w.translate = (b) => ({ done: Object.fromEntries(b.texts.map((t) => [t, /^Big Route Site (\d+) Medical Center$/.test(t)
+    ? t.replace(/^Big Route Site (\d+) Medical Center$/, 'Centro Médico del Sitio $1 de la Ruta Grande') : t === 'N2' || t === 'N10' ? t
+      : t === 'Lead Yard' ? 'Patio Plomo' : '[ES] ' + t])), later: [], refused: [] });
+  await openSpanishLists(page, w);
+  const n = await fitNumbers(page);
+  console.log('FIT heavy 12 in Spanish: ' + JSON.stringify(n));
+  // N2 at most two pages and N10 its own: at most 3 in all (the English pin above stays 3)
+  expect(n.pages).toBeLessThanOrEqual(3);
+});
+
 test('route lists: with Print sheets open the route lists cannot open a second view, and the other way round', async ({ page }) => {
   await stubPrint(page);
   // liveWorld has a tap and a posted crew (the Print sheets test above), so Print sheets has pages to print: 2 sheets.

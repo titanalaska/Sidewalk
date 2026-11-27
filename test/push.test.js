@@ -722,3 +722,57 @@ test('a bootstrap replacing S.push during turnOff: the NEW object gets the dropP
   assert.deepEqual(S.push.ids, [fp(OTHER)]);
   assert.equal(S.push.state, 'off');
 });
+
+// ---------- Task 9: the dispatcher's words (lib/push.js SnowPush.words) ----------
+// The lines are the spec's own (2026-11-09 spec, "What Matt and the dispatcher see"), with its singulars worked by hand. The clock
+// is the app's (lib/shiftlogui.js clock); here a table: the reply's at -> the time the card prints. On paper: 03:00Z is 6:00 PM in
+// Alaska (UTC-9), 02:55Z is 5:55 PM.
+const W = SnowPush.words;
+const CLOCK = { '2026-12-06T03:00:00.000Z': '6:00 PM', '2026-12-06T02:55:00.000Z': '5:55 PM' };
+const clockOf = (iso) => CLOCK[iso];
+const escHtml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+test('words.confirm: the dialog line counts phones and people, singular at 1; nobody on is null', () => {
+  assert.equal(W.confirm({ phones: 7, people: 6 }), 'Send "Snow tonight. Open Shovel Command for your route." to 7 phones (6 people)?');
+  assert.equal(W.confirm({ phones: 1, people: 1 }), 'Send "Snow tonight. Open Shovel Command for your route." to 1 phone (1 person)?');
+  assert.equal(W.confirm({ phones: 3, people: 1 }), 'Send "Snow tonight. Open Shovel Command for your route." to 3 phones (1 person)?');
+  assert.equal(W.confirm({ phones: 0, people: 0 }), null);
+  assert.equal(W.confirm(null), null);
+  assert.equal(W.confirm(undefined), null);
+});
+
+test('words.sent / gone / failed: the three result lines; gone and failed are null at 0; it says Sent to, never Delivered', () => {
+  assert.equal(W.sent({ sent: 7, at: '2026-12-06T03:00:00.000Z' }, clockOf), 'Sent to 7 phones at 6:00 PM.');
+  assert.equal(W.sent({ sent: 1, at: '2026-12-06T03:00:00.000Z' }, clockOf), 'Sent to 1 phone at 6:00 PM.');
+  assert.equal(W.sent({ sent: 0, at: '2026-12-06T03:00:00.000Z' }, clockOf), 'Sent to 0 phones at 6:00 PM.');
+  assert.equal(W.gone(0), null);
+  assert.equal(W.gone(1), '1 phone can no longer be reached.');
+  assert.equal(W.gone(2), '2 phones can no longer be reached.');
+  assert.equal(W.failed(0), null);
+  assert.equal(W.failed(1), '1 phone did not accept it.');
+  assert.equal(W.failed(2), '2 phones did not accept it.');
+});
+
+test('words.lastHtml: Last alert with the time, the name under data-no-es (escaped), the phones sent to; none is empty', () => {
+  assert.equal(W.lastHtml({ at: '2026-12-06T03:00:00.000Z', by_name: 'Matthew', sent: 7, gone: 0, failed: 0 }, clockOf, escHtml),
+    'Last alert: 6:00 PM by <span data-no-es>Matthew</span> · 7 phones.');
+  assert.equal(W.lastHtml({ at: '2026-12-06T03:00:00.000Z', by_name: 'A <b>', sent: 1, gone: 2, failed: 3 }, clockOf, escHtml),
+    'Last alert: 6:00 PM by <span data-no-es>A &lt;b&gt;</span> · 1 phone.');
+  assert.equal(W.lastHtml(null, clockOf, escHtml), '');
+});
+
+test('words.tooSoonHtml: the gap refusal with the time and name of the first send, and its minutes', () => {
+  assert.equal(W.tooSoonHtml({ code: 'too_soon', at: '2026-12-06T02:55:00.000Z', by_name: 'Jordan Demo', wait_min: 10 }, clockOf, escHtml),
+    'Already sent at 5:55 PM by <span data-no-es>Jordan Demo</span>. Wait 10 minutes between alerts.');
+  assert.equal(W.tooSoonHtml({ code: 'too_soon', at: '2026-12-06T02:55:00.000Z', by_name: 'Jordan Demo', wait_min: 1 }, clockOf, escHtml),
+    'Already sent at 5:55 PM by <span data-no-es>Jordan Demo</span>. Wait 1 minute between alerts.');
+});
+
+test('words.crewLine: the roster card line, on (N phones) or off; a backend that sent no count says nothing', () => {
+  assert.equal(W.crewLine({ push_phones: 2 }), 'Snow alerts: on (2 phones)');
+  assert.equal(W.crewLine({ push_phones: 1 }), 'Snow alerts: on (1 phone)');
+  assert.equal(W.crewLine({ push_phones: 0 }), 'Snow alerts: off');
+  assert.equal(W.crewLine({}), null);
+  assert.equal(W.crewLine({ push_phones: null }), null);
+});
+

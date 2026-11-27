@@ -858,3 +858,35 @@ test('snow alerts: the Tonight card, the Your card row and the toasts read the p
   // "Turn on" inside the card's button is the whole phrase's row, never "Activar notifications"
   assert.equal(Es.translateString('Turn on notifications'), 'Activar notificaciones');
 });
+
+// Notify the crew (Task 9): the dispatcher's lines, worked by hand from the English (draft Spanish, tú; Matt's read owed). A name
+// sits in its own data-no-es span, so a line with a name is two text nodes, each translated on its own. One o'clock is "a la".
+test('notify the crew: the button, the dialog, the results, Last alert, the refusal and the Roster line read Spanish', () => {
+  const rows = [
+    ['Notify the crew', 'Avisar a la cuadrilla'], ['Send', 'Enviar'], ['Sending…', 'Enviando…'],
+    ['Nobody has snow alerts turned on yet.', 'Nadie tiene las alertas de nieve activadas todavía.'],
+    ['Send "Snow tonight. Open Shovel Command for your route." to 7 phones (6 people)?', '¿Enviar "Nieve esta noche. Abre Shovel Command para ver tu ruta." a 7 teléfonos (6 personas)?'],
+    ['Send "Snow tonight. Open Shovel Command for your route." to 1 phone (1 person)?', '¿Enviar "Nieve esta noche. Abre Shovel Command para ver tu ruta." a 1 teléfono (1 persona)?'],
+    ['Sent to 7 phones at 6:00 PM.', 'Enviado a 7 teléfonos a las 6:00 PM.'],
+    ['Sent to 1 phone at 1:05 PM.', 'Enviado a 1 teléfono a la 1:05 PM.'],
+    ['1 phone can no longer be reached.', '1 teléfono ya no se puede alcanzar.'],
+    ['2 phones can no longer be reached.', '2 teléfonos ya no se pueden alcanzar.'],
+    ['1 phone did not accept it.', '1 teléfono no lo aceptó.'],
+    ['2 phones did not accept it.', '2 teléfonos no lo aceptaron.'],
+    ['Last alert: 6:00 PM by ', 'Última alerta: 6:00 PM por '],
+    [' · 7 phones.', ' · 7 teléfonos.'], [' · 1 phone.', ' · 1 teléfono.'],
+    ['Already sent at 5:55 PM by ', 'Ya se envió a las 5:55 PM por '],
+    ['Already sent at 1:55 PM by ', 'Ya se envió a la 1:55 PM por '],
+    ['. Wait 10 minutes between alerts.', '. Espera 10 minutos entre alertas.'],
+    ['. Wait 1 minute between alerts.', '. Espera 1 minuto entre alertas.'],
+    ['Snow alerts: on (2 phones)', 'Alertas de nieve: activadas (2 teléfonos)'],
+    ['Snow alerts: on (1 phone)', 'Alertas de nieve: activadas (1 teléfono)'],
+    ['Snow alerts: off', 'Alertas de nieve: desactivadas'],
+    ['Snow alerts on', 'Alertas de nieve activadas'],
+    ["Couldn't reach the server. Nothing was sent.", 'No se pudo conectar con el servidor. No se envió nada.'],
+  ];
+  for (const [en, es] of rows) assert.equal(Es.translateString(en), es, en);
+  // the rows around them are undisturbed
+  assert.equal(Es.translateString('Send request'), 'Enviar solicitud');
+  assert.equal(Es.translateString('Snow alerts on this phone: on'), 'Alertas de nieve en este teléfono: activadas');
+});

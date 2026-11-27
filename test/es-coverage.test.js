@@ -490,6 +490,19 @@ const BUILT = {
   ", who isn't on this route": ["Alex Test rides with Sam Sample, who isn't on this route", 'Alex Test viaja con Sam Sample, que no está en esta ruta'],
   "leads but can't drive": ["Alex Test leads but can't drive", 'Alex Test es líder pero no puede manejar'],
   'No confirmed driver (': ['No confirmed driver (2 not set)', 'Sin conductor confirmado (2 sin definir)'],
+  // Notify the crew (crew notifications, Task 9): lib/push.js SnowPush.words builds each line from a count, the clock and a name
+  // (the name in its own data-no-es span, so a line with a name is two text nodes).
+  'Sent to': ['Sent to 7 phones at 6:00 PM.', 'Enviado a 7 teléfonos a las 6:00 PM.'],
+  'phone can': ['1 phone can no longer be reached.', '1 teléfono ya no se puede alcanzar.'],
+  'phones can': ['2 phones can no longer be reached.', '2 teléfonos ya no se pueden alcanzar.'],
+  'no longer be reached.': ['2 phones can no longer be reached.', '2 teléfonos ya no se pueden alcanzar.'],
+  'phone did': ['1 phone did not accept it.', '1 teléfono no lo aceptó.'],
+  'phones did': ['2 phones did not accept it.', '2 teléfonos no lo aceptaron.'],
+  'not accept it.': ['2 phones did not accept it.', '2 teléfonos no lo aceptaron.'],
+  'Last alert:': ['Last alert: 6:00 PM by ', 'Última alerta: 6:00 PM por '],
+  'Already sent at': ['Already sent at 5:55 PM by ', 'Ya se envió a las 5:55 PM por '],
+  'between alerts.': ['. Wait 10 minutes between alerts.', '. Espera 10 minutos entre alertas.'],
+  'Snow alerts: on (': ['Snow alerts: on (2 phones)', 'Alertas de nieve: activadas (2 teléfonos)'],
 };
 
 // Where each BUILT example honestly speaks (final review I2, 11/25/26): a piece is covered by its BUILT example only at these
@@ -645,6 +658,17 @@ const BUILT_SITES = {
   ', who isn\'t on this route': ['lib/warnings.js warningsFor'],
   'leads but can\'t drive': ['lib/warnings.js warningsFor'],
   'No confirmed driver (': ['lib/warnings.js warningsFor'],
+  'Sent to': ['lib/push.js sent'],
+  'phone can': ['lib/push.js gone'],
+  'phones can': ['lib/push.js gone'],
+  'no longer be reached.': ['lib/push.js gone'],
+  'phone did': ['lib/push.js failed'],
+  'phones did': ['lib/push.js failed'],
+  'not accept it.': ['lib/push.js failed'],
+  'Last alert:': ['lib/push.js lastHtml'],
+  'Already sent at': ['lib/push.js tooSoonHtml'],
+  'between alerts.': ['lib/push.js tooSoonHtml'],
+  'Snow alerts: on (': ['lib/push.js crewLine'],
 };
 // A second (third) worked example for a piece another site builds differently: [example, Spanish, sites].
 const BUILT_ALSO = {

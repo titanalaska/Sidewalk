@@ -377,3 +377,121 @@ test('typed words: an English phone prefetches nothing at sign-in', async ({ pag
   await page.clock.runFor(2000);
   expect(w.calls.length).toBe(0);
 });
+
+// ---- route list polish (Matt, 11/26/26): the "Spanish beside" element and the print view's count -------------------------
+// A beside span (data-typed-beside="<name as typed>", data-no-es, empty) shows the Spanish of its attribute, or NOTHING: the
+// English name is printed next to it by its page. stateIn(root) counts the typed elements inside root: shown / once / pending /
+// english. onUpdate(fn) is called after every reply (its patch, its retries scheduled), every retry fired, every queue dropped.
+// Marked elements in a box of their own: [id, text, kind], kind 'typed' | 'crew' | 'beside'.
+async function addMarked(page, boxId, items) {
+  await page.evaluate(([bid, list]) => {
+    let box = document.getElementById(bid);
+    if (!box) { box = document.createElement('div'); box.id = bid; document.body.appendChild(box); }
+    list.forEach(([id, t, kind]) => {
+      const s = document.createElement('span');
+      s.id = id; s.setAttribute('data-no-es', '');
+      if (kind === 'beside') s.setAttribute('data-typed-beside', t);
+      else { s.setAttribute('data-typed', kind === 'crew' ? 'crew' : ''); s.textContent = t; }
+      box.appendChild(s);
+    });
+  }, [boxId, items]);
+}
+const stateIn = (page, id) => page.evaluate((i) => window.SnowEsTyped.stateIn(document.getElementById(i)), id);
+const outNow = (page) => page.evaluate(() => window.SnowEsTyped.pending().inflight);
+
+test('typed words: a beside span shows the Spanish next to the English, and nothing when the Spanish adds nothing', async ({ page }) => {
+  const w = world();
+  w.answer = (lang, t) => (t === 'Harbor Clinic' ? 'Clínica del Puerto' : t === 'PAC' ? 'PAC' : '[' + lang.toUpperCase() + '] ' + t);
+  await open(page, w);
+  await addMarked(page, 'names', [['h', 'Harbor Clinic', 'beside'], ['p', 'PAC', 'beside']]);
+  // nothing held for either: both empty, then ONE call 400 ms later with both names, in Spanish
+  await expect(page.locator('#h')).toHaveText('');
+  await page.clock.runFor(500);
+  await expect.poll(() => w.calls.length).toBe(1);
+  expect(w.calls[0].lang).toBe('es');
+  expect(w.calls[0].texts.slice().sort()).toEqual(['Harbor Clinic', 'PAC']);
+  // on paper: Harbor Clinic -> 'Clínica del Puerto' (added beside); PAC -> 'PAC' (the same: prints once, the span stays empty)
+  await expect(page.locator('#h')).toHaveText('Clínica del Puerto');
+  await expect.poll(() => outNow(page)).toBe(0);
+  await expect(page.locator('#p')).toHaveText('');
+  // the attribute is never touched: it is the name as typed
+  await expect(page.locator('#h')).toHaveAttribute('data-typed-beside', 'Harbor Clinic');
+  // EN: nothing beside any name; ES again: the Spanish back, with no call
+  await page.click('#langWrap [data-lang="en"]');
+  await expect(page.locator('#h')).toHaveText('');
+  await expect(page.locator('#p')).toHaveText('');
+  await page.click('#langWrap [data-lang="es"]');
+  await expect(page.locator('#h')).toHaveText('Clínica del Puerto');
+  await page.clock.runFor(1000);
+  expect(w.calls.length).toBe(1);
+});
+
+test('typed words: an English print scope never asks for a name and shows nothing beside it, even on a Spanish phone', async ({ page }) => {
+  // the pre-flight ruling: names are asked for in Spanish only (an English print shows them once, as typed)
+  const w = world();
+  await open(page, w);
+  await page.evaluate(() => { const d = document.createElement('div'); d.id = 'enprint'; d.setAttribute('data-es-scope', 'en'); document.body.appendChild(d); });
+  await addMarked(page, 'enprint', [['h', 'Harbor Clinic', 'beside']]);
+  await page.clock.runFor(1000);
+  expect(w.calls.length).toBe(0);
+  await expect(page.locator('#h')).toHaveText('');
+  expect(await stateIn(page, 'enprint')).toEqual({ shown: 0, once: 1, pending: 0, english: 0 });
+});
+
+test('typed words: stateIn counts shown, once, pending and english inside one root', async ({ page }) => {
+  const w = world();
+  w.answer = (lang, t) => (HELD[lang] && HELD[lang][t]) || (t === 'PAC' ? 'PAC' : '[' + lang.toUpperCase() + '] ' + t);
+  w.refused = (t) => t === 'Wash the truck';
+  await open(page, w);
+  // outside the root: a line of its own, never counted
+  await addMarked(page, 'outside', [['o', 'Salt the ramp', 'typed']]);
+  // the root: 'Sidewalk north' (held: shown), 'PAC' beside (answered the same: once), 'Wash the truck' (refused: english)
+  await addMarked(page, 'root', [['z', 'Sidewalk north', 'typed'], ['p', 'PAC', 'beside'], ['x', 'Wash the truck', 'typed']]);
+  await page.clock.runFor(500);
+  await expect.poll(() => w.calls.length).toBe(1);
+  await expect.poll(() => outNow(page)).toBe(0);
+  expect(await stateIn(page, 'root')).toEqual({ shown: 1, once: 1, pending: 0, english: 1 });
+  // a fourth, 'Harbor Clinic' beside, its reply held 1.5 s of real time. On paper, while it is queued and while it is out:
+  // {shown 1, once 1, pending 1, english 1}; once it lands ('[ES] Harbor Clinic', a change): {shown 2, once 1, pending 0, english 1}
+  w.delayMs = 1500;
+  await addMarked(page, 'root', [['h', 'Harbor Clinic', 'beside']]);
+  expect(await stateIn(page, 'root')).toEqual({ shown: 1, once: 1, pending: 1, english: 1 });
+  await page.clock.runFor(500);
+  await expect.poll(() => w.calls.length).toBe(2);
+  expect(await stateIn(page, 'root')).toEqual({ shown: 1, once: 1, pending: 1, english: 1 });
+  await expect.poll(() => outNow(page)).toBe(0);
+  expect(await stateIn(page, 'root')).toEqual({ shown: 2, once: 1, pending: 0, english: 1 });
+});
+
+test('typed words: onUpdate fires after a reply, after a retry is scheduled and after it fires; its off() stops it', async ({ page }) => {
+  const w = world();
+  w.later = (t) => t === 'Wash the truck';
+  await open(page, w);
+  await page.evaluate(() => { window.__upd = 0; window.__off = window.SnowEsTyped.onUpdate(() => { window.__upd++; }); });
+  const upd = () => page.evaluate(() => window.__upd);
+  // a reply that patches: at least one update
+  await addMarked(page, 'box', [['a', 'Salt the ramp', 'typed']]);
+  await page.clock.runFor(500);
+  await expect(page.locator('#a')).toHaveText('[ES] Salt the ramp');
+  await expect.poll(upd).toBeGreaterThan(0);
+  const n1 = await upd();
+  // a reply answering "later": nothing patched, a retry scheduled -> an update
+  await addMarked(page, 'box', [['b', 'Wash the truck', 'typed']]);
+  await page.clock.runFor(500);
+  await expect.poll(() => w.calls.length).toBe(2);
+  await expect.poll(upd).toBeGreaterThan(n1);
+  await expect.poll(() => outNow(page)).toBe(0);
+  const n2 = await upd();
+  // the retry fires 60 s later -> an update (the line is pending again), then its reply -> another
+  await page.clock.runFor(60500);
+  await expect.poll(upd).toBeGreaterThan(n2);
+  await expect.poll(() => w.calls.length).toBe(3);
+  await expect.poll(() => outNow(page)).toBe(0);
+  // off(): no update after it, whatever happens
+  await page.evaluate(() => window.__off());
+  const n3 = await upd();
+  await page.clock.runFor(60500);
+  await expect.poll(() => w.calls.length).toBe(4);
+  await expect.poll(() => outNow(page)).toBe(0);
+  expect(await upd()).toBe(n3);
+});

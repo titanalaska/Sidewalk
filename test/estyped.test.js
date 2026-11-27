@@ -85,3 +85,21 @@ test("estyped: a crew phone's prefetch leaves out the curb zones it never sees (
     assert.deepEqual(T.prefetchLines(matt), [[], ['Curb north', 'Front walk', 'Curb south']]);
   } finally { delete global.CrewShiftLog; }
 });
+
+test('estyped: besideText shows the Spanish only when it adds something', () => {
+  // Route list polish (Matt, 11/26/26): a route or site name prints in Spanish beside the English, so a beside span shows the
+  // translation or nothing. [as typed, the translation held, target] -> what the span shows. On paper:
+  //   a changed name -> the Spanish; the same name back (exact, other case, a trailing space under CrewTyped.key) -> nothing,
+  //   so the name prints once; a translation of only spaces -> nothing; no target, or English (never asked for names) -> nothing.
+  const rows = [
+    ['Harbor Clinic', 'Clínica del Puerto', 'es', 'Clínica del Puerto'],
+    ['PAC', 'PAC', 'es', ''],
+    ['PAC', 'Pac', 'es', ''],
+    ['N2', 'N2 ', 'es', ''],
+    ['Harbor Clinic', '   ', 'es', ''],
+    ['Harbor Clinic', undefined, 'es', ''],
+    ['Harbor Clinic', 'Clínica del Puerto', null, ''],
+    ['Harbor Clinic', 'Harbor Clinic (EN)', 'en', ''],
+  ];
+  for (const [o, tr, target, want] of rows) assert.equal(T.besideText(o, tr, target), want, JSON.stringify([o, tr, target]));
+});

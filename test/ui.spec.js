@@ -9164,9 +9164,15 @@ test('route lists: in Spanish the labels are Spanish and the site name is not', 
   await stubPrint(page);
   // What the paper would say: the pages' text at the very moment the phone's print is asked for, before any later pass.
   await page.addInitScript(() => { const real = window.print; window.print = () => { window.__textAtPrint = document.getElementById('printsheets').innerText; real(); }; });
-  await openStorm(page, rlWorld(), { token: 'tok-matt' });
+  // Route list polish (11/26/26): a Spanish print waits for its typed lines and names and prints itself only when none of them
+  // will print in English (the fake refuses every line by default). Here the fake answers each line unchanged, so the typed
+  // lines read as typed and every name prints once: the labels are this test's whole subject.
+  const w = rlWorld();
+  w.translate = (b) => ({ done: Object.fromEntries(b.texts.map((t) => [t, t])), later: [], refused: [] });
+  await openStorm(page, w, { token: 'tok-matt' });
   await expect(page.locator('#printRouteLists')).toHaveText('Imprimir listas de rutas');
   await page.click('#printRouteLists');
+  await page.clock.runFor(600);
   await expect.poll(() => page.evaluate(() => window.__textAtPrint || '')).toContain('Fecha:');
   expect(await page.evaluate(() => window.__textAtPrint)).not.toContain('Date:');
   await expect(page.locator('#printbar')).toContainText('2 listas de rutas');
@@ -9242,6 +9248,143 @@ test('route lists: with Print sheets open the route lists cannot open a second v
   await expect(page.locator('#printsheets .rl-page')).toHaveCount(3);
   await expect(page.locator('#printsheets .sheet')).toHaveCount(0);
   expect(await page.evaluate(() => window.__printed)).toBe(2);
+});
+
+// ---------------- print wait (route list polish, Matt 11/26/26): Print waits for the Spanish ----------------
+// A Spanish route list prints each route and site name in Spanish beside the English (lib/routelist.js data-typed-beside) and
+// its typed lines in Spanish (lib/estyped.js). While any of them is being asked for, Print is held and the bar says how many;
+// the automatic print on open waits and fires only when nothing will print in English. rlWorld by hand: pages N2 (PAC:
+// materials "NO SALT: fresh concrete", the heated walk "Heated walk" listed, "Main entry" a plain walk not listed) and N10
+// (Lead Yard, no zones) -> 4 names (N2, PAC, N10, Lead Yard) + 2 typed lines (the materials, Heated walk).
+// The phone holds the Spanish of the typed lines already (RL_HELD), so its sign-in fill asks nothing: the names are the wait.
+// The fake answers RL_ES: Google leaves N2, PAC and N10 alone (each prints once) and changes Lead Yard.
+const RL_HELD = { es: { 'NO SALT: fresh concrete': 'SIN SAL: concreto nuevo', 'Heated walk': 'Banqueta con calefacción', 'Main entry': 'Entrada principal' }, en: {} };
+const RL_ES = { ...RL_HELD.es, N2: 'N2', PAC: 'PAC', N10: 'N10', 'Lead Yard': 'Patio Plomo' };
+const answerRl = (refuse = []) => (b) => ({
+  done: Object.fromEntries(b.texts.filter((t) => !refuse.includes(t)).map((t) => [t, RL_ES[t] || t])), later: [], refused: b.texts.filter((t) => refuse.includes(t)),
+});
+async function rlSpanish(page, w, o = {}) {
+  await page.addInitScript((lang) => localStorage.setItem('snow-lang', lang), o.lang || 'es');
+  await page.addInitScript((held) => localStorage.setItem('snow-es-typed', JSON.stringify(held)), o.held || RL_HELD);
+  await stubPrint(page);
+  await openStorm(page, w, { token: 'tok-matt', delay: { translate: o.hold === undefined ? 2000 : o.hold } });
+}
+const printed = (page) => page.evaluate(() => window.__printed);
+
+test('print wait: a Spanish route list holds Print and the automatic print until the names arrive', async ({ page }) => {
+  const w = rlWorld();
+  w.translate = answerRl();
+  await rlSpanish(page, w);
+  await page.click('#printRouteLists');
+  await page.clock.runFor(600);
+  // on paper: the 2 typed lines are held (shown); the 4 names are asked for -> 4 pending
+  await expect(page.locator('#printwait')).toHaveText('Traduciendo 4 líneas…');
+  await expect(page.locator('#printNow')).toBeDisabled();
+  expect(await printed(page)).toBe(0);
+  // the reply (2 s later): N2, PAC, N10 come back the same (printed once), Lead Yard -> Patio Plomo beside it
+  await expect(page.locator('#printNow')).toBeEnabled({ timeout: 8000 });
+  await expect(page.locator('#printwait')).toHaveText('');
+  await expect.poll(() => printed(page)).toBe(1);
+  const ly = page.locator('#printsheets .rl-page').nth(1).locator('.rl-sitehead');
+  await expect(ly.locator('.rl-es')).toHaveText('Patio Plomo');
+  await expect(ly.locator('.rl-en')).toHaveText('Lead Yard');
+  expect(await ly.locator('.rl-en').evaluate((e) => getComputedStyle(e).fontSize)).toBe('10.5px');
+  await expect(page.locator('#printsheets .rl-page').nth(0).locator('.rl-sitehead .rl-es')).toHaveText(''); // PAC: once
+  // the names were asked once, in Spanish, never in English
+  const names = (w.translateAsks || []).filter((b) => b.texts.includes('Lead Yard'));
+  expect(names.map((b) => b.lang)).toEqual(['es']);
+  // Print still prints
+  await page.click('#printNow');
+  await expect.poll(() => printed(page)).toBe(2);
+});
+
+test('print wait: lines that cannot get their Spanish say so, and Print anyway prints', async ({ page }) => {
+  const w = rlWorld();
+  w.translate = answerRl(['N10', 'Lead Yard']);
+  await rlSpanish(page, w);
+  await page.click('#printRouteLists');
+  await page.clock.runFor(600);
+  // on paper: N10 and Lead Yard refused -> 2 will print in English; N2 and PAC answered the same (once): no automatic print
+  await expect(page.locator('#printwait')).toHaveText('2 líneas se imprimirán en inglés.', { timeout: 8000 });
+  await expect(page.locator('#printNow')).toBeEnabled();
+  await expect(page.locator('#printNow')).toHaveText('Imprimir de todos modos');
+  await page.waitForTimeout(300);
+  expect(await printed(page)).toBe(0);
+  await page.click('#printNow');
+  await expect.poll(() => printed(page)).toBe(1);
+});
+
+test('print wait: an English print never waits', async ({ page }) => {
+  const w = rlWorld();
+  w.translate = answerRl();
+  await rlSpanish(page, w, { lang: 'en' });
+  await page.click('#printRouteLists');
+  await expect.poll(() => printed(page)).toBe(1);
+  await expect(page.locator('#printwait')).toHaveText('');
+  await expect(page.locator('#printNow')).toBeEnabled();
+  await expect(page.locator('#printNow')).toHaveText('Print');
+  await page.clock.runFor(1000);
+  expect((w.translateAsks || []).filter((b) => b.texts.includes('Lead Yard'))).toEqual([]); // a name is never asked for in English
+});
+
+test('print wait: Back while waiting never prints later; opening again prints once', async ({ page }) => {
+  const w = rlWorld();
+  w.translate = answerRl();
+  await rlSpanish(page, w, { hold: 1500 });
+  await page.click('#printRouteLists');
+  await page.clock.runFor(600);
+  await expect(page.locator('#printNow')).toBeDisabled();
+  await page.click('#printBack');
+  await expect(page.locator('#printview')).toBeHidden();
+  // the names' reply lands with the view closed: nothing prints
+  await expect.poll(() => page.evaluate(() => window.SnowEsTyped.pending().inflight), { timeout: 8000 }).toBe(0);
+  await page.waitForTimeout(300);
+  expect(await printed(page)).toBe(0);
+  // open again: every name is answered on this phone now -> nothing to wait for, one automatic print, and only one
+  await page.click('#printRouteLists');
+  await expect.poll(() => printed(page)).toBe(1);
+  await expect(page.locator('#printwait')).toHaveText('');
+  await page.clock.runFor(1000);
+  await page.waitForTimeout(300);
+  expect(await printed(page)).toBe(1);
+});
+
+test('print wait: English while waiting enables Print at once; Español waits again; no automatic print after a switch', async ({ page }) => {
+  const w = rlWorld();
+  w.translate = answerRl();
+  await rlSpanish(page, w);
+  await page.click('#printRouteLists');
+  await page.clock.runFor(600);
+  await expect(page.locator('#printNow')).toBeDisabled();
+  await page.click('#printbar [data-printlang="en"]');
+  // English: nothing to wait for (names print as typed, typed lines in English)
+  await expect(page.locator('#printNow')).toBeEnabled();
+  await expect(page.locator('#printwait')).toHaveText('');
+  expect(await printed(page)).toBe(0);
+  // Español again while the names are still out: 4 pending again
+  await page.click('#printbar [data-printlang="es"]');
+  await expect(page.locator('#printwait')).toHaveText('Traduciendo 4 líneas…');
+  await expect(page.locator('#printNow')).toBeDisabled();
+  // the reply: Print enabled, and still no automatic print (the switch handed the print to the person)
+  await expect(page.locator('#printNow')).toBeEnabled({ timeout: 8000 });
+  await expect(page.locator('#printwait')).toHaveText('');
+  await page.waitForTimeout(300);
+  expect(await printed(page)).toBe(0);
+  await page.click('#printNow');
+  await expect.poll(() => printed(page)).toBe(1);
+});
+
+test('print wait: lines this phone already holds never hold the print', async ({ page }) => {
+  // Review Focus 1: nothing to ask for. The phone holds every name and typed line (a second print of the night): the automatic
+  // print fires at once, while the once-a-session check of the held lines is still out (held 5 s).
+  const w = rlWorld();
+  w.translate = answerRl();
+  await rlSpanish(page, w, { held: { es: RL_ES, en: {} }, hold: 5000 });
+  await page.click('#printRouteLists');
+  await expect.poll(() => printed(page), { timeout: 2000 }).toBe(1);
+  await expect(page.locator('#printwait')).toHaveText('');
+  await expect(page.locator('#printNow')).toBeEnabled();
+  await expect(page.locator('#printsheets .rl-page').nth(1).locator('.rl-sitehead .rl-es')).toHaveText('Patio Plomo');
 });
 
 // ---------------- times rows: the phone keeps the Clock rows it is sent (times plan, Task 8) ----------------

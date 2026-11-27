@@ -12651,6 +12651,8 @@ test('crew curbs: ticking the box on the Sites tab brings the curbs back to the 
   await expect(page.locator('#dlg')).toBeHidden();
   await page.click('nav [data-tab="storm"]');
   await expect(page.locator('[data-livesite="S1"] .live-status')).toHaveText('Touched');
+});
+
 // ---------- push wiring (crew notifications, Task 7): what app.js does with push_key / push_ids ----------
 // lib/push.js is node-tested on its own; these pin the app's side: both bootstrap sites hand the server's key and ids to
 // SnowPush.refresh, the state already known carries over, and a refresh that finds a DIFFERENT state renders once more.

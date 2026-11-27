@@ -47,7 +47,7 @@ const card = (c) => ({ id: c.id, name: c.name, pending: false, phone: c.phone ||
 
 function fakeSnow(state) {
   return async (body) => {
-    const v = { version: 'spanish-1', action: body.action };
+    const v = { version: 'notify-1', action: body.action };
     const me = WHO[body.token];
     if (!me) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     const admin = me.role === 'admin';

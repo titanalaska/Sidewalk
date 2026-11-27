@@ -51,7 +51,7 @@ const idsFor = (state, key) => state.push.filter((p) => !p.archived && p.by_key 
 
 function fakeSnow(state) {
   return (body) => {
-    const v = { version: 'spanish-1', action: body.action };
+    const v = { version: 'notify-1', action: body.action };
     const me = WHO[body.token];
     if (!me) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     const own = state.crew.find((c) => c.id === me.crew_id);

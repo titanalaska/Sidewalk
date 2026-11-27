@@ -35,7 +35,7 @@ const HELD = { es: { 'Sidewalk north': 'Banqueta norte' }, en: {} };
 
 function fakeSnow(state) {
   return (body) => {
-    const v = { version: 'spanish-1', action: body.action };
+    const v = { version: 'notify-1', action: body.action };
     if (body.token !== 'tok-matt' && body.token !== 'tok-jordan') return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     const crew = body.token === 'tok-jordan';
     const me = crew ? { name: 'Jordan Demo', role: 'crew', crew_id: 'C03' } : { name: 'Matthew', role: 'admin', crew_id: null };

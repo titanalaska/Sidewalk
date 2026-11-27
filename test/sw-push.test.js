@@ -92,7 +92,7 @@ test('the words never come from the push body', async () => {
 test('es in the prefs cache gives the Spanish body, same title, same tag; a trailing newline or a space each side is fine', async () => {
   for (const stored of ['es', 'es\n', ' es ']) {
     // an unrelated cache sits beside the prefs cache and holds a different answer under the same key
-    const env = load({ stored: { 'titan-snow-shell-46': { './prefs/lang': 'en' }, 'titan-snow-prefs': { './prefs/lang': stored } } });
+    const env = load({ stored: { 'titan-snow-shell-87': { './prefs/lang': 'en' }, 'titan-snow-prefs': { './prefs/lang': stored } } });
     await fire(env, 'push')[0];
     assert.equal(env.shown[0].o.body, ES_BODY, JSON.stringify(stored));
     assert.equal(env.shown[0].title, 'Shovel Command');
@@ -111,7 +111,7 @@ test('anything but es is English: fr, empty, uppercase, wrong key, missing entry
     { 'titan-snow-prefs': { './prefs/lang': 'yes' } },
     { 'titan-snow-prefs': { './prefs/other': 'es' } },
     { 'titan-snow-prefs': {} },
-    { 'titan-snow-shell-46': { './prefs/lang': 'es' } }
+    { 'titan-snow-shell-87': { './prefs/lang': 'es' } }
   ];
   for (const stored of cases) {
     const env = load({ stored: stored });
@@ -160,15 +160,15 @@ test('tapping with no focusable window opens ./', async () => {
   assert.deepEqual(env2.clients.opened, ['./']);
 });
 
-test('activation deletes the old shell 45 but leaves the prefs cache and other apps alone', async () => {
+test('activation deletes the old shell 86 but leaves the prefs cache and other apps alone', async () => {
   const env = load({ stored: {
-    'titan-snow-shell-45': {}, 'titan-snow-shell-46': {}, 'titan-snow-prefs': { './prefs/lang': 'es' },
+    'titan-snow-shell-86': {}, 'titan-snow-shell-87': {}, 'titan-snow-prefs': { './prefs/lang': 'es' },
     'wolf-beds-v2': {}, 'groundwork-shell-v34': {}
   } });
   await fire(env, 'activate')[0];
-  assert.deepEqual(env.deleted, ['titan-snow-shell-45']);
+  assert.deepEqual(env.deleted, ['titan-snow-shell-86']);
   assert.ok(env.stored['titan-snow-prefs'], 'prefs survive activation');
-  assert.ok(env.stored['titan-snow-shell-46'], 'the live shell survives');
+  assert.ok(env.stored['titan-snow-shell-87'], 'the live shell survives');
 });
 
 // Fixture for the tap tests: close() is logged beside the clients' own calls so order can be asserted.

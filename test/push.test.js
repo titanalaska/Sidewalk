@@ -776,3 +776,71 @@ test('words.crewLine: the roster card line, on (N phones) or off; a backend that
   assert.equal(W.crewLine({ push_phones: null }), null);
 });
 
+// ---------- final review fixes (11/27/26) ----------
+// Minor 6. The spec: "An iPhone below iOS 16.4: No card". Web push came to the iPhone in iOS 16.4 (home-screen apps only), so an
+// older iPhone in a Safari tab has nothing to gain from Add to Home Screen. The version is read from the user agent's "OS 16_3";
+// iPadOS that reports as a Mac (no version in its user agent) is judged by its touch points as before and is not called old.
+test('stateOf: an iPhone below iOS 16.4 in a tab is unsupported, not install', () => {
+  assert.equal(SnowPush.stateOf(f({ sw: true, push: false, notif: false, ios: true, standalone: false, oldIos: true })), 'unsupported');
+  assert.equal(SnowPush.stateOf(f({ sw: true, push: false, notif: false, ios: true, standalone: false, oldIos: false })), 'install');
+});
+test('refresh: iOS 16.3 and 15.7 in a tab are unsupported; 16.4 and 17.5 are install; an iPad on 16.2 is unsupported; iPadOS as a Mac is install', async () => {
+  const ua = (v, dev) => 'Mozilla/5.0 (' + (dev || 'iPhone; CPU iPhone') + ' OS ' + v + ' like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148';
+  const cases = [[ua('16_3'), 'unsupported'], [ua('15_7_1'), 'unsupported'], [ua('16_4'), 'install'], [ua('16_4_1'), 'install'], [ua('17_5'), 'install'],
+    [ua('16_2', 'iPad; CPU'), 'unsupported'], [ua('9_3'), 'unsupported'], [ua('18_0'), 'install']];
+  for (const [u, want] of cases) {
+    const S = S0([]);
+    const p = phone({ ua: u, push: false, notif: false });
+    assert.equal(await SnowPush.refresh(S, p.env), want, u);
+  }
+  const S = S0([]);
+  const mac = phone({ ua: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15', platform: 'MacIntel', touch: 5, push: false, notif: false });
+  assert.equal(await SnowPush.refresh(S, mac.env), 'install');
+});
+
+// Minor 5. One tap at a time, but a tap stuck for good (a permission prompt that never answers, a subscribe that hangs) must not
+// stop every later tap until the page reloads: after 60 s a new tap may start. The stuck one settling later must not end the
+// newer one's turn (on paper: tap 1 at t=0 hangs; tap 2 at 59,999 ms does nothing; tap 3 at 60,000 ms asks again; tap 1 answers
+// then; a tap 4 while tap 3 is still out does nothing).
+test('onClick: a tap stuck for 60 s no longer blocks; the stuck one answering late does not free the newer tap', async () => {
+  let t = 0, answer1, answer3, n = 0;
+  const p = phone();
+  p.env.now = () => t;
+  const ctx = ctxFor(S0([]), { savePush: () => new Promise((r) => { n++; if (n === 1) answer1 = r; else answer3 = r; }) });
+  assert.equal(SnowPush.onClick(click('on'), ctx, p.env), true);
+  await until(() => ctx.sent.length === 1, 'tap 1 saved');
+  t = 59999;
+  SnowPush.onClick(click('on'), ctx, p.env);
+  await later();
+  assert.equal(p.calls.filter((c) => c === 'requestPermission').length, 1);
+  t = 60000;
+  SnowPush.onClick(click('on'), ctx, p.env);
+  await until(() => ctx.sent.length === 2, 'tap 3 saved');
+  assert.equal(p.calls.filter((c) => c === 'requestPermission').length, 2);
+  answer1({ ok: true, push_ids: [fp(ENDPOINT)] });
+  await drawn(ctx, 1);
+  SnowPush.onClick(click('on'), ctx, p.env);            // tap 4: tap 3 is still out
+  await later();
+  assert.equal(p.calls.filter((c) => c === 'requestPermission').length, 2);
+  answer3({ ok: true, push_ids: [fp(ENDPOINT)] });
+  await drawn(ctx, 2);
+});
+
+// Minor 4. The card must not contradict itself: a bootstrap that left before a send and lands after it, or a refusal naming a
+// newer send, never leaves an older Last alert on the card. newer() keeps whichever notice is later by its time; with one missing,
+// the other. A notice known only from a refusal has no counts: its line ends after the name.
+test('words.newer keeps the later notice by its time; one missing gives the other', () => {
+  const a = { at: '2026-12-06T02:30:00.000Z', by_name: 'Matthew', sent: 4 }, b = { at: '2026-12-06T02:55:00.000Z', by_name: 'Jordan Demo' };
+  assert.equal(W.newer(a, b), b);
+  assert.equal(W.newer(b, a), b);
+  assert.equal(W.newer(null, a), a);
+  assert.equal(W.newer(a, null), a);
+  assert.equal(W.newer(null, undefined), null);
+});
+test('words.lastHtml with no count (known from a refusal): the line ends after the name', () => {
+  assert.equal(W.lastHtml({ at: '2026-12-06T02:55:00.000Z', by_name: 'Jordan Demo' }, clockOf, escHtml),
+    'Last alert: 5:55 PM by <span data-no-es>Jordan Demo</span>.');
+  assert.equal(W.lastHtml({ at: '2026-12-06T02:55:00.000Z', by_name: 'Jordan Demo', sent: 0 }, clockOf, escHtml),
+    'Last alert: 5:55 PM by <span data-no-es>Jordan Demo</span> · 0 phones.');
+});
+

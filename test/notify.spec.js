@@ -52,6 +52,7 @@ function fakeSnow(state) {
     if (!me) return { ok: false, code: 'signin', reason: 'Session expired. Sign in again.', ...v };
     const admin = me.role === 'admin';
     if (body.action === 'bootstrap') {
+      state.boots = (state.boots || 0) + 1;
       // The crew's own copy never carries push_phones (Code.js PUBLIC_CREW_FIELDS); an admin's carries all three push fields.
       const crew = admin ? state.crew : state.crew.map((c) => ({ id: c.id, name: c.name, phone: c.phone, photo_thumb: null, is_lead: c.is_lead }));
       const out = { ok: true, me, admin_name: 'Matthew', sites: state.sites, routes: state.routes, zones: [], crew, post: state.post, push_key: PUSH_KEY, push_ids: [], ...v };
@@ -71,6 +72,15 @@ function fakeSnow(state) {
       if (state.hold) await state.hold;
       if (state.offline) return 'abort';
       return { ...state.notify, ...v };
+    }
+    // The roster editor's save, as the server's saveCrew: the record is stored as sent and handed back (it never carries
+    // push_phones: that is the sign-in's count, worked out from the Push tab at every admin bootstrap).
+    if (body.action === 'saveCrew') {
+      state.calls.push(body);
+      if (state.conflictOnce) { state.conflictOnce = false; return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', ...v }; }
+      const rec = { ...body.record, rev: (body.record.rev || 0) + 1 };
+      state.crew = state.crew.map((c) => (c.id === rec.id ? rec : c));
+      return { ok: true, record: rec, ...v };
     }
     if (body.action === 'savePush' || body.action === 'dropPush') {
       state.calls.push(body);
@@ -211,13 +221,13 @@ test.describe('notify:', () => {
     await expect(page.locator('#notifyResult')).toHaveCount(0);
   });
 
-  test('a lost signal: it says nothing was sent and the button stays usable', async ({ page }) => {
+  test('a lost signal: it says the send may not have gone out, and the button stays usable', async ({ page }) => {
     const w = world();
     w.offline = true;
     await open(page, w);
     await page.click('#notifyCrew');
     await page.click('#nt_send');
-    await expect(page.locator('#notifyMsg')).toHaveText("Couldn't reach the server. Nothing was sent.");
+    await expect(page.locator('#notifyMsg')).toHaveText("Couldn't reach the server. It may not have gone out: tap Notify the crew again.");
     await expect(page.locator('#notifyCrew')).toBeEnabled();
     await expect(page.locator('#notifyResult')).toHaveCount(0);
     // and it can be tried again once the signal is back
@@ -277,9 +287,61 @@ test.describe('notify:', () => {
     await page.locator('#ownPush [data-push="on"]').click();
     await expect(page.locator('#ownPush #pushrow span')).toHaveText('Snow alerts on this phone: on');
     expect(w.calls.filter((c) => c.action === 'savePush')).toHaveLength(1);
+    expect(await page.evaluate(() => window.__push.askedInClick)).toEqual([true]);   // the outlook card's row asks inside the tap too
     await page.locator('#ownPush [data-push="off"]').click();
     await expect(page.locator('#ownPush #pushrow span')).toHaveText('Snow alerts on this phone: off');
     expect(w.calls.filter((c) => c.action === 'dropPush')).toHaveLength(1);
+  });
+
+  // Final review, Minor 4: the card never contradicts itself. Sign-in said the last alert was Matthew's at 5:30 PM; a refusal now
+  // names Jordan's at 5:55 PM. Last alert follows the refusal, with no count (the refusal carries none).
+  test('a refusal naming a newer send puts that send on Last alert, with no count', async ({ page }) => {
+    const w = world();
+    w.lastNotice = { at: '2026-12-06T02:30:00.000Z', by_name: 'Matthew', sent: 4, gone: 0, failed: 0 };
+    w.notify = { ok: false, code: 'too_soon', at: EARLIER, by_name: 'Jordan Demo', wait_min: 10, reason: 'Already sent. Wait 10 minutes between alerts.' };
+    await open(page, w);
+    await expect(page.locator('#lastNotice')).toHaveText('Last alert: 5:30 PM by Matthew · 4 phones.');
+    await page.click('#notifyCrew');
+    await page.click('#nt_send');
+    await expect(page.locator('#notifyMsg')).toHaveText('Already sent at 5:55 PM by Jordan Demo. Wait 10 minutes between alerts.');
+    await expect(page.locator('#lastNotice')).toHaveText('Last alert: 5:55 PM by Jordan Demo.');
+  });
+
+  // Final review, Minor 4, the other half: a sign-in read that left before a send and lands after it. Here the read that follows a
+  // refused save still reports the 5:30 PM alert (the fake's newest, as read before the send): the 6:00 PM send stays on the card.
+  test('a later read that still reports an older alert never takes the newer one off the card', async ({ page }) => {
+    const w = world();
+    w.lastNotice = { at: '2026-12-06T02:30:00.000Z', by_name: 'Matthew', sent: 4, gone: 0, failed: 0 };
+    await open(page, w);
+    await page.click('#notifyCrew');
+    await page.click('#nt_send');
+    await expect(page.locator('#lastNotice')).toHaveText('Last alert: 6:00 PM by Matthew · 7 phones.');
+    const boots = w.boots;
+    w.conflictOnce = true;
+    await toScreen(page, 'roster');
+    await page.click('.tile[data-open="C01"] .tile-name');
+    await page.click('#w_edit');
+    await page.click('#f_save');
+    await expect.poll(() => w.boots).toBe(boots + 1);          // the refused save read everything again
+    await page.click('#dlgClose').catch(() => {});
+    await page.click('#tabs [data-tab="storm"]');
+    await expect(page.locator('#lastNotice')).toHaveText('Last alert: 6:00 PM by Matthew · 7 phones.');
+  });
+
+  // Final review, Minor 3: the count is the sign-in's, never part of the card. A Roster save sends no push_phones, and the bell stays.
+  test('a Roster save never sends the phone count, and the bell is still there after it', async ({ page }) => {
+    const w = world();
+    await open(page, w);
+    await toScreen(page, 'roster');
+    await page.click('.tile[data-open="C01"] .tile-name');
+    await page.click('#w_edit');
+    await page.click('#f_save');
+    await expect.poll(() => w.calls.filter((c) => c.action === 'saveCrew').length).toBe(1);
+    const sent = w.calls.find((c) => c.action === 'saveCrew').record;
+    expect(sent.id).toBe('C01');
+    expect('push_phones' in sent).toBe(false);
+    await expect(page.locator('.tile[data-open="C01"] .bell')).toBeVisible();
+    await expect(page.locator('.tile[data-open="C03"] .bell')).toHaveCount(0);
   });
 
   test('Spanish: the button, the dialog, the results and Last alert read Spanish; the names stay as typed', async ({ page }) => {
@@ -331,6 +393,6 @@ test.describe('notify:', () => {
     await page.click('#nt_send');
     await expect(page.locator('#notifyCrew')).toHaveText('Enviando…');
     go();
-    await expect(page.locator('#notifyMsg')).toHaveText('No se pudo conectar con el servidor. No se envió nada.');
+    await expect(page.locator('#notifyMsg')).toHaveText('No se pudo conectar con el servidor. Puede que no haya salido: toca Avisar a la cuadrilla otra vez.');
   });
 });

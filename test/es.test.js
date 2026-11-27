@@ -883,7 +883,7 @@ test('notify the crew: the button, the dialog, the results, Last alert, the refu
     ['Snow alerts: on (1 phone)', 'Alertas de nieve: activadas (1 teléfono)'],
     ['Snow alerts: off', 'Alertas de nieve: desactivadas'],
     ['Snow alerts on', 'Alertas de nieve activadas'],
-    ["Couldn't reach the server. Nothing was sent.", 'No se pudo conectar con el servidor. No se envió nada.'],
+    ["Couldn't reach the server. It may not have gone out: tap Notify the crew again.", 'No se pudo conectar con el servidor. Puede que no haya salido: toca Avisar a la cuadrilla otra vez.'],
   ];
   for (const [en, es] of rows) assert.equal(Es.translateString(en), es, en);
   // the rows around them are undisturbed

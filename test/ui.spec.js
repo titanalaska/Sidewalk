@@ -12690,7 +12690,7 @@ function pushWorld(box) {
     if (b.action === 'saveSite' && first) {
       first = false;
       state.sites = state.sites.map((s) => (s.id === 'S1' ? { ...s, rev: 2, notes: 'theirs' } : s));
-      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'dispatch-1', action: b.action };
+      return { ok: false, code: 'conflict', reason: 'Someone changed this since you opened it. Reload and try again.', version: 'notify-1', action: b.action };
     }
     const r = base(b);
     if (b.action === 'bootstrap' && r.ok && box.withPush) Object.assign(r, { push_key: box.key, push_ids: box.ids });

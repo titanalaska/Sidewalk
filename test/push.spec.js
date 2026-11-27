@@ -64,7 +64,7 @@ function fakeSnow(state) {
     if (body.action === 'savePush') {
       if (state.refuseSave) return { ok: false, ...state.refuseSave, ...v };
       if (typeof body.endpoint !== 'string' || body.endpoint.length > 1000 || !PUSH_HOSTS.test(body.endpoint)) return { ok: false, code: 'invalid', reason: 'That is not a push service address', ...v };
-      if (body.lang !== 'en' && body.lang !== 'es') return { ok: false, code: 'invalid', reason: 'Language must be en or es', ...v };
+      if (body.lang !== 'en' && body.lang !== 'es') return { ok: false, code: 'invalid', reason: 'Pick English or Spanish', ...v };
       const had = state.push.find((p) => !p.archived && p.endpoint === body.endpoint);
       if (had) Object.assign(had, { by_key: me.crew_id, lang: body.lang });   // the same phone saved again (or handed on) is one record
       else state.push.push({ by_key: me.crew_id, endpoint: body.endpoint, lang: body.lang, archived: false });
@@ -270,6 +270,7 @@ test.describe('push:', () => {
     await expect(page.locator('#pushrow [data-push="on"]')).toHaveText('Activar');
     await page.locator('#pushrow [data-push="on"]').click();
     await expect(page.locator('#pushrow span')).toHaveText('Alertas de nieve en este teléfono: activadas');
+    expect((await P(page)).askedInClick).toEqual([true]);   // the Your card row asks inside the tap, as the Tonight card does
     await expect(page.locator('#pushrow [data-push="off"]')).toHaveText('Desactivar');
     await expect(page.locator('#toast')).toHaveText('Alertas de nieve activadas.');
     expect(pushCalls(w)[0]).toEqual({ action: 'savePush', endpoint: ENDPOINT, lang: 'es', token: 'tok-jordan' });

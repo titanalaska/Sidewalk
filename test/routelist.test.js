@@ -120,7 +120,9 @@ const NL = String.fromCharCode(10); // a line break, written without an escape
 
 test('page: the heading, a blank date (never a real one), the crew lines', () => {
   const h = html(0);
-  assert.match(h, /<h1[^>]*>N2<\/h1>/);
+  // Route list polish (Matt 11/26/26): the route name both ways. An empty "Spanish beside" span the typed-words layer fills
+  // (lib/estyped.js; nothing on an English print or when Google leaves the name alone), then the name as typed.
+  assert.ok(h.includes('<h1><span class="rl-es" data-no-es data-typed-beside="N2"></span><span class="rl-en" data-no-es>N2</span></h1>'), h.slice(0, 400));
   assert.ok(h.includes('Date:'));
   assert.ok(h.includes('____________________'));
   assert.ok(!/\d{1,2}\/\d{1,2}\/\d{2,4}|\d{4}-\d{2}-\d{2}/.test(h), 'no date printed');
@@ -141,7 +143,7 @@ test('page: the route name, date and crew head the table, so every printed page 
     const rows = head.split('<tr').slice(1);
     assert.equal(rows.length, 2);
     assert.match(rows[0], new RegExp('<th class="rl-pagehead" colspan="' + cols + '">'));
-    assert.match(rows[0], /<h1[^>]*>N2<\/h1>/);
+    assert.match(rows[0], /<h1>.*<span class="rl-en" data-no-es>N2<\/span><\/h1>/);
     for (const w of ['Date:', 'Lead', 'Alex Lead', 'Crew:', 'Bea Member, Cy Member']) assert.ok(rows[0].includes(w), w);
     assert.equal(count(rows[1], '</th>'), cols);
     assert.ok(!h.slice(0, h.indexOf('<thead>')).includes('Date:'), 'the heading is not printed twice');
@@ -216,7 +218,7 @@ test('page: one row per site; Done and Shoveled always, Curbs done only with cur
   assert.ok(!h.includes('Lot walk'), 'a plain walk is not listed');
   // each zone name is its own typed span (Spanish everywhere, Ship 2); the curb item is the app's own words: a plain span,
   // which the Spanish rule translates (under data-no-es it printed English on a Spanish route list)
-  assert.ok(alpha.includes('★ <span>Priority:</span> <span data-no-es data-typed>Front walk</span>'));
+  assert.ok(alpha.includes('<span class="rl-chip rl-chip-priority">★</span> <span>Priority:</span> <span data-no-es data-typed>Front walk</span>'));
   assert.ok(alpha.includes('<span>Heated, check only:</span> <span data-no-es data-typed>Entry pad</span>'));
   assert.ok(alpha.includes('<span class="rl-warn rl-curbs"><span>Curbs: clear 4 ft back (about 500 ft)</span></span>')); // wording changed on Matt's word 11/12/26
   assert.equal(count(h, 'Priority:'), 1);
@@ -281,6 +283,66 @@ test('page: the Equipment cell, units from the site, V blade never', () => {
   assert.equal(count(zeta, '#___'), 2);
   assert.ok(!h.includes('V blade') && !h.includes('V-blade'));
   assert.equal(count(h, 'class="rl-box"'), 5, 'the circle words are not boxes');
+});
+
+// Route list polish (Matt 11/26/26, "Two lines, same words"): the Equipment cell is one line shorter at every site. Line 1 is
+// the Bobcat with its operator, line 2 the Snowrator with its operator, then the walk-behind blower. By hand, tags taken out
+// and spaces closed up, on page N2 (Zeta Lot has no units; Alpha Court's Bobcat is " BC5 " -> BC5, its Snowrator blank):
+//   Zeta Lot:    'Bobcat #___: Snowblower · Bucket Operator: ________' | 'Snowrator #___ Operator: ________ · Walk-behind blower'
+//   Alpha Court: 'Bobcat BC5: Snowblower · Bucket Operator: ________'  | 'Snowrator #___ Operator: ________ · Walk-behind blower'
+test('page: the Equipment cell is two lines, the same words', () => {
+  const h = html(0);
+  const cellOf = (row) => row.slice(row.indexOf('class="rl-equip"'), row.indexOf('</td>', row.indexOf('class="rl-equip"')));
+  const [zeta, alpha] = h.split('class="rl-site"').slice(1).map(cellOf);
+  const lines = (c) => c.split('<div class="rl-eqline">').slice(1).map((l) => l.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim());
+  const snow = 'Snowrator #___ Operator: ________ · Walk-behind blower';
+  assert.deepEqual(lines(zeta), ['Bobcat #___: Snowblower · Bucket Operator: ________', snow]);
+  assert.deepEqual(lines(alpha), ['Bobcat BC5: Snowblower · Bucket Operator: ________', snow]);
+  for (const c of [zeta, alpha]) {
+    assert.equal(count(c, 'class="rl-eqline"'), 2);
+    assert.equal(count(c, '>Operator:<'), 2);
+  }
+});
+
+// The colour (call 5 of the design, Matt saw it 11/26/26): a Titan gold band behind the route name, pale gold column headings,
+// a small square in the map's colour on each warning line (heated red #d62828 as on the map, sand-only lime #b5e61d as the
+// new-concrete stripe) and the Priority star in gold. Every coloured rule asks the browser to print its colour
+// (print-color-adjust: exact, and the -webkit- one Chrome reads), or a print drops the backgrounds. Type sizes do not move.
+test('css: the gold band, the pale gold headings and the warning squares print in colour; type sizes unchanged', () => {
+  const css = RouteList.css;
+  const rule = (sel) => { const at = css.indexOf(sel + ' {'); assert.ok(at >= 0, 'a rule for ' + sel); return css.slice(at, css.indexOf('}', at)); };
+  assert.match(rule('.rl-table th.rl-pagehead'), /background: #f2b705/);
+  assert.match(rule('.rl-cols th'), /background: #[0-9a-f]{6}/);
+  assert.match(rule('.rl-chip-heated'), /background: #d62828/);
+  assert.match(rule('.rl-chip-nosalt'), /background: #b5e61d/);
+  assert.match(rule('.rl-chip-priority'), /color: #f2b705/);
+  for (const sel of ['.rl-table th.rl-pagehead', '.rl-cols th', '.rl-chip', '.rl-chip-priority']) {
+    assert.match(rule(sel), /(^|[^-])print-color-adjust: exact/, sel);
+    assert.match(rule(sel), /-webkit-print-color-adjust: exact/, sel);
+  }
+  // a square keeps a black edge, so black-and-white print still shows a square beside its words
+  assert.match(rule('.rl-chip'), /border: 1px solid #000/);
+  // the sizes the crew reads at night, unchanged
+  for (const s of ['font-size: 12px', '.rl-sitehead { font-size: 12.5px', '.rl-info { font-size: 10.5px', '.rl-equip { width: 31%; font-size: 10.5px']) assert.ok(css.includes(s), s);
+  assert.match(css, /\.rl-page h1 \{[^}]*font-size: 20px/);
+  // the column headings row carries the class the colour hangs on
+  assert.equal(count(html(0), '<tr class="rl-cols">'), 1);
+});
+
+// Each warning line keeps its words and gains its mark, before the label. By hand on page N2: Alpha Court has a Priority walk
+// (Front walk) and a heated one (Entry pad): one priority star, one heated square; no sand-only walk. Zeta Lot: no warning line,
+// no mark. With Front walk striped (as the new-concrete test does): one sand-only square on its line.
+test('page: each warning line keeps its words and gains its square', () => {
+  const h = html(0);
+  const [zeta, alpha] = h.split('class="rl-site"').slice(1);
+  assert.ok(alpha.includes('<span class="rl-warn rl-heated"><span class="rl-chip rl-chip-heated"></span><span>Heated, check only:</span>'));
+  assert.ok(alpha.includes('<span class="rl-warn rl-priority"><span class="rl-chip rl-chip-priority">★</span> <span>Priority:</span>'));
+  assert.equal(count(alpha, 'class="rl-chip '), 2);
+  assert.equal(count(zeta, 'rl-chip'), 0);
+  const o = mk();
+  o.zones.find((z) => z.id === 'Z1').new_concrete = true;
+  const s = RouteList.pageHtml(RouteList.pages(o)[0], (x) => x);
+  assert.ok(s.includes('<span class="rl-warn rl-nosalt"><span class="rl-chip rl-chip-nosalt"></span><span>Sand only, no salt:</span>'));
 });
 
 // New concrete (11/12/26): a striped walk carries the flag onto the list and prints "(sand only, no salt)" after its name;
@@ -384,12 +446,26 @@ test('css is a string of rules the view can scope', () => {
 // hand: Zeta Lot has no materials, blank notes and only a plain walk -> nothing marked. Alpha Court: its materials, its notes,
 // "Front walk" (Priority) and "Entry pad" (Heated) -> 4 marks; the curb item is the app's own words -> not marked. Never marked:
 // a site name (Alpha Court, Zeta Lot), the address (1 Main St), a unit (BC5).
-test('typed words: a route list marks exactly the typed lines, never a name, an address, a unit or the curb item', () => {
+// Route list polish (Matt 11/26/26, "Route + site names both ways"): the route and site names are NOT typed lines (a typed line
+// replaces its text); each gets a "Spanish beside" span instead (data-typed-beside = the name as typed, empty in the HTML), and
+// the name itself prints as typed after it. Page N2 by hand: the route N2 first (the heading), then the sites in route order,
+// Zeta Lot then Alpha Court -> beside sources ['N2', 'Zeta Lot', 'Alpha Court']. The 4 typed lines are unchanged.
+test('typed words: a route list marks exactly the typed lines, never an address, a unit or the curb item', () => {
   const h = html(0);
-  const marked = [...h.matchAll(/<(?:b|span)[^>]*data-typed[^>]*>([^<]*)</g)].map((m) => m[1]);
+  // a typed line's mark is the bare attribute data-typed (never data-typed-beside)
+  const marked = [...h.matchAll(/<(?:b|span)[^>]*\bdata-typed(?![-\w])[^>]*>([^<]*)</g)].map((m) => m[1]);
   assert.deepEqual(marked, ['NO SALT: fresh concrete. Sand only.', 'Front walk', 'Entry pad', 'Gate code on &lt;post&gt;' + NL + 'Back &amp; forth']);
-  assert.equal(count(h, 'data-typed'), 4);
+  assert.equal(count(h, ' data-typed>'), 4);
   // every mark is also data-no-es (the app's own Spanish pass never touches a person's words)
-  assert.equal(count(h, 'data-no-es data-typed'), 4);
+  assert.equal(count(h, 'data-no-es data-typed>'), 4);
   for (const never of ['Alpha Court', 'Zeta Lot', '1 Main St', 'BC5', 'Curbs: clear']) assert.ok(!marked.some((t) => t.includes(never)), never);
+  // the names: one beside span each, in page order, data-no-es and empty, the name as typed right after it
+  const beside = [...h.matchAll(/<(b|span) class="rl-es" data-no-es data-typed-beside="([^"]*)"><\/\1><\1 class="rl-en" data-no-es>([^<]*)<\/\1>/g)];
+  assert.deepEqual(beside.map((m) => m[2]), ['N2', 'Zeta Lot', 'Alpha Court']);
+  assert.deepEqual(beside.map((m) => m[3]), ['N2', 'Zeta Lot', 'Alpha Court']);
+  assert.equal(count(h, 'data-typed-beside='), 3);
+  // never beside an address, a unit, a person or a walk
+  for (const never of ['1 Main St', 'BC5', 'Alex Lead', 'Front walk']) assert.ok(!h.includes('data-typed-beside="' + never), never);
+  // the site name keeps its bold look when nothing is beside it, and goes small and grey when the Spanish is there
+  assert.match(RouteList.css, /\.rl-es:not\(:empty\) \+ \.rl-en \{[^}]*font-size: 10\.5px[^}]*color: #333[^}]*font-weight: normal/);
 });

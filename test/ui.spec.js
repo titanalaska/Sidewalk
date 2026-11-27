@@ -9249,10 +9249,19 @@ async function fitNumbers(page) {
   const rows = await page.locator('#printsheets .rl-page').nth(0).locator('tr.rl-site').evaluateAll((trs) => trs.map((tr) => {
     const first = tr.querySelector('.rl-eqline'), cs = first ? getComputedStyle(first) : null;
     const line = cs ? parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.2 : 0;
-    return { h: Math.round(tr.getBoundingClientRect().height), wrapped: !!first && first.getBoundingClientRect().height > line * 1.5 };
+    const site = tr.querySelector('.rl-sitecell'), eq = tr.querySelector('td.rl-equip');
+    return { h: Math.round(tr.getBoundingClientRect().height), wrapped: !!first && first.getBoundingClientRect().height > line * 1.5,
+      siteH: site ? Math.round(site.scrollHeight) : 0, eqH: eq ? Math.round(eq.scrollHeight) : 0 };
   }));
+  // where the page goes: the band row, the column headings row, and everything above the table (the bar, the page padding)
+  const parts = await page.locator('#printsheets .rl-page').nth(0).evaluate((sec) => {
+    const r = (el) => (el ? Math.round(el.getBoundingClientRect().height) : 0);
+    const trs = sec.querySelectorAll('thead tr'), bar = document.getElementById('printbar');
+    return { band: r(trs[0]), headings: r(trs[1]), barShown: !!bar && getComputedStyle(bar).display !== 'none', tableTop: Math.round(sec.querySelector('table').getBoundingClientRect().top - document.getElementById('printsheets').getBoundingClientRect().top) };
+  });
   await page.emulateMedia({ media: 'screen' });
-  return { pages: pdf.pages, rowH: rows.map((r) => r.h), equipWrapped: rows.filter((r) => r.wrapped).length };
+  return { pages: pdf.pages, rowH: rows.map((r) => r.h), equipWrapped: rows.filter((r) => r.wrapped).length,
+    first: { siteH: rows[0] && rows[0].siteH, eqH: rows[0] && rows[0].eqH }, ...parts };
 }
 async function openSpanishLists(page, w) {
   await page.addInitScript(() => localStorage.setItem('snow-lang', 'es'));

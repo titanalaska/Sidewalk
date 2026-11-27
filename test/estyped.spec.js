@@ -457,9 +457,11 @@ test('typed words: stateIn counts shown, once, pending and english inside one ro
   await addMarked(page, 'root', [['h', 'Harbor Clinic', 'beside']]);
   expect(await stateIn(page, 'root')).toEqual({ shown: 1, once: 1, pending: 1, english: 1 });
   await page.clock.runFor(500);
-  await expect.poll(() => w.calls.length).toBe(2);
+  // the call is out (the phone's own count: the fake records a call only after holding its reply)
+  await expect.poll(() => outNow(page)).toBe(1);
   expect(await stateIn(page, 'root')).toEqual({ shown: 1, once: 1, pending: 1, english: 1 });
   await expect.poll(() => outNow(page)).toBe(0);
+  expect(w.calls.length).toBe(2);
   expect(await stateIn(page, 'root')).toEqual({ shown: 2, once: 1, pending: 0, english: 1 });
 });
 

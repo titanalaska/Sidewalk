@@ -247,6 +247,12 @@ const NOT_SHOWN = {
   'Crew times': 'the head of a Crew times PDF\'s file name in Drive',
   'Crew times (worked out).pdf': 'a Drive file name',
   'Crew times (could not be worked out).pdf': 'a Drive file name',
+  // Snow alerts (crew notifications, 11/26/26)
+  '(display-mode: standalone)': 'a media query (lib/push.js isStandalone): is the app open from the home screen; never shown',
+  'That is not a push service address': 'savePush\'s refusal of an address; never shown (lib/push.js turnOn shows its own Not saved: try again for any refused save)',
+  'Pick English or Spanish': 'savePush\'s refusal of a language; never shown (the phone sends only en or es, and any refused save reads Not saved: try again)',
+  'Already sent. Wait': 'notifyCrew\'s too_soon words; never shown as sent: the phone writes its own line from the reply\'s at and by_name',
+  'minutes between alerts.': 'notifyCrew\'s too_soon words, as the line above',
 };
 function serverCandidates() {
   const out = [];
@@ -318,6 +324,8 @@ const ONE_WORD_ENGLISH = {
   FeatureCollection: 'GeoJSON type name',
   Polygon: 'GeoJSON type name',
   LineString: 'GeoJSON type name',
+  'SHA-256': 'the WebCrypto digest name (lib/push.js fingerprint)',
+  MacIntel: 'navigator.platform\'s value on an iPad that says it is a Mac (lib/push.js isIos), compared, never shown',
 };
 
 // A phrase BUILT at run time from pieces that carry no row of their own: [an example of the finished line, its Spanish].
@@ -809,6 +817,7 @@ const KEEP_EN = new Set(['Shovel', 'Command', 'Titan', 'Inventory', 'Bobcat', 'S
   'app', 'Anchorage', 'YYYY',
   'Time', 'Out', 'Daily', 'Log', 'Blower', 'IceMelt', 'Bootprint', 'bootprint', 'export', 'html',
   'night', 'day', 'MM', 'DD', 'DDTHH',
+  'iPhone',   // Apple's phone: a product name (snow alerts, the add-to-home-screen line)
   'bobcat', 'snowrator', 'sweepster']);   // the brand names as the server's checks write them, lower case   // the server's shift-id and time formats, quoted as they are typed (night-AAAA-MM-DD)   // Bootprint and its address   // BuilderTrend's own field names, kept beside the Spanish ("Entrada (Time In)", "Daily Log")   // app: "la app" is Spanish too; Anchorage a place; YYYY a date pattern
 function halfSpanish(text) {
   const out = Es.translateString(text);

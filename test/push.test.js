@@ -363,23 +363,41 @@ const ctxState = (state) => ({ S: { push: { key: KEY, ids: [], state } }, esc: (
 const INSTALL = 'To get snow alerts on an iPhone, add Shovel Command to your home screen first: Share, then Add to Home Screen.';
 const BLOCKED = "Notifications are blocked for Shovel Command in this phone's settings.";
 
-test('cardHtml: off has the heading and the Turn on notifications button', () => {
+// The buttons are found by data-push, never by an id: the Tonight card and the Your card row can be on screen at the same
+// time (Your card is a dialog over Tonight), and two elements must never share an id (Task 8).
+test('cardHtml: off has the heading and the Turn on notifications button (data-push="on", no id)', () => {
   const h = SnowPush.cardHtml(ctxState('off'));
   assert.ok(h.includes('id="pushcard"'));
   assert.ok(h.includes('Get snow alerts on this phone'));
-  assert.match(h, /<button[^>]*id="pushOn"[^>]*>Turn on notifications<\/button>/);
+  assert.match(h, /<button[^>]*data-push="on"[^>]*>Turn on notifications<\/button>/);
+  assert.ok(!h.includes('id="pushOn"'));
   assert.ok(!h.includes('data-no-es'));
 });
 
 test('cardHtml: install has the sentence and NO button; blocked has the sentence and NO button', () => {
   const i = SnowPush.cardHtml(ctxState('install'));
   assert.ok(i.includes(INSTALL));
-  assert.ok(!i.includes('<button') && !i.includes('pushOn'));
+  assert.ok(!i.includes('<button') && !i.includes('data-push'));
   assert.ok(!i.includes('Get snow alerts on this phone'));
   const b = SnowPush.cardHtml(ctxState('blocked'));
   assert.ok(b.includes(BLOCKED));
-  assert.ok(!b.includes('<button') && !b.includes('pushOn'));
+  assert.ok(!b.includes('<button') && !b.includes('data-push'));
   assert.ok(!b.includes(INSTALL));
+});
+
+// The spec's "Not saved: try again on the card": the last refusal is kept on S.push.note and drawn on the card AND the row,
+// escaped, under the button. No note, no line.
+test('cardHtml and rowHtml: a note on S.push is drawn (escaped) as the card\'s and the row\'s last line; none, no line', () => {
+  const ctx = ctxState('off');
+  ctx.S.push.note = 'Not saved: <try> again';
+  ctx.esc = (s) => String(s).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const card = SnowPush.cardHtml(ctx), row = SnowPush.rowHtml(ctx);
+  for (const h of [card, row]) {
+    assert.match(h, /<p class="err pushnote">Not saved: &lt;try&gt; again<\/p><\/(section|div)>$/);
+    assert.ok(!h.includes('<try>'));
+  }
+  assert.ok(!SnowPush.cardHtml(ctxState('off')).includes('pushnote'));
+  assert.ok(!SnowPush.rowHtml(ctxState('off')).includes('pushnote'));
 });
 
 test('cardHtml: unsupported and on draw no card at all', () => {
@@ -392,12 +410,12 @@ test('rowHtml: on shows Turn off; off shows Turn on; install and blocked show th
   const on = SnowPush.rowHtml(ctxState('on'));
   assert.ok(on.includes('id="pushrow"'));
   assert.ok(on.includes('Snow alerts on this phone: on'));
-  assert.match(on, /<button[^>]*id="pushOff"[^>]*>Turn off<\/button>/);
-  assert.ok(!on.includes('pushOn'));
+  assert.match(on, /<button[^>]*data-push="off"[^>]*>Turn off<\/button>/);
+  assert.ok(!on.includes('data-push="on"') && !on.includes('id="pushO'));
   const off = SnowPush.rowHtml(ctxState('off'));
   assert.ok(off.includes('Snow alerts on this phone: off'));
-  assert.match(off, /<button[^>]*id="pushOn"[^>]*>Turn on<\/button>/);
-  assert.ok(!off.includes('pushOff'));
+  assert.match(off, /<button[^>]*data-push="on"[^>]*>Turn on<\/button>/);
+  assert.ok(!off.includes('data-push="off"') && !off.includes('id="pushO'));
   const inst = SnowPush.rowHtml(ctxState('install'));
   assert.ok(inst.includes(INSTALL));
   assert.ok(!inst.includes('<button'));
@@ -408,41 +426,113 @@ test('rowHtml: on shows Turn off; off shows Turn on; install and blocked show th
 });
 
 // ---------- onClick ----------
-function click(id) {
-  return { target: { closest(sel) { return sel === '#' + id ? { id: id } : null; } } };
+// A click on a [data-push] button (or anything inside one): closest('[data-push]') answers it, with the button's dataset.
+function click(which) {
+  return { target: { closest(sel) { return sel === '[data-push]' && which ? { dataset: { push: which } } : null; } } };
 }
 const later = () => new Promise((r) => setTimeout(r, 20));
+// A tap is finished when it has drawn the screen (onClick calls render() last). Waiting on that, never on a fixed time: a tap
+// still out holds onClick's one-tap-at-a-time flag, and on a loaded machine a fixed 20 ms let one test's tap leak into the next.
+async function until(ok, what) { for (let i = 0; i < 400; i++) { if (ok()) return; await new Promise((r) => setTimeout(r, 5)); } throw new Error('never: ' + what); }
+const drawn = (ctx, n) => until(() => (ctx.rendered || 0) >= n, 'drawn ' + n + ' time(s)');
 
-test('onClick: #pushOn starts turnOn (permission asked inside the click) and returns true', async () => {
+test('onClick: data-push="on" starts turnOn (permission asked inside the click) and returns true', async () => {
   const p = phone();
   const ctx = ctxFor(S0([]), { savePush: { ok: true, push_ids: [fp(ENDPOINT)] } });
-  const handled = SnowPush.onClick(click('pushOn'), ctx, p.env);
+  const handled = SnowPush.onClick(click('on'), ctx, p.env);
   assert.equal(handled, true);
   assert.deepEqual(p.calls, ['requestPermission']);
-  await later();
+  await drawn(ctx, 1);
   assert.equal(ctx.sent[0].action, 'savePush');
 });
 
-test('onClick: #pushOff starts turnOff and returns true; anything else returns false and does nothing', async () => {
+test('onClick: data-push="off" starts turnOff and returns true; anything else returns false and does nothing', async () => {
   const p = phone({ permission: 'granted', sub: { endpoint: ENDPOINT } });
   const ctx = ctxFor(S0([fp(ENDPOINT)], KEY, 'on'), { dropPush: { ok: true, push_ids: [] } });
-  assert.equal(SnowPush.onClick(click('pushOff'), ctx, p.env), true);
-  await later();
+  assert.equal(SnowPush.onClick(click('off'), ctx, p.env), true);
+  await drawn(ctx, 1);
   assert.equal(ctx.sent[0].action, 'dropPush');
   const p2 = phone();
   const ctx2 = ctxFor(S0([]), {});
-  assert.equal(SnowPush.onClick(click('somethingElse'), ctx2, p2.env), false);
+  assert.equal(SnowPush.onClick(click(null), ctx2, p2.env), false);
   assert.equal(SnowPush.onClick({ target: {} }, ctx2, p2.env), false);
   assert.equal(SnowPush.onClick({}, ctx2, p2.env), false);
   assert.deepEqual(p2.calls, []);
+  assert.deepEqual(ctx2.sent, []);
 });
 
-test('onClick: a refusal reason reaches the toast', async () => {
+// The spec: "Not saved: try again" ON THE CARD. A refusal's words go to S.push.note (the card and the row draw it), never a toast;
+// the screen is drawn again so the line shows.
+test('onClick: a refusal reason is kept on S.push.note and drawn, not toasted', async () => {
   const p = phone();
   const ctx = ctxFor(S0([], null), {});
-  SnowPush.onClick(click('pushOn'), ctx, p.env);
+  SnowPush.onClick(click('on'), ctx, p.env);
+  await drawn(ctx, 1);
+  assert.equal(ctx.S.push.note, 'Snow alerts are not set up yet.');
+  assert.deepEqual(ctx.toasts, []);
+  assert.equal(ctx.rendered, 1);
+});
+
+test('onClick: a failed save leaves Not saved: try again on S.push.note; the next tap clears it as it starts', async () => {
+  const p = phone();
+  const ctx = ctxFor(S0([]), { savePush: { ok: false, code: 'network', reason: 'no signal' } });
+  SnowPush.onClick(click('on'), ctx, p.env);
+  await drawn(ctx, 1);
+  assert.equal(ctx.S.push.note, 'Not saved: try again');
+  // the second try answers late: the note is gone the moment the tap starts, before any answer
+  ctx.call = () => new Promise((r) => setTimeout(() => r({ ok: false, code: 'network' }), 10));
+  SnowPush.onClick(click('on'), ctx, p.env);
+  assert.equal(ctx.S.push.note, null);
+  await drawn(ctx, 2);                                // let it settle, so no tap is left in flight for the next test
+});
+
+test('onClick: turned on, the toast says Snow alerts are on. and an old note goes; turned off, Snow alerts are off.', async () => {
+  const p = phone();
+  const S = S0([]);
+  S.push.note = 'Not saved: try again';
+  const ctx = ctxFor(S, { savePush: { ok: true, push_ids: [fp(ENDPOINT)] }, dropPush: { ok: true, push_ids: [] } });
+  SnowPush.onClick(click('on'), ctx, p.env);
+  await drawn(ctx, 1);
+  assert.equal(ctx.S.push.state, 'on');
+  assert.deepEqual(ctx.toasts, ['Snow alerts are on.']);
+  assert.equal(ctx.S.push.note, null);
+  SnowPush.onClick(click('off'), ctx, p.env);
+  await drawn(ctx, 2);
+  assert.equal(ctx.S.push.state, 'off');
+  assert.deepEqual(ctx.toasts, ['Snow alerts are on.', 'Snow alerts are off.']);
+  assert.equal(ctx.rendered, 2);
+});
+
+// Blocked in the prompt: no words at all (the card's blocked line says it), and no toast claims anything.
+test('onClick: Block in the prompt gives no note and no toast; the state is blocked', async () => {
+  const p = phone({ askResult: 'denied' });
+  const ctx = ctxFor(S0([]), {});
+  SnowPush.onClick(click('on'), ctx, p.env);
+  await drawn(ctx, 1);
+  assert.equal(ctx.S.push.state, 'blocked');
+  assert.equal(ctx.S.push.note || null, null);
+  assert.deepEqual(ctx.toasts, []);
+  assert.deepEqual(ctx.sent, []);
+});
+
+// Two taps on a slow phone: the second one, while the first is still out, asks nothing and sends nothing, and still counts as
+// handled (no other handler gets the click). Once the first settles, a tap works again.
+test('onClick: a second tap while the first is out does nothing; after it settles a tap works again', async () => {
+  const p = phone();
+  let answer;
+  const ctx = ctxFor(S0([]), { savePush: () => new Promise((r) => { answer = r; }) });
+  assert.equal(SnowPush.onClick(click('on'), ctx, p.env), true);
+  await until(() => ctx.sent.length === 1, 'the save sent');
+  assert.equal(SnowPush.onClick(click('on'), ctx, p.env), true);
+  assert.equal(SnowPush.onClick(click('off'), ctx, p.env), true);
   await later();
-  assert.deepEqual(ctx.toasts, ['Snow alerts are not set up yet.']);
+  assert.deepEqual(p.calls.filter((c) => c === 'requestPermission'), ['requestPermission']);
+  assert.equal(ctx.sent.length, 1);
+  answer({ ok: true, push_ids: [fp(ENDPOINT)] });
+  await drawn(ctx, 1);
+  SnowPush.onClick(click('off'), ctx, p.env);
+  await drawn(ctx, 2);
+  assert.deepEqual(ctx.sent.map((s) => s.action), ['savePush', 'dropPush']);
 });
 
 // ---------- fix round 1 ----------

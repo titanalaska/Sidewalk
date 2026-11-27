@@ -838,3 +838,23 @@ test('storm tab lines: Ice melt:, Sand:, N bags / buckets and the singulars read
   assert.equal(Es.translateString('Ice melt (bags)'), 'Derretidor de hielo (bolsas)');
   assert.equal(Es.translateString('Sand (buckets)'), 'Arena (cubetas)');
 });
+
+// Snow alerts (crew notifications, Task 8): the plan's own Spanish, word for word (2026-11-09 plan, Task 8's table), tú.
+test('snow alerts: the Tonight card, the Your card row and the toasts read the plan\'s Spanish', () => {
+  const rows = [
+    ['Get snow alerts on this phone', 'Recibe alertas de nieve en este teléfono'],
+    ['Turn on notifications', 'Activar notificaciones'],
+    ['To get snow alerts on an iPhone, add Shovel Command to your home screen first: Share, then Add to Home Screen.',
+      'Para recibir alertas de nieve en un iPhone, primero agrega Shovel Command a tu pantalla de inicio: Compartir y luego Agregar a inicio.'],
+    ["Notifications are blocked for Shovel Command in this phone's settings.", 'Las notificaciones de Shovel Command están bloqueadas en la configuración de este teléfono.'],
+    ['Snow alerts on this phone: on', 'Alertas de nieve en este teléfono: activadas'],
+    ['Snow alerts on this phone: off', 'Alertas de nieve en este teléfono: desactivadas'],
+    ['Turn on', 'Activar'],
+    ['Turn off', 'Desactivar'],
+    ['Snow alerts are on.', 'Alertas de nieve activadas.'],
+    ['Snow alerts are off.', 'Alertas de nieve desactivadas.'],
+  ];
+  for (const [en, es] of rows) assert.equal(Es.translateString(en), es, en);
+  // "Turn on" inside the card's button is the whole phrase's row, never "Activar notifications"
+  assert.equal(Es.translateString('Turn on notifications'), 'Activar notificaciones');
+});

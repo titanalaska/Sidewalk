@@ -9512,6 +9512,32 @@ test('print wait: a line answered "later" does not hold Print; its Spanish lands
   expect(await printed(page)).toBe(0);
 });
 
+test('print wait: a retry never takes Print away once Print anyway is offered', async ({ page }) => {
+  // Final review I2 (11/26/26). Every reply held 3 s of real time. On paper: the first call answers Lead Yard "later" ->
+  // "1 línea se imprimirá en inglés.", Print anyway. 60 s later its retry goes out and is held 3 s: while it is out the bar says
+  // so ("Traduciendo 1 línea…"), and Print stays there and still says Print anyway (that line may yet print English). Only the
+  // opening wait (and a tap on Español) holds Print. Then the answer lands: Patio Plomo on the page, Print.
+  const w = rlWorld();
+  let asked = 0;
+  w.translate = (b) => {
+    const later = b.texts.filter((t) => t === 'Lead Yard' && ++asked === 1);
+    return { done: Object.fromEntries(b.texts.filter((t) => !later.includes(t)).map((t) => [t, RL_ES[t] || t])), later, refused: [] };
+  };
+  await rlSpanish(page, w, { hold: 3000 });
+  await page.click('#printRouteLists');
+  await page.clock.runFor(600);
+  await expect(page.locator('#printwait')).toHaveText('1 línea se imprimirá en inglés.', { timeout: 10000 });
+  await expect(page.locator('#printNow')).toHaveText('Imprimir de todos modos');
+  await page.clock.runFor(61000);
+  await expect(page.locator('#printwait')).toHaveText('Traduciendo 1 línea…');
+  await expect(page.locator('#printNow')).toBeEnabled();
+  await expect(page.locator('#printNow')).toHaveText('Imprimir de todos modos');
+  await expect(page.locator('#printsheets .rl-page').nth(1).locator('.rl-sitehead .rl-es')).toHaveText('Patio Plomo', { timeout: 10000 });
+  await expect(page.locator('#printwait')).toHaveText('');
+  await expect(page.locator('#printNow')).toHaveText('Imprimir');
+  expect(await printed(page)).toBe(0);
+});
+
 // ---------------- times rows: the phone keeps the Clock rows it is sent (times plan, Task 8) ----------------
 // Fixture, worked by hand. The fake stamps 7:50 AM on 10/3, so the shift now is night-2026-10-02 and the one before it is
 // day-2026-10-02 (a night's is its own day). The Clock tab holds four rows, in this order:
@@ -12832,7 +12858,12 @@ test.describe('check night:', () => {
 test('print language: an EN phone prints the route lists in Spanish with one tap; the bar stays English; the data stays as typed', async ({ page }) => {
   await stubPrint(page);
   await page.addInitScript(() => { const real = window.print; window.print = () => { window.__textAtPrint = document.getElementById('printsheets').innerText; real(); }; });
-  await openStorm(page, rlWorld(), { token: 'tok-matt' });
+  // Route list polish (final review M3, 11/26/26): after the Español tap the names and typed lines are asked for; a refused
+  // line would turn the button into Print anyway. The fake answers each line unchanged, so nothing prints English and the bar
+  // reads Print: this test is about the labels.
+  const w = rlWorld();
+  w.translate = (b) => ({ done: Object.fromEntries(b.texts.map((t) => [t, t])), later: [], refused: [] });
+  await openStorm(page, w, { token: 'tok-matt' });
   await page.click('#printRouteLists');
   await expect(page.locator('#printbar [data-printlang="en"]')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('#printbar [data-printlang="es"]')).toHaveAttribute('aria-pressed', 'false');

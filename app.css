@@ -313,6 +313,7 @@ body.has-ref.ref-min #mapbox{height:62vh}
 #printview{position:fixed;inset:0;z-index:20;overflow:auto;background:#d9d8d4;color:#000}
 #printbar{position:sticky;top:0;z-index:1;display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--card);color:var(--ink);border-bottom:1px solid var(--line)}
 #printbar .muted{flex:1}
+#printbar .printwait{color:var(--muted);font-size:14px}
 /* The print screen's English | Español (Spanish everywhere, 11/25/26): one pair, never split; the bar may wrap at 320 px. */
 #printbar{flex-wrap:wrap}
 #printbar .print-lang{display:inline-flex;flex:none;white-space:nowrap}
